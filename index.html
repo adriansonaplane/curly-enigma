@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIABLOID — Ashes of the Nephalem</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- ============ HUD ============ -->
+<div id="hud" class="hidden">
+  <div id="zone-label"></div>
+  <div id="boss-bar" class="hidden"><div id="boss-name"></div><div class="boss-track"><div id="boss-fill"></div></div></div>
+  <div id="buff-bar"></div>
+  <div id="announce"></div>
+  <canvas id="minimap" width="220" height="220"></canvas>
+
+  <div id="bottom-hud">
+    <div class="globe-wrap">
+      <div class="globe hp-globe"><div id="hp-fill" class="globe-fill"></div><div class="globe-gloss"></div></div>
+      <div id="hp-text" class="globe-text"></div>
+    </div>
+    <div id="hotbar">
+      <div class="hot-slot" data-slot="lmb"><span class="key">LMB</span><canvas width="44" height="44"></canvas></div>
+      <div class="hot-slot" data-slot="rmb"><span class="key">RMB</span><canvas width="44" height="44"></canvas></div>
+      <div class="hot-slot" data-slot="s1"><span class="key">1</span><canvas width="44" height="44"></canvas></div>
+      <div class="hot-slot" data-slot="s2"><span class="key">2</span><canvas width="44" height="44"></canvas></div>
+      <div class="hot-slot" data-slot="s3"><span class="key">3</span><canvas width="44" height="44"></canvas></div>
+      <div class="hot-slot" data-slot="s4"><span class="key">4</span><canvas width="44" height="44"></canvas></div>
+      <div class="hot-slot potion" data-slot="php"><span class="key">Q</span><div class="pot hp-pot"></div><span id="hp-pot-n" class="pot-n"></span></div>
+      <div class="hot-slot potion" data-slot="pmp"><span class="key">E</span><div class="pot mp-pot"></div><span id="mp-pot-n" class="pot-n"></span></div>
+    </div>
+    <div class="globe-wrap">
+      <div class="globe mp-globe"><div id="mp-fill" class="globe-fill"></div><div class="globe-gloss"></div></div>
+      <div id="mp-text" class="globe-text"></div>
+    </div>
+  </div>
+  <div id="xp-bar"><div id="xp-fill"></div></div>
+  <div id="hud-buttons">
+    <button data-panel="inv" title="Inventory (I)">I</button>
+    <button data-panel="char" title="Character (C)">C</button>
+    <button data-panel="skills" title="Skills (K)">K</button>
+    <button data-panel="ladder" title="Ladder (L)">L</button>
+    <button id="btn-mute" title="Mute (N)">♪</button>
+  </div>
+</div>
+
+<!-- ============ PANELS ============ -->
+<div id="panels">
+  <div id="panel-inv" class="panel hidden"></div>
+  <div id="panel-char" class="panel hidden"></div>
+  <div id="panel-skills" class="panel wide hidden"></div>
+  <div id="panel-vendor" class="panel wide hidden"></div>
+  <div id="panel-stash" class="panel hidden"></div>
+  <div id="panel-gamble" class="panel hidden"></div>
+  <div id="panel-ladder" class="panel wide hidden"></div>
+  <div id="panel-npc" class="panel hidden"></div>
+  <div id="panel-waypoint" class="panel hidden"></div>
+  <div id="panel-death" class="panel hidden"></div>
+  <div id="panel-menu" class="panel hidden"></div>
+</div>
+<div id="tooltip" class="hidden"></div>
+
+<!-- ============ MAIN MENU ============ -->
+<div id="menu-screen">
+  <canvas id="menu-fx"></canvas>
+  <div id="menu-inner">
+    <h1 class="logo">DIABLOID</h1>
+    <div class="logo-sub">ASHES OF THE NEPHALEM</div>
+    <div id="season-banner"></div>
+    <div id="char-list"></div>
+    <div id="create-panel" class="hidden">
+      <input id="char-name" maxlength="14" placeholder="Name your hero..." autocomplete="off">
+      <div id="class-cards"></div>
+      <label class="hc-label"><input type="checkbox" id="hc-check"> <span>HARDCORE — death is permanent</span></label>
+      <div class="menu-row">
+        <button id="btn-create" class="big-btn">FORGE HERO</button>
+        <button id="btn-back" class="big-btn dark">BACK</button>
+      </div>
+    </div>
+    <div id="menu-buttons">
+      <button id="btn-new" class="big-btn">NEW HERO</button>
+      <button id="btn-ladder-menu" class="big-btn dark">SEASON LADDER</button>
+    </div>
+    <div class="menu-foot">7 classes · 210 skills · infinite dungeons · seasonal ladders</div>
+  </div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/data.js"></script>
+<script src="js/sprites.js"></script>
+<script src="js/dungeon.js"></script>
+<script src="js/items.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

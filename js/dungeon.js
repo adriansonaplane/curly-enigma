@@ -1,0 +1,375 @@
+// ============ DIABLOID: dungeon.js — procedural dungeon generation ============
+'use strict';
+
+const TILE = { WALL: 0, FLOOR: 1, EXIT: 2, ENTRY: 3 };
+const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3 };
+
+const Dungeon = {
+
+  // opts: { actIdx (0-4 or 'abyss'), depth (level within act, 1-based), abyssFloor, seed }
+  generate(opts) {
+    const rng = makeRng(opts.seed >>> 0);
+    const isAbyss = opts.actIdx === 'abyss';
+    const act = isAbyss ? ABYSS : ACTS[opts.actIdx];
+    const theme = isAbyss ? ABYSS.themes[(opts.abyssFloor - 1) % ABYSS.themes.length] : act.theme;
+    const isBoss = !isAbyss && opts.depth === 3;
+    const size = U.clamp(52 + (isAbyss ? 10 : opts.actIdx * 8) + opts.depth * 4, 48, 92);
+    const w = size, h = size;
+
+    const map = {
+      w, h, theme, isBoss,
+      actIdx: opts.actIdx, depth: opts.depth, abyssFloor: opts.abyssFloor || 0,
+      t: new Uint8Array(w * h),
+      haz: new Uint8Array(w * h),
+      variant: new Uint8Array(w * h),
+      explored: new Uint8Array(w * h),
+      lights: [], props: [], packs: [], things: [], rooms: [],
+      mlvl: isAbyss ? ABYSS.mlvl0 + (opts.abyssFloor - 1) * 2 : act.mlvl + (opts.depth - 1) * 3,
+      pool: act.pool,
+      name: isAbyss
+        ? `The Endless Abyss — Floor ${opts.abyssFloor}`
+        : `${act.name} — ${isBoss ? 'Sanctum' : 'Depth ' + opts.depth}`,
+    };
+
+    const cavey = theme === 'cavern' || theme === 'fane';
+    if (cavey) this.carveCaves(map, rng); else this.carveRooms(map, rng, isBoss);
+    this.ensureConnectivity(map, rng);
+    this.placeEntryExit(map, rng, isBoss);
+    for (let i = 0; i < w * h; i++) map.variant[i] = Math.floor(rng() * 4);
+    this.decorate(map, rng);
+    this.placeHazards(map, rng);
+    this.placeSpawns(map, rng);
+    this.placeThings(map, rng);
+    return map;
+  },
+
+  idx(map, x, y) { return y * map.w + x; },
+  isWall(map, x, y) {
+    if (x < 0 || y < 0 || x >= map.w || y >= map.h) return true;
+    return map.t[y * map.w + x] === TILE.WALL;
+  },
+
+  // ---------- room & corridor layout ----------
+  carveRooms(map, rng, isBoss) {
+    const { w, h } = map;
+    const nRooms = isBoss ? 6 : U.ri(rng, 9, 13);
+    const rooms = [];
+    let tries = 0;
+    while (rooms.length < nRooms && tries++ < 400) {
+      const rw = U.ri(rng, 5, 11), rh = U.ri(rng, 5, 11);
+      const rx = U.ri(rng, 2, w - rw - 3), ry = U.ri(rng, 2, h - rh - 3);
+      const room = { x: rx, y: ry, w: rw, h: rh, cx: rx + (rw >> 1), cy: ry + (rh >> 1) };
+      if (rooms.some(r => rx < r.x + r.w + 2 && rx + rw + 2 > r.x && ry < r.y + r.h + 2 && ry + rh + 2 > r.y)) continue;
+      rooms.push(room);
+    }
+    // boss lair: enlarge the room farthest from the first
+    if (isBoss && rooms.length > 1) {
+      let far = rooms[1], fd = 0;
+      for (let i = 1; i < rooms.length; i++) {
+        const d = U.dist2(rooms[0].cx, rooms[0].cy, rooms[i].cx, rooms[i].cy);
+        if (d > fd) { fd = d; far = rooms[i]; }
+      }
+      far.x = U.clamp(far.x - 3, 2, map.w - 4); far.y = U.clamp(far.y - 3, 2, map.h - 4);
+      far.w = Math.min(17, map.w - far.x - 3); far.h = Math.min(17, map.h - far.y - 3);
+      far.cx = far.x + (far.w >> 1); far.cy = far.y + (far.h >> 1);
+      far.boss = true;
+    }
+    for (const r of rooms)
+      for (let y = r.y; y < r.y + r.h; y++)
+        for (let x = r.x; x < r.x + r.w; x++)
+          map.t[this.idx(map, x, y)] = TILE.FLOOR;
+    // connect with L-corridors
+    for (let i = 1; i < rooms.length; i++) {
+      const a = rooms[i - 1], b = rooms[i];
+      this.corridor(map, rng, a.cx, a.cy, b.cx, b.cy);
+    }
+    // a couple of loops for less linearity
+    for (let i = 0; i < 3 && rooms.length > 3; i++) {
+      const a = U.pick(rng, rooms), b = U.pick(rng, rooms);
+      if (a !== b) this.corridor(map, rng, a.cx, a.cy, b.cx, b.cy);
+    }
+    map.rooms = rooms;
+  },
+
+  corridor(map, rng, x1, y1, x2, y2) {
+    const wide = U.chance(rng, 0.5) ? 1 : 0;
+    const horizFirst = U.chance(rng, 0.5);
+    const dig = (x, y) => {
+      for (let dy = 0; dy <= wide; dy++) for (let dx = 0; dx <= wide; dx++) {
+        const xx = U.clamp(x + dx, 1, map.w - 2), yy = U.clamp(y + dy, 1, map.h - 2);
+        map.t[this.idx(map, xx, yy)] = TILE.FLOOR;
+      }
+    };
+    let x = x1, y = y1;
+    if (horizFirst) { while (x !== x2) { dig(x, y); x += Math.sign(x2 - x); } while (y !== y2) { dig(x, y); y += Math.sign(y2 - y); } }
+    else { while (y !== y2) { dig(x, y); y += Math.sign(y2 - y); } while (x !== x2) { dig(x, y); x += Math.sign(x2 - x); } }
+    dig(x2, y2);
+  },
+
+  // ---------- cave layout (drunkard's walk) ----------
+  carveCaves(map, rng) {
+    const { w, h } = map;
+    let x = w >> 1, y = h >> 1;
+    const target = Math.floor(w * h * 0.42);
+    let carved = 0, dir = 0;
+    while (carved < target) {
+      const i = this.idx(map, x, y);
+      if (map.t[i] === TILE.WALL) { map.t[i] = TILE.FLOOR; carved++; }
+      if (U.chance(rng, 0.6)) dir = U.ri(rng, 0, 3);
+      x = U.clamp(x + [1, -1, 0, 0][dir], 2, w - 3);
+      y = U.clamp(y + [0, 0, 1, -1][dir], 2, h - 3);
+      if (U.chance(rng, 0.004)) { x = U.ri(rng, 4, w - 5); y = U.ri(rng, 4, h - 5); } // jump: extra pockets
+    }
+    // smooth: open single-wall pillars, fill single-floor pockets
+    for (let pass = 0; pass < 2; pass++) {
+      for (let yy = 1; yy < h - 1; yy++) for (let xx = 1; xx < w - 1; xx++) {
+        let n = 0;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++)
+          if (!(dx === 0 && dy === 0) && map.t[this.idx(map, xx + dx, yy + dy)] !== TILE.WALL) n++;
+        const i = this.idx(map, xx, yy);
+        if (map.t[i] === TILE.WALL && n >= 6) map.t[i] = TILE.FLOOR;
+        else if (map.t[i] !== TILE.WALL && n <= 2) map.t[i] = TILE.WALL;
+      }
+    }
+    // synthesize "rooms" = open pockets, for spawn placement
+    map.rooms = [];
+    for (let i = 0; i < 14; i++) {
+      const rx = U.ri(rng, 4, w - 5), ry = U.ri(rng, 4, h - 5);
+      if (map.t[this.idx(map, rx, ry)] !== TILE.WALL) map.rooms.push({ x: rx - 2, y: ry - 2, w: 5, h: 5, cx: rx, cy: ry });
+    }
+  },
+
+  // ---------- connectivity ----------
+  ensureConnectivity(map, rng) {
+    const { w, h } = map;
+    // find a floor tile to start from
+    let start = -1;
+    for (let i = 0; i < w * h; i++) if (map.t[i] !== TILE.WALL) { start = i; break; }
+    if (start < 0) { // degenerate map: carve an emergency room
+      for (let y = h / 2 - 3 | 0; y < h / 2 + 3; y++) for (let x = w / 2 - 3 | 0; x < w / 2 + 3; x++)
+        map.t[this.idx(map, x, y)] = TILE.FLOOR;
+      start = this.idx(map, w >> 1, h >> 1);
+    }
+    const seen = new Uint8Array(w * h);
+    const stack = [start]; seen[start] = 1;
+    let count = 0;
+    while (stack.length) {
+      const i = stack.pop(); count++;
+      const x = i % w, y = (i / w) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+        const j = yy * w + xx;
+        if (!seen[j] && map.t[j] !== TILE.WALL) { seen[j] = 1; stack.push(j); }
+      }
+    }
+    // wall off unreachable pockets
+    for (let i = 0; i < w * h; i++) if (map.t[i] !== TILE.WALL && !seen[i]) map.t[i] = TILE.WALL;
+    map._reach = seen;
+  },
+
+  placeEntryExit(map, rng, isBoss) {
+    const { w, h } = map;
+    const floors = [];
+    for (let i = 0; i < w * h; i++) if (map.t[i] !== TILE.WALL) floors.push(i);
+    // entry: prefer first room center, else random floor
+    let entryI;
+    if (map.rooms.length && !map.rooms[0].boss) entryI = this.idx(map, map.rooms[0].cx, map.rooms[0].cy);
+    else entryI = U.pick(rng, floors);
+    if (map.t[entryI] === TILE.WALL) entryI = U.pick(rng, floors);
+    // exit: farthest floor tile (BFS distance), or boss room center
+    let exitI = entryI;
+    const bossRoom = map.rooms.find(r => r.boss);
+    if (bossRoom) exitI = this.idx(map, bossRoom.cx, bossRoom.cy);
+    else {
+      const dist = new Int32Array(w * h).fill(-1);
+      const q = [entryI]; dist[entryI] = 0; let qi = 0, best = 0;
+      while (qi < q.length) {
+        const i = q[qi++]; const x = i % w, y = (i / w) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const j = yy * w + xx;
+          if (map.t[j] !== TILE.WALL && dist[j] < 0) { dist[j] = dist[i] + 1; q.push(j); if (dist[j] > best) { best = dist[j]; exitI = j; } }
+        }
+      }
+    }
+    map.t[entryI] = TILE.ENTRY;
+    map.t[exitI] = TILE.EXIT;
+    map.entry = { x: entryI % w + 0.5, y: ((entryI / w) | 0) + 0.5 };
+    map.exit = { x: exitI % w + 0.5, y: ((exitI / w) | 0) + 0.5 };
+    if (bossRoom) map.bossSpot = { x: bossRoom.cx + 0.5, y: bossRoom.cy - 2 + 0.5 };
+  },
+
+  // ---------- decoration: torches, props ----------
+  decorate(map, rng) {
+    const { w, h } = map;
+    const th = THEMES[map.theme];
+    // torches on wall tiles that border floor
+    for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+      if (map.t[this.idx(map, x, y)] !== TILE.WALL) continue;
+      const openBelow = map.t[this.idx(map, x, y + 1)] !== TILE.WALL || map.t[this.idx(map, x + 1, y)] !== TILE.WALL;
+      if (openBelow && U.chance(rng, 0.045)) {
+        map.lights.push({ x: x + 0.5, y: y + 0.5, r: 4.5, color: th.torch, flick: true, torch: true });
+      }
+    }
+    // guarantee lights at entry/exit
+    map.lights.push({ x: map.entry.x, y: map.entry.y, r: 5, color: '#8fc8ff', flick: false });
+    map.lights.push({ x: map.exit.x, y: map.exit.y, r: 5, color: '#ff8a2f', flick: true });
+    // props on floor
+    const props = th.props || [];
+    if (props.length) {
+      const n = Math.floor(w * h * 0.006);
+      for (let i = 0; i < n; i++) {
+        const x = U.ri(rng, 2, w - 3), y = U.ri(rng, 2, h - 3);
+        const t = map.t[this.idx(map, x, y)];
+        if (t !== TILE.FLOOR) continue;
+        if (Math.abs(x - map.entry.x) < 3 && Math.abs(y - map.entry.y) < 3) continue;
+        map.props.push({ kind: U.pick(rng, props), x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 9999) });
+      }
+    }
+  },
+
+  // ---------- environmental hazards ----------
+  placeHazards(map, rng) {
+    const th = THEMES[map.theme];
+    const kinds = th.hazards || [];
+    if (!kinds.length) return;
+    const { w, h } = map;
+    const clearOf = (x, y, pt, r) => Math.abs(x - pt.x) > r || Math.abs(y - pt.y) > r;
+
+    for (const kind of kinds) {
+      if (kind === 'lava') {
+        // blobby lava lakes
+        const lakes = U.ri(rng, 3, 6);
+        for (let l = 0; l < lakes; l++) {
+          const cx = U.ri(rng, 4, w - 5), cy = U.ri(rng, 4, h - 5);
+          if (map.t[this.idx(map, cx, cy)] !== TILE.FLOOR) continue;
+          if (!clearOf(cx, cy, map.entry, 5) || !clearOf(cx, cy, map.exit, 4)) continue;
+          const r = U.rf(rng, 1.5, 3.2);
+          for (let y = Math.max(1, cy - 4); y <= Math.min(h - 2, cy + 4); y++)
+            for (let x = Math.max(1, cx - 4); x <= Math.min(w - 2, cx + 4); x++) {
+              const d = U.dist(x, y, cx, cy) + U.rf(rng, -0.6, 0.6);
+              const i = this.idx(map, x, y);
+              if (d < r && map.t[i] === TILE.FLOOR) map.haz[i] = HAZ.LAVA;
+            }
+          map.lights.push({ x: cx + 0.5, y: cy + 0.5, r: 4 + r, color: '#ff5a1c', flick: true });
+        }
+      } else {
+        // spike traps / gas vents: sprinkled singles
+        const n = Math.floor(w * h * (kind === 'spikes' ? 0.004 : 0.0025));
+        for (let i = 0; i < n; i++) {
+          const x = U.ri(rng, 2, w - 3), y = U.ri(rng, 2, h - 3);
+          const ix = this.idx(map, x, y);
+          if (map.t[ix] !== TILE.FLOOR || map.haz[ix]) continue;
+          if (!clearOf(x, y, map.entry, 4)) continue;
+          map.haz[ix] = kind === 'spikes' ? HAZ.SPIKES : HAZ.GAS;
+        }
+      }
+    }
+  },
+
+  // ---------- monster packs ----------
+  placeSpawns(map, rng) {
+    const isAbyss = map.actIdx === 'abyss';
+    const densityMult = isAbyss ? 1 + map.abyssFloor * 0.04 : 1;
+    for (const room of map.rooms) {
+      if (room === map.rooms[0] && !room.boss) continue;    // entry room stays safe
+      if (room.boss) continue;                              // boss handles his own guests
+      if (!U.chance(rng, 0.78)) continue;
+      const fam = U.pick(rng, map.pool);
+      const n = Math.round(U.ri(rng, 2, 5) * densityMult) + ((map.depth || 1) > 2 ? 1 : 0);
+      map.packs.push({
+        x: room.cx + 0.5, y: room.cy + 0.5, fam, n,
+        elite: U.chance(rng, 0.16), champion: U.chance(rng, 0.22),
+      });
+      if (U.chance(rng, 0.3)) { // second pack in big rooms
+        const fam2 = U.pick(rng, map.pool);
+        map.packs.push({ x: room.x + 1.5, y: room.y + 1.5, fam: fam2, n: Math.max(2, n - 1), elite: U.chance(rng, 0.1), champion: false });
+      }
+    }
+    // cave maps also scatter loose packs
+    if (map.rooms.length < 8) {
+      const extra = 8 - map.rooms.length + 4;
+      for (let i = 0; i < extra; i++) {
+        const x = U.ri(rng, 3, map.w - 4), y = U.ri(rng, 3, map.h - 4);
+        const ix = this.idx(map, x, y);
+        if (map.t[ix] !== TILE.FLOOR) continue;
+        if (Math.abs(x - map.entry.x) < 8 && Math.abs(y - map.entry.y) < 8) continue;
+        map.packs.push({ x: x + 0.5, y: y + 0.5, fam: U.pick(rng, map.pool), n: U.ri(rng, 3, 6), elite: U.chance(rng, 0.15), champion: U.chance(rng, 0.2) });
+      }
+    }
+  },
+
+  // ---------- interactables: barrels, chests, shrines ----------
+  placeThings(map, rng) {
+    const { w, h } = map;
+    const spots = [];
+    for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) {
+      const i = this.idx(map, x, y);
+      if (map.t[i] === TILE.FLOOR && !map.haz[i]) spots.push({ x: x + 0.5, y: y + 0.5 });
+    }
+    U.shuffle(rng, spots);
+    let si = 0;
+    const take = () => spots[si++ % spots.length];
+    const nBarrel = Math.floor(w * h * 0.005);
+    for (let i = 0; i < nBarrel && si < spots.length; i++) {
+      const s = take();
+      map.things.push({ kind: 'barrel', x: s.x, y: s.y, hp: 1, explosive: map.theme === 'cavern' || map.theme === 'hell' ? U.chance(rng, 0.3) : false });
+    }
+    const nChest = U.ri(rng, 1, 3);
+    for (let i = 0; i < nChest && si < spots.length; i++) {
+      const s = take();
+      map.things.push({ kind: 'chest', x: s.x, y: s.y, opened: false });
+    }
+    if (U.chance(rng, 0.65)) {
+      const s = take();
+      const sh = U.pick(rng, SHRINE_TYPES);
+      map.things.push({ kind: 'shrine', x: s.x, y: s.y, shrine: sh, used: false });
+      map.lights.push({ x: s.x, y: s.y, r: 3.5, color: '#8fc8ff', flick: false });
+    }
+    // gold piles
+    const nGold = U.ri(rng, 2, 5);
+    for (let i = 0; i < nGold && si < spots.length; i++) {
+      const s = take();
+      map.things.push({ kind: 'goldpile', x: s.x, y: s.y, taken: false });
+    }
+  },
+
+  // ---------- town ----------
+  generateTown() {
+    const w = 28, h = 28;
+    const map = {
+      w, h, theme: 'town', isBoss: false, actIdx: -1, depth: 0, mlvl: 1,
+      t: new Uint8Array(w * h), haz: new Uint8Array(w * h), variant: new Uint8Array(w * h),
+      explored: new Uint8Array(w * h).fill(1),
+      lights: [], props: [], packs: [], things: [], rooms: [],
+      name: 'Haven\'s Rest', town: true, pool: [],
+    };
+    const rng = makeRng(777);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const border = x === 0 || y === 0 || x === w - 1 || y === h - 1;
+      map.t[y * w + x] = border ? TILE.WALL : TILE.FLOOR;
+      map.variant[y * w + x] = Math.floor(rng() * 4);
+    }
+    // gate to the dungeons (north corner) + waypoint plaza
+    map.t[2 * w + 14] = TILE.EXIT;
+    map.exit = { x: 14.5, y: 2.5 };
+    map.entry = { x: 14.5, y: 20.5 };
+    map.waypoint = { x: 11.5, y: 14.5 };
+    map.portalSpot = { x: 17.5, y: 14.5 };
+    map.npcSpots = { healer: { x: 7.5, y: 8.5 }, smith: { x: 21.5, y: 8.5 }, gambler: { x: 6.5, y: 19.5 }, stash: { x: 21.5, y: 19.5 }, elder: { x: 14.5, y: 11.5 } };
+    // cozy lighting
+    map.lights.push({ x: 14.5, y: 2.5, r: 5, color: '#ff8a2f', flick: true });
+    map.lights.push({ x: map.waypoint.x, y: map.waypoint.y, r: 4.5, color: '#8fc8ff', flick: false });
+    for (const k in map.npcSpots) map.lights.push({ x: map.npcSpots[k].x, y: map.npcSpots[k].y - 1, r: 3.6, color: '#ffb04f', flick: true });
+    for (const [px, py] of [[3, 3], [25, 3], [3, 24], [25, 24], [10, 24], [19, 24]])
+      map.lights.push({ x: px + 0.5, y: py + 0.5, r: 4, color: '#ffb04f', flick: true, torch: true });
+    // props: braziers/pillars around plaza
+    for (const [px, py] of [[11, 12], [17, 12], [11, 17], [17, 17]])
+      map.props.push({ kind: 'pillar', x: px + 0.5, y: py + 0.5, seed: px * 31 + py });
+    for (let i = 0; i < 14; i++)
+      map.props.push({ kind: U.pick(rng, ['bones', 'rock', 'urn']), x: U.rf(rng, 2, w - 2), y: U.rf(rng, 2, h - 2), seed: i * 77 });
+    return map;
+  },
+};
