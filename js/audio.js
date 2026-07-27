@@ -72,5 +72,7 @@ function sfx(name) {
     case 'explode':  AUDIO.noise(0.4, 0.3, 350); break;
     case 'nope':     AUDIO.tone(160, 0.14, 'square', 0.1, -40); break;
     case 'trap':     AUDIO.noise(0.1, 0.18, 1800); AUDIO.tone(500, 0.06, 'square', 0.08, -200); break;
+    case 'door':     AUDIO.noise(0.3, 0.09, 260); AUDIO.tone(110, 0.28, 'sawtooth', 0.05, 25); break;
+    case 'vent':     AUDIO.noise(0.45, 0.14, 1500); break;
   }
 }

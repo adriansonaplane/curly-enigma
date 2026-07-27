@@ -1,8 +1,32 @@
 // ============ DIABLOID: dungeon.js — procedural dungeon generation ============
 'use strict';
 
-const TILE = { WALL: 0, FLOOR: 1, EXIT: 2, ENTRY: 3 };
-const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3, WATER: 4 };
+const TILE = { WALL: 0, FLOOR: 1, EXIT: 2, ENTRY: 3, DOOR: 4 };
+const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3, WATER: 4, VENT: 5 };
+
+// Steam vents fire on a cycle instead of burning constantly: a visible
+// build-up, then a scalding jet, then a lull you can walk through. The phase
+// is derived from the tile index and the clock rather than stored per tile,
+// so the renderer and the damage code agree without sharing state.
+const VENT_PERIOD = 3.6;   // seconds for a full charge/erupt/lull cycle
+const VENT_JET = 0.85;     // how long the jet is actually out (and lethal)
+const VENT_TELL = 0.75;    // warning window before the jet
+function ventPhase(i, t) {
+  // cheap integer hash so neighbouring vents don't fire in lockstep
+  const off = (((i * 2654435761) >>> 0) % 997) / 997 * VENT_PERIOD;
+  // JS % keeps the sign of the dividend, so a negative clock would hand back a
+  // negative phase — which reads as "jetting" and drives the jet envelope
+  // negative, down into negative canvas radii. Normalise into [0, PERIOD).
+  const p = (t + off) % VENT_PERIOD;
+  return p < 0 ? p + VENT_PERIOD : p;
+}
+function ventJetting(i, t) { return ventPhase(i, t) < VENT_JET; }
+// 0 while dormant, ramping to 1 the instant before the jet fires
+function ventCharge(i, t) {
+  const p = ventPhase(i, t);
+  const lead = VENT_PERIOD - p;
+  return lead <= VENT_TELL ? 1 - lead / VENT_TELL : 0;
+}
 
 const Dungeon = {
 
@@ -23,7 +47,7 @@ const Dungeon = {
       haz: new Uint8Array(w * h),
       variant: new Uint8Array(w * h),
       explored: new Uint8Array(w * h),
-      lights: [], props: [], packs: [], things: [], rooms: [],
+      lights: [], props: [], packs: [], things: [], rooms: [], doors: [],
       mlvl: isAbyss ? ABYSS.mlvl0 + (opts.abyssFloor - 1) * 2 : act.mlvl + (opts.depth - 1) * 3,
       pool: act.pool,
       name: isAbyss
@@ -35,6 +59,7 @@ const Dungeon = {
     if (cavey) this.carveCaves(map, rng); else this.carveRooms(map, rng, isBoss);
     this.ensureConnectivity(map, rng);
     this.placeEntryExit(map, rng, isBoss);
+    if (!cavey) this.placeDoors(map, rng);   // caves have no masonry to hang a door on
     for (let i = 0; i < w * h; i++) map.variant[i] = Math.floor(rng() * 6);
     this.decorate(map, rng);
     this.placeHazards(map, rng);
@@ -327,6 +352,50 @@ const Dungeon = {
     }
   },
 
+  // ---------- doors ----------
+  // Rooms and corridors were previously indistinguishable: a corridor simply
+  // punched a hole in a room's wall and the two floors ran together. A door
+  // marks that threshold. Every breach in a room's surrounding wall ring gets
+  // one, so "leaving the room" becomes a thing you can see.
+  //
+  // Doors never block movement — they are thresholds, not gates — so
+  // pathfinding, projectiles and connectivity are all untouched. The closed
+  // ones swing open as you approach.
+  placeDoors(map, rng) {
+    const { w, h } = map;
+    const kinds = THEMES[map.theme].doors || ['arch', 'wood'];
+    const seen = new Uint8Array(w * h);
+    for (const r of map.rooms) {
+      // walk the ring of tiles immediately outside the room rectangle
+      for (let y = r.y - 1; y <= r.y + r.h; y++) {
+        for (let x = r.x - 1; x <= r.x + r.w; x++) {
+          const onRing = (x === r.x - 1 || x === r.x + r.w || y === r.y - 1 || y === r.y + r.h);
+          if (!onRing || x < 1 || y < 1 || x >= w - 1 || y >= h - 1) continue;
+          const i = this.idx(map, x, y);
+          if (seen[i] || map.t[i] !== TILE.FLOOR) continue;   // wall, or already a door
+          // must actually touch the room interior — corner diagonals don't count
+          const touches =
+            (x >= r.x && x < r.x + r.w && (y === r.y - 1 || y === r.y + r.h)) ||
+            (y >= r.y && y < r.y + r.h && (x === r.x - 1 || x === r.x + r.w));
+          if (!touches) continue;
+          // orientation from which pair of neighbours is solid
+          const wx = this.isWall(map, x - 1, y) && this.isWall(map, x + 1, y);
+          const wy = this.isWall(map, x, y - 1) && this.isWall(map, x, y + 1);
+          if (!wx && !wy) continue;      // a wide-open breach, not a doorway
+          seen[i] = 1;
+          map.t[i] = TILE.DOOR;
+          map.doors.push({
+            x: x + 0.5, y: y + 0.5, i,
+            ori: wx ? 'v' : 'h',          // 'v' = passage runs north-south
+            kind: U.pick(rng, kinds),
+            open: 0, swing: U.chance(rng, 0.5) ? 1 : -1,
+            seed: U.ri(rng, 0, 9999),
+          });
+        }
+      }
+    }
+  },
+
   // ---------- environmental hazards ----------
   placeHazards(map, rng) {
     const th = THEMES[map.theme];
@@ -353,14 +422,20 @@ const Dungeon = {
           if (kind === 'lava') map.lights.push({ x: cx + 0.5, y: cy + 0.5, r: 4 + r, color: '#ff5a1c', flick: true });
         }
       } else {
-        // spike traps / gas vents: sprinkled singles
-        const n = Math.floor(w * h * (kind === 'spikes' ? 0.004 : 0.0025));
+        // spike traps, gas pockets and steam vents: sprinkled singles
+        const density = { spikes: 0.004, gas: 0.0025, vent: 0.003 }[kind];
+        if (density === undefined) continue;   // unknown hazard: place nothing
+        const type = { spikes: HAZ.SPIKES, gas: HAZ.GAS, vent: HAZ.VENT }[kind];
+        const n = Math.floor(w * h * density);
         for (let i = 0; i < n; i++) {
           const x = U.ri(rng, 2, w - 3), y = U.ri(rng, 2, h - 3);
           const ix = this.idx(map, x, y);
           if (map.t[ix] !== TILE.FLOOR || map.haz[ix]) continue;
           if (!clearOf(x, y, map.entry, 4)) continue;
-          map.haz[ix] = kind === 'spikes' ? HAZ.SPIKES : HAZ.GAS;
+          map.haz[ix] = type;
+          // the jet throws its own light when it fires; the renderer scales
+          // this by the live cycle so a dormant vent stays dark
+          if (type === HAZ.VENT) map.lights.push({ x: x + 0.5, y: y + 0.5, r: 3.4, color: '#ff9a3f', vent: ix });
         }
       }
     }
@@ -440,7 +515,7 @@ const Dungeon = {
       w, h, theme: 'town', isBoss: false, actIdx: -1, depth: 0, mlvl: 1,
       t: new Uint8Array(w * h), haz: new Uint8Array(w * h), variant: new Uint8Array(w * h),
       explored: new Uint8Array(w * h).fill(1),
-      lights: [], props: [], packs: [], things: [], rooms: [],
+      lights: [], props: [], packs: [], things: [], rooms: [], doors: [],
       name: 'Haven\'s Rest', town: true, pool: [],
     };
     const rng = makeRng(777);

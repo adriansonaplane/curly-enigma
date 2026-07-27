@@ -234,10 +234,11 @@ const Render = {
         else if (hz === HAZ.WATER) img = tiles.water[waterFrame];
         else if (hz === HAZ.SPIKES) img = tiles.spikes;
         else if (hz === HAZ.GAS) img = tiles.gas;
+        else if (hz === HAZ.VENT) img = tiles.vent;
         else img = tiles.floors[map.variant[i] % tiles.floors.length];
         ctx.drawImage(img, px - ISO_X, py - ISO_Y, ISO_X * 2, ISO_Y * 2);
         if (useAO && map.ao[i]) ctx.drawImage(aoTiles[map.ao[i]], px - ISO_X, py - ISO_Y, ISO_X * 2, ISO_Y * 2);
-        if (tile === TILE.EXIT || tile === TILE.ENTRY || (hz === HAZ.WATER && hiQ))
+        if (tile === TILE.EXIT || tile === TILE.ENTRY || hz === HAZ.VENT || (hz === HAZ.WATER && hiQ))
           special.push([tx, ty, tile, hz, sx, sy]);
       }
     }
@@ -268,6 +269,7 @@ const Render = {
         ctx.fillStyle = U.rgba(glow, 0.18); ctx.fill();
         ctx.restore();
       }
+      if (hz === HAZ.VENT) this.drawVent(ctx, tx, ty, sx, sy, t);
     }
 
     // ground effect zones
@@ -323,6 +325,7 @@ const Render = {
     const D = (x, y) => Cam.depth(x, y);
     const cull2 = (R + 3) * (R + 3);
     for (const pr of map.props) if (U.dist2(pr.x, pr.y, Cam.fx, Cam.fy) < cull2) list.push({ d: D(pr.x, pr.y), kind: 'prop', pr });
+    for (const dr of map.doors) if (U.dist2(dr.x, dr.y, Cam.fx, Cam.fy) < cull2) list.push({ d: D(dr.x, dr.y), kind: 'door', dr });
     for (const th of map.things) if (U.dist2(th.x, th.y, Cam.fx, Cam.fy) < cull2) list.push({ d: D(th.x, th.y), kind: 'thing', th });
     for (const gi of G.groundItems) list.push({ d: D(gi.x, gi.y), kind: 'gitem', gi });
     for (const m of G.monsters) list.push({ d: D(m.x, m.y), kind: 'mon', m });
@@ -341,6 +344,7 @@ const Render = {
       switch (it.kind) {
         case 'wall': this.drawWall(ctx, it.tx, it.ty, tiles); break;
         case 'prop': this.drawProp(ctx, it.pr, t); break;
+        case 'door': this.drawDoor(ctx, it.dr, t); break;
         case 'thing': this.drawThing(ctx, it.th, t); break;
         case 'gitem': this.drawGroundItem(ctx, it.gi, t); break;
         case 'mon': this.drawActor(ctx, it.m, t); break;
@@ -425,6 +429,135 @@ const Render = {
       vg.addColorStop(0, 'rgba(120,0,0,0)'); vg.addColorStop(1, `rgba(160,10,5,${a})`);
       ctx.fillStyle = vg; ctx.fillRect(0, 0, this.W, this.H);
     }
+  },
+
+  // A door is drawn from its two jambs, both projected through the live
+  // camera, so the frame stays glued to the passage at any orbit angle rather
+  // than being a fixed screen-space rectangle.
+  drawDoor(ctx, dr, t) {
+    const half = 0.46;
+    // jamb offsets run across the passage: 'v' passages are entered along y,
+    // so their posts sit on the x axis, and vice versa
+    const ox = dr.ori === 'v' ? half : 0, oy = dr.ori === 'v' ? 0 : half;
+    const [ax, ay] = this.worldToScreen(dr.x - ox, dr.y - oy);
+    const [bx, by] = this.worldToScreen(dr.x + ox, dr.y + oy);
+    if (Math.max(ax, bx) < -80 || Math.min(ax, bx) > this.W + 80 ||
+        Math.max(ay, by) < -140 || Math.min(ay, by) > this.H + 80) return;
+    const z = Cam.zoom;
+    const H = 34 * z;                       // jamb height in screen px
+    const wood = '#4a3420', iron = '#5a5e66', stone = U.shade(THEMES[G.map.theme].wallTop, 0.9);
+
+    ctx.save();
+    // --- jambs: two stone posts ---
+    ctx.strokeStyle = stone; ctx.lineWidth = 4.5 * z; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax, ay - H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, by - H); ctx.stroke();
+    // --- lintel across the top ---
+    ctx.strokeStyle = U.shade(stone, 1.15); ctx.lineWidth = 4 * z;
+    ctx.beginPath(); ctx.moveTo(ax, ay - H); ctx.lineTo(bx, by - H); ctx.stroke();
+    // a keystone so the arch reads at a glance
+    ctx.fillStyle = U.shade(stone, 1.3);
+    ctx.beginPath();
+    ctx.ellipse((ax + bx) / 2, (ay + by) / 2 - H - 1.5 * z, 3.4 * z, 2.6 * z, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (dr.kind !== 'arch') {
+      // --- the leaf, hinged on jamb A, swinging away as `open` rises ---
+      const k = 1 - dr.open * 0.88;          // visible width of the leaf
+      const lx = ax + (bx - ax) * k, ly = ay + (by - ay) * k;
+      const lean = dr.swing * dr.open * 6 * z;   // slight skew as it swings
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(lx + lean, ly);
+      ctx.lineTo(lx + lean, ly - H * 0.92);
+      ctx.lineTo(ax, ay - H * 0.92);
+      ctx.closePath();
+      if (dr.kind === 'barred') {
+        ctx.fillStyle = 'rgba(10,10,14,0.55)'; ctx.fill();
+        ctx.strokeStyle = iron; ctx.lineWidth = 1.6 * z;
+        // vertical bars spaced across whatever width is left
+        const n = 4;
+        for (let i = 1; i <= n; i++) {
+          const f = i / (n + 1);
+          const px = ax + (lx + lean - ax) * f, py = ay + (ly - ay) * f;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py - H * 0.92); ctx.stroke();
+        }
+        ctx.strokeStyle = iron; ctx.lineWidth = 1.8 * z; ctx.stroke();
+      } else {
+        const g = ctx.createLinearGradient(ax, ay - H, lx, ly);
+        g.addColorStop(0, U.shade(wood, 1.35)); g.addColorStop(1, U.shade(wood, 0.8));
+        ctx.fillStyle = g; ctx.fill();
+        ctx.strokeStyle = U.shade(wood, 0.6); ctx.lineWidth = 1.4 * z; ctx.stroke();
+        // plank lines + an iron band
+        ctx.strokeStyle = U.shade(wood, 0.62); ctx.lineWidth = 1 * z;
+        for (const f of [0.33, 0.66]) {
+          const px = ax + (lx + lean - ax) * f, py = ay + (ly - ay) * f;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py - H * 0.92); ctx.stroke();
+        }
+        ctx.strokeStyle = iron; ctx.lineWidth = 1.6 * z;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay - H * 0.62); ctx.lineTo(lx + lean, ly - H * 0.62);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  },
+
+  // Lights tagged with a vent tile only shine while that vent is firing;
+  // everything else burns steadily and returns 1.
+  ventScale(l, t) {
+    if (l.vent === undefined) return 1;
+    if (!ventJetting(l.vent, t)) return ventCharge(l.vent, t) * 0.25;
+    return Math.sin(Math.min(1, ventPhase(l.vent, t) / VENT_JET) * Math.PI);
+  },
+
+  // A vent spends most of its cycle dormant. It telegraphs with a rising
+  // shimmer and a widening ring, then fires a scalding column. Drawing both
+  // phases off the same shared clock keeps what you see and what burns you
+  // in agreement — the warning is honest.
+  drawVent(ctx, tx, ty, sx, sy, t) {
+    const i = ty * G.map.w + tx;
+    const jetting = ventJetting(i, t);
+    const charge = ventCharge(i, t);
+    const z = Cam.zoom;
+    if (!jetting && charge <= 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (jetting) {
+      const p = ventPhase(i, t) / VENT_JET;          // 0..1 through the jet
+      const env = Math.sin(Math.min(1, p) * Math.PI); // fade in and out
+      const H = (46 + 26 * env) * z;
+      const g = ctx.createLinearGradient(sx, sy, sx, sy - H);
+      g.addColorStop(0, U.rgba('#ffd9a0', 0.62 * env));
+      g.addColorStop(0.45, U.rgba('#ff9a3f', 0.34 * env));
+      g.addColorStop(1, 'rgba(255,150,60,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(sx - 7 * z, sy + 2 * z);
+      ctx.quadraticCurveTo(sx - 11 * z, sy - H * 0.6, sx - 3 * z, sy - H);
+      ctx.lineTo(sx + 3 * z, sy - H);
+      ctx.quadraticCurveTo(sx + 11 * z, sy - H * 0.6, sx + 7 * z, sy + 2 * z);
+      ctx.closePath(); ctx.fill();
+      // hot core
+      ctx.fillStyle = U.rgba('#fff2c0', 0.5 * env);
+      ctx.beginPath(); ctx.ellipse(sx, sy - 6 * z, 4 * z, 9 * z * env, 0, 0, Math.PI * 2); ctx.fill();
+      // ground flash
+      ctx.fillStyle = U.rgba('#ff9a3f', 0.3 * env);
+      ctx.beginPath(); ctx.ellipse(sx, sy, 15 * z, 7 * z, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // telegraph: a shimmer at the mouth and a ring that closes as it charges
+      ctx.fillStyle = U.rgba('#ff9a3f', 0.16 * charge);
+      ctx.beginPath(); ctx.ellipse(sx, sy - 3 * z, 6 * z, 4 * z, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = U.rgba('#ffb04f', 0.3 + 0.45 * charge);
+      ctx.lineWidth = 1.4;
+      const rr = 1 - charge * 0.55;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 15 * z * rr, 7 * z * rr, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
   },
 
   // ---------- atmosphere: fog, god rays, grading, ambient particles ----------
@@ -656,7 +789,8 @@ const Render = {
     const propR = spooky ? 1.18 : 1;
     for (const l of map.lights) {
       const fl = l.flick ? 0.85 + Math.sin(t * 11 + l.x * 7 + l.y * 13) * 0.15 : 1;
-      punch(l.x, l.y, l.r * fl * propR, 0.95);
+      const vs = this.ventScale(l, t);
+      if (vs > 0) punch(l.x, l.y, l.r * fl * propR * vs, 0.95);
     }
     for (const p of G.projs) punch(p.x, p.y, 2.2, 0.8);
     for (const f of G.flashes) punch(f.x, f.y, f.r * 2, f.t / f.maxT);
@@ -682,7 +816,8 @@ const Render = {
     };
     for (const l of map.lights) {
       const fl = l.flick ? 0.8 + Math.sin(t * 11 + l.x * 7 + l.y * 13) * 0.2 : 1;
-      glow(l.x, l.y, l.r * 0.8 * fl, l.color, this.mood === 'spooky' ? 0.15 : 0.10);
+      const vs = this.ventScale(l, t);
+      if (vs > 0) glow(l.x, l.y, l.r * 0.8 * fl * vs, l.color, (this.mood === 'spooky' ? 0.15 : 0.10) * vs);
     }
     for (const p of G.projs) glow(p.x, p.y, 1.6, ELEM[p.elem].color, 0.16);
     for (const f of G.flashes) glow(f.x, f.y, f.r, f.color, 0.25 * f.t / f.maxT);
@@ -1780,6 +1915,7 @@ const Render = {
         else if (tl === TILE.ENTRY) m.fillStyle = '#8fc8ff';
         else if (map.haz[i] === HAZ.LAVA) m.fillStyle = 'rgba(200,70,10,0.8)';
         else if (map.haz[i] === HAZ.WATER) m.fillStyle = 'rgba(40,90,140,0.8)';
+        else if (map.haz[i] === HAZ.VENT) m.fillStyle = 'rgba(220,140,60,0.8)';
         else m.fillStyle = 'rgba(52,48,40,0.8)';
         m.fillRect(x * sc, y * sc, Math.ceil(sc), Math.ceil(sc));
       }

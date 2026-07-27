@@ -437,11 +437,11 @@ const THEMES = {
               pattern: 'cobble', fog: ['#a8b8c8', 0.045], grade: ['#28384c', '#c8843c', 0.07], shaft: null, amb: 'firefly', water: '#38648a', moss: '#5a7040' },
   crypt:    { floor: '#3c4048', floorAlt: '#34383e', wall: '#2c3038', wallTop: '#4c525e', ambient: 0.82, torch: '#ffb04f', hazards: ['spikes', 'water'],
               props: ['pillar', 'grave', 'bones', 'statue', 'cobweb', 'rubble', 'candles', 'crate', 'sarcophagus', 'bookshelf', 'chandelier', 'weaponrack', 'table', 'chair', 'sack', 'pot', 'lantern', 'wellhead'],
-              fixtures: ['lever', 'bookshelf', 'fountain'],
+              fixtures: ['lever', 'bookshelf', 'fountain'], doors: ['arch', 'wood', 'barred'],
               pattern: 'slab', fog: ['#8ca4c0', 0.09], grade: ['#16243e', '#0a1018', 0.13], shaft: '#a8c8f0', amb: 'dust', water: '#28455c', moss: '#3e5548' },
   catacomb: { floor: '#453c30', floorAlt: '#3c342a', wall: '#33291c', wallTop: '#584a34', ambient: 0.84, torch: '#ff9a3f', hazards: ['spikes', 'gas'],
               props: ['pillar', 'bones', 'urn', 'skullpile', 'cobweb', 'banner', 'rubble', 'crate', 'sarcophagus', 'bookshelf', 'candles', 'pot', 'sack', 'table', 'lantern', 'anvil'],
-              fixtures: ['lever', 'bookshelf', 'brazier_unlit'],
+              fixtures: ['lever', 'bookshelf', 'brazier_unlit'], doors: ['wood', 'barred', 'arch'],
               pattern: 'brick', fog: ['#a89468', 0.08], grade: ['#382a12', '#120a04', 0.11], shaft: '#e8c88a', amb: 'dust', water: null, moss: '#564a2c' },
   cavern:   { floor: '#33261e', floorAlt: '#2c201a', wall: '#221610', wallTop: '#44342a', ambient: 0.86, torch: '#ff6a2f', hazards: ['lava', 'vent'],
               props: ['rock', 'crystal', 'stalagmite', 'mushroom', 'orevein', 'crate', 'rubble', 'bones', 'pot', 'cauldron', 'anvil', 'sack'],
@@ -453,7 +453,7 @@ const THEMES = {
               pattern: 'slab', fog: ['#6aa87a', 0.11], grade: ['#0a2818', '#040e06', 0.13], shaft: '#8ae8b0', amb: 'spore', water: '#1c4636', moss: '#3e7a4e' },
   hell:     { floor: '#38201c', floorAlt: '#301a16', wall: '#24100c', wallTop: '#4c2c24', ambient: 0.87, torch: '#ff4f2f', hazards: ['lava', 'spikes'],
               props: ['spike', 'bones', 'idol', 'skullpile', 'rubble', 'cauldron', 'anvil', 'weaponrack', 'banner', 'chandelier', 'pot', 'crate', 'orevein'],
-              fixtures: ['lever', 'brazier_unlit', 'orevein'],
+              fixtures: ['lever', 'brazier_unlit', 'orevein'], doors: ['barred', 'arch'],
               pattern: 'cracked', fog: ['#a83428', 0.09], grade: ['#581408', '#1a0000', 0.16], shaft: '#ff8a50', amb: 'ash', water: null, moss: '#742818' },
 };
 
