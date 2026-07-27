@@ -264,119 +264,387 @@ const Sprites = {
   },
 
   // ======================= TILES =======================
+  // Baked at SSx supersample ("high-resolution textures") and blitted back at
+  // logical 64x32, so the dpr-scaled main canvas gets genuine subpixel detail.
+  // On dpr=1 displays the extra pixels can't be seen anyway, so bake at 1x and
+  // keep the fast unscaled-blit path.
+  SS: (typeof window !== 'undefined' && (window.devicePixelRatio || 1) >= 1.5) ? 2 : 1,
   getTiles(theme) {
     if (!this.tiles[theme]) this.tiles[theme] = this.bakeTiles(theme);
     return this.tiles[theme];
+  },
+
+  mkTile(w, h) {
+    const cv = document.createElement('canvas');
+    cv.width = w * this.SS; cv.height = h * this.SS;
+    const ctx = cv.getContext('2d');
+    ctx.scale(this.SS, this.SS);
+    return [cv, ctx];
+  },
+
+  // soft organic mottling (call inside a clip)
+  mottle(ctx, rng, W, H, base, n) {
+    for (let i = 0; i < n; i++) {
+      const x = rng() * W, y = rng() * H, r = 3 + rng() * 9;
+      const f = rng() < 0.35 ? U.rf(rng, 1.08, 1.28) : U.rf(rng, 0.6, 0.92);
+      const g = ctx.createRadialGradient(x, y, 0.5, x, y, r);
+      g.addColorStop(0, U.rgba(U.shade(base, f), 0.32));
+      g.addColorStop(1, U.rgba(U.shade(base, f), 0));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+  },
+
+  // masonry seams per theme, drawn clipped inside the floor diamond
+  floorPattern(ctx, rng, W, H, base, pattern) {
+    const seam = U.rgba(U.shade(base, 0.45), 0.7);
+    const lite = U.rgba(U.shade(base, 1.35), 0.28);
+    ctx.lineWidth = 1;
+    if (pattern === 'slab') {
+      // four sub-slabs: seams connecting edge midpoints, lightly jittered
+      const j = () => U.rf(rng, -1.5, 1.5);
+      ctx.strokeStyle = seam;
+      ctx.beginPath(); ctx.moveTo(16 + j(), 8 + j() / 2); ctx.lineTo(48 + j(), 24 + j() / 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(48 + j(), 8 + j() / 2); ctx.lineTo(16 + j(), 24 + j() / 2); ctx.stroke();
+      ctx.strokeStyle = lite;
+      ctx.beginPath(); ctx.moveTo(17, 9.2); ctx.lineTo(49, 25.2); ctx.stroke();
+    } else if (pattern === 'brick') {
+      ctx.strokeStyle = seam;
+      for (const y0 of [-8, 0, 8, 16]) { // courses parallel to the NE edge
+        ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(64, y0 + 32); ctx.stroke();
+      }
+      for (let k = 0; k < 5; k++) {      // staggered head joints
+        const tt = U.rf(rng, 0.15, 0.85);
+        const y0 = U.pick(rng, [-8, 0, 8, 16]);
+        const x = tt * 64, y = y0 + tt * 32;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 4.5, y - 2.25); ctx.stroke();
+      }
+    } else if (pattern === 'cobble') {
+      for (let i = 0; i < 11; i++) {
+        const x = U.rf(rng, 6, W - 6), y = U.rf(rng, 4, H - 4);
+        const rx = U.rf(rng, 3, 6), ry = rx * 0.55;
+        const f = U.rf(rng, 0.85, 1.2);
+        const g = ctx.createRadialGradient(x - rx * 0.3, y - ry * 0.4, 0.5, x, y, rx);
+        g.addColorStop(0, U.shade(base, f * 1.18)); g.addColorStop(1, U.shade(base, f * 0.78));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(x, y, rx, ry, U.rf(rng, -0.4, 0.4), 0, Math.PI * 2); ctx.fill();
+      }
+    } else if (pattern === 'cracked') {
+      const j = () => U.rf(rng, -1.5, 1.5);
+      ctx.strokeStyle = seam;
+      ctx.beginPath(); ctx.moveTo(16 + j(), 8 + j() / 2); ctx.lineTo(48 + j(), 24 + j() / 2); ctx.stroke();
+      for (let c = 0; c < 2; c++) {      // jagged fissures with heat underglow
+        let x = U.rf(rng, 12, 52), y = U.rf(rng, 6, 26);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(8,2,0,0.8)'; ctx.lineWidth = 1.2;
+        ctx.shadowColor = '#ff5a1c'; ctx.shadowBlur = 3;
+        ctx.beginPath(); ctx.moveTo(x, y);
+        for (let i = 0; i < 4; i++) { x += U.rf(rng, -9, 9); y += U.rf(rng, -4.5, 4.5); ctx.lineTo(x, y); }
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+    // 'rough' = mottling only
   },
 
   bakeTiles(theme) {
     const th = THEMES[theme];
     const rng = makeRng(hashStr(theme));
     const W = 64, H = 32, WALL_H = 40;
-    const out = { floors: [], wall: null, lava: [], gas: null, spikes: null };
+    const out = { floors: [], wall: null, lava: [], water: [], gas: null, spikes: null };
 
-    for (let v = 0; v < 4; v++) {
-      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-      const ctx = cv.getContext('2d');
+    // ---- floors: 6 hi-res variants with per-theme masonry + moss ----
+    for (let v = 0; v < 6; v++) {
+      const [cv, ctx] = this.mkTile(W, H);
       this.diamond(ctx, W, H);
       const base = v % 2 ? th.floorAlt : th.floor;
       const grd = ctx.createLinearGradient(0, 0, W, H);
       grd.addColorStop(0, U.shade(base, 1.12)); grd.addColorStop(1, U.shade(base, 0.88));
       ctx.fillStyle = grd; ctx.fill();
       ctx.save(); ctx.clip();
-      for (let i = 0; i < 26; i++) { // speckle texture
-        ctx.fillStyle = U.rgba(U.shade(base, rng() < 0.5 ? 0.72 : 1.3), 0.5);
-        ctx.fillRect(rng() * W, rng() * H, 1 + rng() * 2, 1 + rng() * 1.5);
+      this.mottle(ctx, rng, W, H, base, 7);
+      this.floorPattern(ctx, rng, W, H, base, th.pattern);
+      for (let i = 0; i < 30; i++) { // fine grit
+        ctx.fillStyle = U.rgba(U.shade(base, rng() < 0.5 ? 0.65 : 1.35), 0.45);
+        ctx.fillRect(rng() * W, rng() * H, 0.7 + rng() * 1.4, 0.6 + rng() * 1.1);
       }
-      // cracks
-      if (rng() < 0.7) {
-        ctx.strokeStyle = U.rgba(U.shade(base, 0.55), 0.8); ctx.lineWidth = 0.8;
+      if (rng() < 0.6) { // hairline crack
+        ctx.strokeStyle = U.rgba(U.shade(base, 0.5), 0.75); ctx.lineWidth = 0.7;
         ctx.beginPath();
         let x = rng() * W, y = rng() * H; ctx.moveTo(x, y);
         for (let i = 0; i < 3; i++) { x += (rng() - 0.5) * 18; y += (rng() - 0.5) * 9; ctx.lineTo(x, y); }
         ctx.stroke();
       }
+      if (th.moss && v >= 3) { // creeping growth on the later variants
+        for (let i = 0; i < 3; i++) {
+          const x = rng() * W, y = rng() * H, r = U.rf(rng, 3, 8);
+          const g = ctx.createRadialGradient(x, y, 0.5, x, y, r);
+          g.addColorStop(0, U.rgba(th.moss, 0.4)); g.addColorStop(1, U.rgba(th.moss, 0));
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+        }
+      }
       ctx.restore();
-      this.diamond(ctx, W, H);
-      ctx.strokeStyle = 'rgba(0,0,0,0.42)'; ctx.lineWidth = 1; ctx.stroke();
+      // beveled edges: light catches the top faces, dark falls off the bottom
+      ctx.lineWidth = 1.1;
+      ctx.strokeStyle = 'rgba(255,255,255,0.09)';
+      ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W / 2, 0); ctx.lineTo(W, H / 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,0.42)';
+      ctx.beginPath(); ctx.moveTo(W, H / 2); ctx.lineTo(W / 2, H); ctx.lineTo(0, H / 2); ctx.stroke();
       out.floors.push(cv);
     }
 
-    { // wall block: top diamond + two faces
-      const cv = document.createElement('canvas'); cv.width = W; cv.height = H + WALL_H;
-      const ctx = cv.getContext('2d');
-      // left face
-      ctx.fillStyle = U.shade(th.wall, 0.8);
-      ctx.beginPath(); ctx.moveTo(0, H / 2 + WALL_H); ctx.lineTo(0, H / 2); ctx.lineTo(W / 2, H); ctx.lineTo(W / 2, H + WALL_H); ctx.closePath(); ctx.fill();
-      // right face
-      ctx.fillStyle = U.shade(th.wall, 0.55);
-      ctx.beginPath(); ctx.moveTo(W, H / 2 + WALL_H); ctx.lineTo(W, H / 2); ctx.lineTo(W / 2, H); ctx.lineTo(W / 2, H + WALL_H); ctx.closePath(); ctx.fill();
-      // brick lines on faces
-      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 1;
-      for (let i = 1; i < 4; i++) {
-        const yy = H / 2 + i * WALL_H / 4;
-        ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(W / 2, yy + H / 2); ctx.lineTo(W, yy); ctx.stroke();
+    // ---- wall block: stone courses, per-block tint, moss & theme veins ----
+    {
+      const [cv, ctx] = this.mkTile(W, H + WALL_H);
+      const faces = [
+        { pts: [[0, H / 2], [W / 2, H], [W / 2, H + WALL_H], [0, H / 2 + WALL_H]], shade: 0.82, sx: 0 },
+        { pts: [[W / 2, H], [W, H / 2], [W, H / 2 + WALL_H], [W / 2, H + WALL_H]], shade: 0.55, sx: 1 },
+      ];
+      for (const face of faces) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(face.pts[0][0], face.pts[0][1]);
+        for (let i = 1; i < 4; i++) ctx.lineTo(face.pts[i][0], face.pts[i][1]);
+        ctx.closePath();
+        const fg = ctx.createLinearGradient(0, H / 2, 0, H + WALL_H);
+        fg.addColorStop(0, U.shade(th.wall, face.shade * 1.25));
+        fg.addColorStop(1, U.shade(th.wall, face.shade * 0.72));
+        ctx.fillStyle = fg; ctx.fill();
+        ctx.clip();
+        // stone blocks: 4 courses x 2 blocks, individually tinted
+        const x0 = face.sx * W / 2, slope = face.sx ? -H / 2 : H / 2;
+        for (let row = 0; row < 4; row++) {
+          for (let col = 0; col < 2; col++) {
+            const bx = x0 + col * W / 4, by = (face.sx ? H : H / 2) + row * WALL_H / 4 + (face.sx ? 0 : 0);
+            const f = U.rf(rng, 0.88, 1.12) * face.shade;
+            ctx.fillStyle = U.rgba(U.shade(th.wall, f), 0.35);
+            ctx.beginPath();
+            ctx.moveTo(bx, by + col * slope / 2);
+            ctx.lineTo(bx + W / 4, by + (col + 1) * slope / 2);
+            ctx.lineTo(bx + W / 4, by + (col + 1) * slope / 2 + WALL_H / 4);
+            ctx.lineTo(bx, by + col * slope / 2 + WALL_H / 4);
+            ctx.closePath(); ctx.fill();
+          }
+        }
+        // mortar seams
+        ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1;
+        for (let i = 1; i < 4; i++) {
+          const yy = (face.sx ? H : H / 2) + i * WALL_H / 4;
+          ctx.beginPath(); ctx.moveTo(x0, yy); ctx.lineTo(x0 + W / 2, yy + slope); ctx.stroke();
+        }
+        ctx.beginPath(); ctx.moveTo(x0 + W / 4, face.sx ? H * 0.75 : H * 0.75); ctx.lineTo(x0 + W / 4, H + WALL_H); ctx.stroke();
+        // theme accents
+        if (theme === 'hell') { // magma veins
+          ctx.save(); ctx.strokeStyle = 'rgba(255,90,28,0.5)'; ctx.lineWidth = 0.9;
+          ctx.shadowColor = '#ff5a1c'; ctx.shadowBlur = 4;
+          let x = x0 + rng() * W / 2, y = H / 2 + 8 + rng() * 20;
+          ctx.beginPath(); ctx.moveTo(x, y);
+          for (let i = 0; i < 4; i++) { x += U.rf(rng, -7, 7); y += U.rf(rng, 2, 8); ctx.lineTo(x, y); }
+          ctx.stroke(); ctx.restore();
+        } else if (theme === 'cavern') { // mineral glints
+          for (let i = 0; i < 5; i++) {
+            ctx.fillStyle = U.rgba('#ffcf8f', U.rf(rng, 0.2, 0.5));
+            ctx.fillRect(x0 + rng() * W / 2, H / 2 + rng() * (H / 2 + WALL_H), 1, 1);
+          }
+        }
+        if (th.moss) { // damp growth creeping up from the floor line
+          for (let i = 0; i < 4; i++) {
+            const x = x0 + rng() * W / 2, y = H + WALL_H - rng() * 12;
+            const g = ctx.createRadialGradient(x, y, 0.5, x, y, 5 + rng() * 5);
+            g.addColorStop(0, U.rgba(th.moss, 0.32)); g.addColorStop(1, U.rgba(th.moss, 0));
+            ctx.fillStyle = g;
+            ctx.beginPath(); ctx.arc(x, y, 5 + rng() * 5, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+        // baked contact shadow at the base of the face
+        const ag = ctx.createLinearGradient(0, H + WALL_H - 9, 0, H + WALL_H);
+        ag.addColorStop(0, 'rgba(0,0,0,0)'); ag.addColorStop(1, 'rgba(0,0,0,0.4)');
+        ctx.fillStyle = ag; ctx.fillRect(0, H + WALL_H - 9, W, 9);
+        ctx.restore();
       }
-      // top
+      // top slab
       const grd = ctx.createLinearGradient(0, 0, W, H);
       grd.addColorStop(0, U.shade(th.wallTop, 1.15)); grd.addColorStop(1, U.shade(th.wallTop, 0.8));
       this.diamond(ctx, W, H);
       ctx.fillStyle = grd; ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke();
+      ctx.save(); this.diamond(ctx, W, H); ctx.clip();
+      this.mottle(ctx, rng, W, H, th.wallTop, 6);
+      ctx.restore();
+      // rim light on the sky-facing edges
+      ctx.lineWidth = 1.4;
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+      ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W / 2, 0); ctx.lineTo(W, H / 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.beginPath(); ctx.moveTo(W, H / 2); ctx.lineTo(W / 2, H); ctx.lineTo(0, H / 2); ctx.stroke();
       out.wall = cv;
       out.wallH = WALL_H;
     }
 
-    // lava (2 animation frames)
-    for (let f = 0; f < 2; f++) {
-      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-      const ctx = cv.getContext('2d');
+    // ---- lava: 4 frames of churning molten rock ----
+    for (let f = 0; f < 4; f++) {
+      const [cv, ctx] = this.mkTile(W, H);
+      const ph = (f / 4) * Math.PI * 2;
       this.diamond(ctx, W, H);
       const grd = ctx.createLinearGradient(0, 0, W, H);
       grd.addColorStop(0, '#ff9a2f'); grd.addColorStop(0.5, '#e04808'); grd.addColorStop(1, '#7a1400');
       ctx.fillStyle = grd; ctx.fill();
       ctx.save(); ctx.clip();
-      const lrng = makeRng(900 + f * 7);
-      for (let i = 0; i < 9; i++) {
-        ctx.fillStyle = U.rgba(f ? '#ffd94f' : '#ff7a2f', 0.75);
-        const x = lrng() * W, y = lrng() * H;
-        ctx.beginPath(); ctx.arc(x, y, 1.5 + lrng() * 3, 0, Math.PI * 2); ctx.fill();
+      const lrng = makeRng(900);
+      for (let i = 0; i < 9; i++) { // convection cells that drift in a slow orbit
+        const bx = lrng() * W, by = lrng() * H, orb = 2 + lrng() * 2.5;
+        const x = bx + Math.cos(ph + i) * orb, y = by + Math.sin(ph + i * 1.7) * orb * 0.5;
+        const r = 2 + lrng() * 3.5;
+        const g = ctx.createRadialGradient(x, y, 0.3, x, y, r);
+        g.addColorStop(0, U.rgba('#ffe98f', 0.95));
+        g.addColorStop(0.5, U.rgba('#ff9a2f', 0.7));
+        g.addColorStop(1, U.rgba('#ff9a2f', 0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
       }
       ctx.fillStyle = 'rgba(30,4,0,0.55)';
-      for (let i = 0; i < 4; i++) { // dark crust
-        const x = lrng() * W, y = lrng() * H;
+      for (let i = 0; i < 4; i++) { // floating crust plates
+        const bx = lrng() * W, by = lrng() * H;
+        const x = bx + Math.cos(ph * 0.5 + i * 2) * 1.5, y = by + Math.sin(ph * 0.5 + i) * 0.8;
         ctx.beginPath(); ctx.ellipse(x, y, 5 + lrng() * 6, 2.5 + lrng() * 3, lrng(), 0, Math.PI * 2); ctx.fill();
       }
       ctx.restore();
       out.lava.push(cv);
     }
 
+    // ---- water: 3 frames of still, reflective liquid ----
+    {
+      const wcol = th.water || '#2c4a62';
+      for (let f = 0; f < 3; f++) {
+        const [cv, ctx] = this.mkTile(W, H);
+        const ph = (f / 3) * Math.PI * 2;
+        this.diamond(ctx, W, H);
+        const grd = ctx.createLinearGradient(0, 0, W, H);
+        grd.addColorStop(0, U.shade(wcol, 1.25)); grd.addColorStop(0.55, wcol); grd.addColorStop(1, U.shade(wcol, 0.5));
+        ctx.fillStyle = grd; ctx.fill();
+        ctx.save(); ctx.clip();
+        // sheen where "light" strikes the surface
+        const sg = ctx.createRadialGradient(W * 0.35, H * 0.3, 1, W * 0.35, H * 0.3, W * 0.4);
+        sg.addColorStop(0, U.rgba(U.shade(wcol, 1.9), 0.35)); sg.addColorStop(1, U.rgba(wcol, 0));
+        ctx.fillStyle = sg;
+        ctx.beginPath(); ctx.arc(W * 0.35, H * 0.3, W * 0.4, 0, Math.PI * 2); ctx.fill();
+        // slow ripple lines parallel to the iso grid
+        ctx.strokeStyle = U.rgba(U.shade(wcol, 1.8), 0.4); ctx.lineWidth = 0.8;
+        for (let k = 0; k < 3; k++) {
+          const off = -6 + k * 10 + Math.sin(ph + k * 2) * 2.4;
+          ctx.beginPath();
+          for (let x = 0; x <= W; x += 4) {
+            const y = off + x / 2 + Math.sin(x * 0.25 + ph + k) * 1.1;
+            x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+        // glints
+        const wr = makeRng(300 + f * 11);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        for (let i = 0; i < 4; i++) ctx.fillRect(wr() * W, wr() * H, 1.6, 0.8);
+        ctx.restore();
+        // dark waterline edge
+        this.diamond(ctx, W, H);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.2; ctx.stroke();
+        out.water.push(cv);
+      }
+    }
+
     { // spike trap plate
-      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-      const ctx = cv.getContext('2d');
+      const [cv, ctx] = this.mkTile(W, H);
       this.diamond(ctx, W, H);
       ctx.fillStyle = U.shade(th.floor, 0.6); ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
-      ctx.fillStyle = U.shade(th.floor, 0.4);
+      ctx.save(); ctx.clip();
+      this.mottle(ctx, rng, W, H, U.shade(th.floor, 0.6), 4);
+      ctx.restore();
+      this.diamond(ctx, W, H);
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = U.shade(th.floor, 0.38);
       for (const [hx, hy] of [[0.5, 0.28], [0.32, 0.5], [0.68, 0.5], [0.5, 0.72]]) {
         ctx.beginPath(); ctx.ellipse(hx * W, hy * H, 3.5, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = U.shade(th.floor, 0.3);
       }
       out.spikes = cv;
     }
 
     { // gas vent
-      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-      const ctx = cv.getContext('2d');
+      const [cv, ctx] = this.mkTile(W, H);
       this.diamond(ctx, W, H);
       ctx.fillStyle = U.shade(th.floor, 0.7); ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
-      ctx.fillStyle = '#0c1206';
-      ctx.beginPath(); ctx.ellipse(W / 2, H / 2, 9, 4.5, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.clip();
+      this.mottle(ctx, rng, W, H, U.shade(th.floor, 0.7), 4);
+      ctx.restore();
+      this.diamond(ctx, W, H);
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+      const vg = ctx.createRadialGradient(W / 2, H / 2, 1, W / 2, H / 2, 10);
+      vg.addColorStop(0, '#060a02'); vg.addColorStop(0.7, '#0c1206'); vg.addColorStop(1, U.shade(th.floor, 0.55));
+      ctx.fillStyle = vg;
+      ctx.beginPath(); ctx.ellipse(W / 2, H / 2, 10, 5, 0, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = U.rgba('#8ef04a', 0.5); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.ellipse(W / 2, H / 2, 9, 4.5, 0, 0, Math.PI * 2); ctx.stroke();
       out.gas = cv;
     }
     return out;
+  },
+
+  // ---- ambient occlusion overlays: 16 masks of wall-adjacent edge shading ----
+  aoTiles: null,
+  getAO() {
+    if (this.aoTiles) return this.aoTiles;
+    const W = 64, H = 32, LEN = 13, A = 0.36;
+    // per bit: edge midpoint + inward normal (N=upper-right edge, E=lower-right, S=lower-left, W=upper-left)
+    const edges = [
+      { bit: 1, mx: 48, my: 8, nx: -0.894, ny: 0.447 },
+      { bit: 2, mx: 48, my: 24, nx: -0.894, ny: -0.447 },
+      { bit: 4, mx: 16, my: 24, nx: 0.894, ny: -0.447 },
+      { bit: 8, mx: 16, my: 8, nx: 0.894, ny: 0.447 },
+    ];
+    this.aoTiles = [null];
+    for (let mask = 1; mask < 16; mask++) {
+      const [cv, ctx] = this.mkTile(W, H);
+      this.diamond(ctx, W, H);
+      ctx.clip();
+      for (const e of edges) {
+        if (!(mask & e.bit)) continue;
+        const g = ctx.createLinearGradient(e.mx, e.my, e.mx + e.nx * LEN, e.my + e.ny * LEN);
+        g.addColorStop(0, `rgba(0,0,0,${A})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+      }
+      this.aoTiles.push(cv);
+    }
+    return this.aoTiles;
+  },
+
+  // ---- fog puffs: soft cloud sprites tinted per theme ----
+  fogs: {},
+  getFog(theme) {
+    if (this.fogs[theme]) return this.fogs[theme];
+    const col = (THEMES[theme].fog || ['#9aa8b8'])[0];
+    const rng = makeRng(hashStr(theme) ^ 0xf06);
+    const set = [];
+    for (let v = 0; v < 3; v++) {
+      const S = 256;
+      const cv = document.createElement('canvas'); cv.width = S; cv.height = S;
+      const ctx = cv.getContext('2d');
+      const blob = (x, y, r, a) => {
+        const g = ctx.createRadialGradient(x, y, 1, x, y, r);
+        g.addColorStop(0, `rgba(255,255,255,${a})`); g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      };
+      blob(S / 2, S / 2, S * 0.42, 0.5);
+      for (let i = 0; i < 6; i++)
+        blob(S * 0.5 + U.rf(rng, -0.22, 0.22) * S, S * 0.5 + U.rf(rng, -0.16, 0.16) * S, S * U.rf(rng, 0.13, 0.26), U.rf(rng, 0.25, 0.45));
+      // tint the white cloud with the theme's fog color
+      ctx.globalCompositeOperation = 'source-in';
+      ctx.fillStyle = col;
+      ctx.fillRect(0, 0, S, S);
+      set.push(cv);
+    }
+    this.fogs[theme] = set;
+    return set;
   },
 
   diamond(ctx, W, H) {

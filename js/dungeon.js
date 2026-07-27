@@ -2,7 +2,7 @@
 'use strict';
 
 const TILE = { WALL: 0, FLOOR: 1, EXIT: 2, ENTRY: 3 };
-const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3 };
+const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3, WATER: 4 };
 
 const Dungeon = {
 
@@ -35,12 +35,30 @@ const Dungeon = {
     if (cavey) this.carveCaves(map, rng); else this.carveRooms(map, rng, isBoss);
     this.ensureConnectivity(map, rng);
     this.placeEntryExit(map, rng, isBoss);
-    for (let i = 0; i < w * h; i++) map.variant[i] = Math.floor(rng() * 4);
+    for (let i = 0; i < w * h; i++) map.variant[i] = Math.floor(rng() * 6);
     this.decorate(map, rng);
     this.placeHazards(map, rng);
     this.placeSpawns(map, rng);
     this.placeThings(map, rng);
+    this.computeAO(map);
     return map;
+  },
+
+  // Per-tile ambient occlusion mask: which of the 4 neighbors are walls.
+  // Bit 1 = N (x,y-1), 2 = E (x+1,y), 4 = S (x,y+1), 8 = W (x-1,y).
+  computeAO(map) {
+    const { w, h } = map;
+    map.ao = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (map.t[i] === TILE.WALL) continue;
+      let m = 0;
+      if (this.isWall(map, x, y - 1)) m |= 1;
+      if (this.isWall(map, x + 1, y)) m |= 2;
+      if (this.isWall(map, x, y + 1)) m |= 4;
+      if (this.isWall(map, x - 1, y)) m |= 8;
+      map.ao[i] = m;
+    }
   },
 
   idx(map, x, y) { return y * map.w + x; },
@@ -140,31 +158,45 @@ const Dungeon = {
   },
 
   // ---------- connectivity ----------
+  // Cave carving can strand pockets (the drunkard's-walk "jump" teleports).
+  // Keep the LARGEST connected component — picking the first-found one could
+  // keep a stranded closet and wall off the whole map.
   ensureConnectivity(map, rng) {
     const { w, h } = map;
-    // find a floor tile to start from
-    let start = -1;
-    for (let i = 0; i < w * h; i++) if (map.t[i] !== TILE.WALL) { start = i; break; }
-    if (start < 0) { // degenerate map: carve an emergency room
-      for (let y = h / 2 - 3 | 0; y < h / 2 + 3; y++) for (let x = w / 2 - 3 | 0; x < w / 2 + 3; x++)
-        map.t[this.idx(map, x, y)] = TILE.FLOOR;
-      start = this.idx(map, w >> 1, h >> 1);
-    }
-    const seen = new Uint8Array(w * h);
-    const stack = [start]; seen[start] = 1;
-    let count = 0;
-    while (stack.length) {
-      const i = stack.pop(); count++;
-      const x = i % w, y = (i / w) | 0;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const xx = x + dx, yy = y + dy;
-        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
-        const j = yy * w + xx;
-        if (!seen[j] && map.t[j] !== TILE.WALL) { seen[j] = 1; stack.push(j); }
+    const comp = new Int32Array(w * h).fill(-1);
+    const sizes = [];
+    for (let s = 0; s < w * h; s++) {
+      if (map.t[s] === TILE.WALL || comp[s] >= 0) continue;
+      const c = sizes.length;
+      const stack = [s]; comp[s] = c;
+      let size = 0;
+      while (stack.length) {
+        const i = stack.pop(); size++;
+        const x = i % w, y = (i / w) | 0;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const j = yy * w + xx;
+          if (comp[j] < 0 && map.t[j] !== TILE.WALL) { comp[j] = c; stack.push(j); }
+        }
       }
+      sizes.push(size);
     }
-    // wall off unreachable pockets
-    for (let i = 0; i < w * h; i++) if (map.t[i] !== TILE.WALL && !seen[i]) map.t[i] = TILE.WALL;
+    if (!sizes.length) { // degenerate map: carve an emergency room
+      for (let y = h / 2 - 3 | 0; y < h / 2 + 3; y++) for (let x = w / 2 - 3 | 0; x < w / 2 + 3; x++) {
+        map.t[this.idx(map, x, y)] = TILE.FLOOR;
+        comp[this.idx(map, x, y)] = 0;
+      }
+      sizes.push(36);
+    }
+    let big = 0;
+    for (let c = 1; c < sizes.length; c++) if (sizes[c] > sizes[big]) big = c;
+    const seen = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      if (map.t[i] === TILE.WALL) continue;
+      if (comp[i] === big) seen[i] = 1;
+      else map.t[i] = TILE.WALL; // wall off stranded pockets
+    }
     map._reach = seen;
   },
 
@@ -201,16 +233,17 @@ const Dungeon = {
     if (bossRoom) map.bossSpot = { x: bossRoom.cx + 0.5, y: bossRoom.cy - 2 + 0.5 };
   },
 
-  // ---------- decoration: torches, props ----------
+  // ---------- decoration: torches, props, god rays ----------
   decorate(map, rng) {
     const { w, h } = map;
     const th = THEMES[map.theme];
-    // torches on wall tiles that border floor
+    // torch sconces on wall tiles that border floor (light + visible prop)
     for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
       if (map.t[this.idx(map, x, y)] !== TILE.WALL) continue;
       const openBelow = map.t[this.idx(map, x, y + 1)] !== TILE.WALL || map.t[this.idx(map, x + 1, y)] !== TILE.WALL;
       if (openBelow && U.chance(rng, 0.045)) {
         map.lights.push({ x: x + 0.5, y: y + 0.5, r: 4.5, color: th.torch, flick: true, torch: true });
+        map.props.push({ kind: 'torch', x: x + 0.5, y: y + 0.5, seed: x * 31 + y, color: th.torch });
       }
     }
     // guarantee lights at entry/exit
@@ -219,13 +252,35 @@ const Dungeon = {
     // props on floor
     const props = th.props || [];
     if (props.length) {
-      const n = Math.floor(w * h * 0.006);
+      const n = Math.floor(w * h * 0.013);
       for (let i = 0; i < n; i++) {
         const x = U.ri(rng, 2, w - 3), y = U.ri(rng, 2, h - 3);
         const t = map.t[this.idx(map, x, y)];
         if (t !== TILE.FLOOR) continue;
         if (Math.abs(x - map.entry.x) < 3 && Math.abs(y - map.entry.y) < 3) continue;
-        map.props.push({ kind: U.pick(rng, props), x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 9999) });
+        let kind = U.pick(rng, props);
+        // cobwebs cling to walls: only keep them next to one
+        if (kind === 'cobweb' && !(this.isWall(map, x, y - 1) || this.isWall(map, x - 1, y))) kind = 'rubble';
+        const pr = { kind, x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 9999) };
+        map.props.push(pr);
+        // emissive props bring their own dim light
+        if (kind === 'crystal') map.lights.push({ x: pr.x, y: pr.y, r: 2.6, color: '#7bdcff', flick: false });
+        else if (kind === 'mushroom') map.lights.push({ x: pr.x, y: pr.y, r: 2.2, color: '#6ae8a0', flick: false });
+        else if (kind === 'candles') map.lights.push({ x: pr.x, y: pr.y, r: 2.4, color: '#ffcf6f', flick: true });
+      }
+    }
+    // volumetric god-ray shafts falling from cracks in the unseen ceiling
+    map.shafts = [];
+    if (th.shaft) {
+      const n = U.ri(rng, 4, 7);
+      let tries = 0;
+      while (map.shafts.length < n && tries++ < 200) {
+        const x = U.ri(rng, 4, w - 5), y = U.ri(rng, 4, h - 5);
+        if (map.t[this.idx(map, x, y)] !== TILE.FLOOR) continue;
+        if (Math.abs(x - map.entry.x) < 6 && Math.abs(y - map.entry.y) < 6) continue;
+        if (map.shafts.some(s => Math.abs(s.x - x) < 9 && Math.abs(s.y - y) < 9)) continue;
+        map.shafts.push({ x: x + 0.5, y: y + 0.5, phase: rng() * Math.PI * 2, w: U.rf(rng, 0.8, 1.5) });
+        map.lights.push({ x: x + 0.5, y: y + 0.5, r: 3.4, color: th.shaft, flick: false });
       }
     }
   },
@@ -239,21 +294,21 @@ const Dungeon = {
     const clearOf = (x, y, pt, r) => Math.abs(x - pt.x) > r || Math.abs(y - pt.y) > r;
 
     for (const kind of kinds) {
-      if (kind === 'lava') {
-        // blobby lava lakes
-        const lakes = U.ri(rng, 3, 6);
+      if (kind === 'lava' || kind === 'water') {
+        // blobby liquid pools — molten lakes or still, reflective water
+        const lakes = kind === 'lava' ? U.ri(rng, 3, 6) : U.ri(rng, 2, 4);
         for (let l = 0; l < lakes; l++) {
           const cx = U.ri(rng, 4, w - 5), cy = U.ri(rng, 4, h - 5);
           if (map.t[this.idx(map, cx, cy)] !== TILE.FLOOR) continue;
           if (!clearOf(cx, cy, map.entry, 5) || !clearOf(cx, cy, map.exit, 4)) continue;
-          const r = U.rf(rng, 1.5, 3.2);
+          const r = kind === 'lava' ? U.rf(rng, 1.5, 3.2) : U.rf(rng, 1.3, 2.6);
           for (let y = Math.max(1, cy - 4); y <= Math.min(h - 2, cy + 4); y++)
             for (let x = Math.max(1, cx - 4); x <= Math.min(w - 2, cx + 4); x++) {
               const d = U.dist(x, y, cx, cy) + U.rf(rng, -0.6, 0.6);
               const i = this.idx(map, x, y);
-              if (d < r && map.t[i] === TILE.FLOOR) map.haz[i] = HAZ.LAVA;
+              if (d < r && map.t[i] === TILE.FLOOR && !map.haz[i]) map.haz[i] = kind === 'lava' ? HAZ.LAVA : HAZ.WATER;
             }
-          map.lights.push({ x: cx + 0.5, y: cy + 0.5, r: 4 + r, color: '#ff5a1c', flick: true });
+          if (kind === 'lava') map.lights.push({ x: cx + 0.5, y: cy + 0.5, r: 4 + r, color: '#ff5a1c', flick: true });
         }
       } else {
         // spike traps / gas vents: sprinkled singles
@@ -363,13 +418,23 @@ const Dungeon = {
     map.lights.push({ x: 14.5, y: 2.5, r: 5, color: '#ff8a2f', flick: true });
     map.lights.push({ x: map.waypoint.x, y: map.waypoint.y, r: 4.5, color: '#8fc8ff', flick: false });
     for (const k in map.npcSpots) map.lights.push({ x: map.npcSpots[k].x, y: map.npcSpots[k].y - 1, r: 3.6, color: '#ffb04f', flick: true });
-    for (const [px, py] of [[3, 3], [25, 3], [3, 24], [25, 24], [10, 24], [19, 24]])
+    for (const [px, py] of [[3, 3], [25, 3], [3, 24], [25, 24], [10, 24], [19, 24]]) {
       map.lights.push({ x: px + 0.5, y: py + 0.5, r: 4, color: '#ffb04f', flick: true, torch: true });
+      map.props.push({ kind: 'brazier', x: px + 0.5, y: py + 0.5, seed: px * 7 + py, color: '#ffb04f' });
+    }
     // props: braziers/pillars around plaza
     for (const [px, py] of [[11, 12], [17, 12], [11, 17], [17, 17]])
-      map.props.push({ kind: 'pillar', x: px + 0.5, y: py + 0.5, seed: px * 31 + py });
-    for (let i = 0; i < 14; i++)
-      map.props.push({ kind: U.pick(rng, ['bones', 'rock', 'urn']), x: U.rf(rng, 2, w - 2), y: U.rf(rng, 2, h - 2), seed: i * 77 });
+      map.props.push({ kind: 'brazier', x: px + 0.5, y: py + 0.5, seed: px * 31 + py, color: '#ffb04f' });
+    // a still pond by the west wall, ringed with reeds
+    for (const [px, py] of [[3, 12], [4, 12], [5, 12], [3, 13], [4, 13], [5, 13], [4, 14], [5, 14], [3, 14]])
+      map.haz[py * w + px] = HAZ.WATER;
+    // trees + greenery around the edges of the square
+    for (const [px, py] of [[3, 5], [8, 3], [20, 3], [24, 6], [24, 16], [8, 24], [16, 24], [23, 23], [3, 20]])
+      map.props.push({ kind: 'tree', x: px + 0.5, y: py + 0.5, seed: px * 13 + py * 7 });
+    for (let i = 0; i < 16; i++)
+      map.props.push({ kind: U.pick(rng, ['rock', 'urn', 'rubble', 'candles']), x: U.rf(rng, 2, w - 2), y: U.rf(rng, 2, h - 2), seed: i * 77 });
+    map.shafts = [];
+    this.computeAO(map);
     return map;
   },
 };
