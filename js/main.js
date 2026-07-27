@@ -205,6 +205,7 @@ const Game = {
   },
 
   clearWorld() {
+    Physics.clear();
     G.monsters = []; G.projs = []; G.pending = []; G.storms = []; G.grounds = [];
     G.groundItems = []; G.parts = []; G.rings = []; G.flashes = []; G.bolts = []; G.dmgNums = [];
     G.npcs = [];
@@ -404,6 +405,17 @@ const Game = {
       if (th.kind === 'goldpile' && th.taken) continue;
       list.push({ kind: 'thing', x: th.x, y: th.y, th, label: th.kind === 'shrine' ? th.shrine.name : th.kind });
     }
+    for (const pr of G.map.props) {
+      if (pr.fixture) {
+        if (pr.kind === 'bookshelf' && pr.searched) continue;
+        if (pr.kind === 'orevein' && pr.ore <= 0) continue;
+        if (pr.kind === 'fountain' && pr.charges <= 0) continue;
+        if (pr.kind === 'brazier_unlit' && pr.lit) continue;
+        list.push({ kind: 'prop', x: pr.x, y: pr.y, pr, label: this.propLabel(pr) });
+      } else if (pr.smashable && pr.hp > 0) {
+        list.push({ kind: 'prop', x: pr.x, y: pr.y, pr, label: 'Smash ' + pr.kind });
+      }
+    }
     for (const gi of G.groundItems) if (!gi.gold) list.push({ kind: 'gitem', x: gi.x, y: gi.y, gi, label: gi.item.name });
     for (const n of G.npcs) list.push({ kind: 'npc', x: n.x, y: n.y, npc: n, label: n.def.name });
     if (G.map.waypoint) list.push({ kind: 'waypoint', x: G.map.waypoint.x, y: G.map.waypoint.y, label: 'Waypoint' });
@@ -440,6 +452,97 @@ const Game = {
         break;
       }
       case 'thing': this.useThing(it.th); break;
+      case 'prop': this.useProp(it.pr); break;
+    }
+  },
+
+  propLabel(pr) {
+    return {
+      lever: pr.on ? 'Pull lever (reset)' : 'Pull the lever',
+      brazier_unlit: 'Light the brazier',
+      orevein: 'Mine the vein',
+      bookshelf: 'Search the shelves',
+      fountain: 'Drink from the fountain',
+    }[pr.kind] || pr.kind;
+  },
+
+  // ---------------- interactive fixtures & smashable props ----------------
+  useProp(pr) {
+    const pl = G.player, map = G.map;
+    if (pr.smashable && pr.hp > 0 && !pr.fixture) {
+      pr.hp = 0;
+      sfx('hit');
+      Physics.burst(pr.x, pr.y, pr.mat || 'wood', 10, { speed: 3.4, size: 3.2, z: 8 });
+      Physics.impulse(pr.x, pr.y, 1.6, 1.4);
+      if (U.chance(U.rand, 0.30)) G.groundItems.push({ x: pr.x, y: pr.y, gold: Math.ceil((3 + map.mlvl * 1.8) * U.rf(U.rand, 0.5, 1.5)) });
+      else if (U.chance(U.rand, 0.12)) G.groundItems.push({ x: pr.x, y: pr.y, item: Items.generate(map.mlvl, { classId: pl.cls, mf: pl.derived.mf }) });
+      return;
+    }
+    switch (pr.kind) {
+      case 'lever': {
+        pr.on = !pr.on;
+        sfx('equip');
+        G.shake += 3;
+        if (pr.on && !pr.spent) {
+          pr.spent = true;
+          UI.announce('Something grinds open nearby...', '#8fc8ff', 2200);
+          const c = pr.cache;
+          for (let i = 0; i < U.ri(U.rand, 2, 4); i++) {
+            const sx = c.x + U.rf(U.rand, -0.7, 0.7), sy = c.y + U.rf(U.rand, -0.7, 0.7);
+            if (U.chance(U.rand, 0.45)) G.groundItems.push({ x: sx, y: sy, gold: Math.ceil((8 + map.mlvl * 3.4) * U.rf(U.rand, 0.7, 1.6)) });
+            else G.groundItems.push({ x: sx, y: sy, item: Items.generate(map.mlvl + 2, { classId: pl.cls, mf: pl.derived.mf + 15 }) });
+          }
+          FX.ring(c.x, c.y, 1.8, '#ffd94f');
+          Physics.burst(c.x, c.y, 'stone', 8, { speed: 2.4 });
+        } else UI.announce('The mechanism resets.', '#8a7444', 1400);
+        break;
+      }
+      case 'brazier_unlit': {
+        pr.lit = true;
+        sfx('fire');
+        map.lights.push({ x: pr.x, y: pr.y, r: 5, color: '#ffb04f', flick: true });
+        UI.announce('The brazier roars to life.', '#ff9a3f', 1800);
+        FX.ring(pr.x, pr.y, 1.4, '#ffb04f');
+        break;
+      }
+      case 'orevein': {
+        pr.ore--;
+        sfx('hit');
+        Physics.burst(pr.x, pr.y, 'stone', 7, { speed: 2.8, size: 2.6 });
+        const amt = Math.ceil((14 + map.mlvl * 5) * U.rf(U.rand, 0.8, 1.5) * (1 + pl.derived.goldFind / 100));
+        pl.gold += amt;
+        UI.dmgNum(pr.x, pr.y, '+' + amt + 'g', '#ffd94f');
+        if (pr.ore <= 0) UI.announce('The vein is worked out.', '#8a7444', 1400);
+        break;
+      }
+      case 'bookshelf': {
+        pr.searched = true;
+        sfx('ui');
+        if (U.chance(U.rand, 0.55)) {
+          const it = Items.generate(map.mlvl + 1, { classId: pl.cls, mf: pl.derived.mf + 10 });
+          G.groundItems.push({ x: pr.x, y: pr.y + 0.6, item: it });
+          UI.announce('Something was hidden among the pages.', '#8fc8ff', 2000);
+        } else {
+          const amt = Math.ceil((6 + map.mlvl * 2.2) * U.rf(U.rand, 0.6, 1.4));
+          pl.gold += amt;
+          UI.dmgNum(pr.x, pr.y, '+' + amt + 'g', '#ffd94f');
+        }
+        Physics.burst(pr.x, pr.y, 'cloth', 4, { speed: 1.4, size: 2 });
+        break;
+      }
+      case 'fountain': {
+        if (pr.charges <= 0) return;
+        pr.charges--;
+        sfx('shrine');
+        pl.hp = Math.min(pl.derived.maxHp, pl.hp + pl.derived.maxHp * 0.5);
+        pl.mp = Math.min(pl.derived.maxMp, pl.mp + pl.derived.maxMp * 0.5);
+        pl.buffs = pl.buffs.filter(b => b.name !== 'Fountain\'s Vigor');
+        pl.buffs.push({ name: 'Fountain\'s Vigor', stats: { regenHp: 4, allRes: 10 }, t: 90, maxT: 90, color: '#8fd8ff' });
+        Ent.computeDerived(pl);
+        UI.announce('The waters restore you.', '#8fd8ff', 2000);
+        FX.ring(pr.x, pr.y, 1.6, '#8fd8ff');
+        break;
+      }
     }
   },
 
@@ -450,6 +553,8 @@ const Game = {
         th.hp = 0;
         sfx('hit');
         FX.deathBurst(th.x, th.y, '#7a5a38', 0.8);
+        Physics.burst(th.x, th.y, 'wood', 12, { speed: 3.8, size: 3.4, z: 10 });
+        Physics.impulse(th.x, th.y, 1.8, 1.6);
         if (th.explosive) Ent.explode(th.x, th.y, 2.2, [map.mlvl * 3 + 8, map.mlvl * 5 + 14], 'fire', { both: true });
         if (U.chance(U.rand, 0.35)) G.groundItems.push({ x: th.x, y: th.y, gold: Math.ceil((3 + map.mlvl * 2) * U.rf(U.rand, 0.5, 1.5)) });
         else if (U.chance(U.rand, 0.15)) G.groundItems.push({ x: th.x, y: th.y, item: Items.generate(map.mlvl, { classId: pl.cls, mf: pl.derived.mf }) });
@@ -458,6 +563,7 @@ const Game = {
       case 'chest': {
         th.opened = true;
         sfx('gold');
+        Physics.burst(th.x, th.y, 'metal', 5, { speed: 1.8, size: 2.2, z: 14 });
         const n = U.ri(U.rand, 2, 3);
         for (let i = 0; i < n; i++) {
           if (U.chance(U.rand, 0.35)) G.groundItems.push({ x: th.x + U.rf(U.rand, -0.8, 0.8), y: th.y + U.rf(U.rand, -0.8, 0.8), gold: Math.ceil((6 + map.mlvl * 3) * U.rf(U.rand, 0.7, 1.6)) });
@@ -544,8 +650,12 @@ const Game = {
       if (this.mouse.rmb && pl.hotbar.rmb) Ent.castSkill(pl, pl.hotbar.rmb, G.mouseWorld[0], G.mouseWorld[1]);
     }
 
+    // gait phase drives the walk/run cycle
+    pl.gait = (pl.gait || 0) + dt * (pl.moving ? d.moveSpd * 0.30 : 0);
+
     // world simulation
     if (!pl.dead) Ent.updateWorld(dt);
+    Physics.step(dt);
 
     // auto-pickup gold
     for (let i = G.groundItems.length - 1; i >= 0; i--) {
@@ -616,6 +726,11 @@ const Game = {
       if (e.button === 2) this.mouse.rmb = false;
     });
     cv.addEventListener('contextmenu', e => e.preventDefault());
+    cv.addEventListener('wheel', e => {
+      if (G.state !== 'game') return;
+      e.preventDefault();
+      Cam.adjustZoom(e.deltaY < 0 ? 0.1 : -0.1);
+    }, { passive: false });
     window.addEventListener('blur', () => { this.keys = {}; this.mouse.lmb = this.mouse.rmb = false; });
   },
 
@@ -635,6 +750,7 @@ const Game = {
 // ---------------- boot ----------------
 window.addEventListener('DOMContentLoaded', () => {
   Render.init();
+  Cam.init();
   UI.init();
   WUI.init();
   Social.init();

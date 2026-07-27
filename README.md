@@ -127,6 +127,55 @@ via Edit Mode (layout persists between sessions):
 ![Settings](screenshots/ui_settings.png)
 ![Interface edit mode — drag any frame](screenshots/ui_editmode.png)
 
+### Cameras, physics and a real human figure
+Two perspectives, a rigid-body layer, and an articulated body that wears what you equip.
+
+**Adjustable camera** — switch between the classic **Isometric** view and a **Third Person**
+camera that swings in behind your hero and follows their facing. Both perspectives expose
+independent, persisted settings:
+
+- **Zoom** 0.55×–2.8× on the mouse wheel, the `+`/`-` keys or a settings slider
+- **Pitch**, from near top-down to a low, horizon-heavy angle
+- **Free yaw rotation** — `[` and `]` rotate the world; iso snaps to 90°, third person turns
+  smoothly and auto-swings behind you after a manual nudge
+- **Follow distance** and **turn speed** for the third-person rig
+- Walls between the camera and your hero **fade out** so a low angle never boxes you in
+
+Pre-rendered diamond tiles stay pixel-correct at any yaw: the camera matrix
+`P(zoom,pitch) · R(yaw) · P(1,0.5)⁻¹` maps the baked art into the rotated view, and walls become
+true extrusions — ground corners projected, lifted, with only the camera-facing quads drawn.
+The whole floor pass runs under a single transform.
+
+**Physics** — smashed props throw chunks that arc, tumble, bounce off floors and walls, skid to a
+stop under friction, splash in water and burn up in lava. Corpses **ragdoll** along the blow that
+killed them. Explosions apply radial impulses to debris, corpses and loose props alike, and
+materials (wood, stone, clay, bone, metal, glass, cloth) each have their own restitution and drag.
+
+**Human figure** — the old stick sprite is gone. Every humanoid is now a jointed skeleton —
+pelvis, spine, neck, head, upper and forearms, thighs and shins — posed by an animation state
+machine with a contralateral walk cycle, a faster run, windup/strike/recover attacks, casting,
+flinches, deaths and dances. The hero is drawn live rather than from a sheet, so **equipment is
+visible**: your helm (with visor, crest and horns at higher rarities), chest plate and pauldrons,
+cape, belt buckle, gloves, boots and your actual weapon — sword, axe, mace, spear, bow, crossbow,
+staff, wand, dagger or orb — all coloured by the item's rarity and glowing if it's a set or unique.
+
+**Props & fixtures** — roughly triple the prop density and 30+ types: crates, sarcophagi,
+bookshelves, chandeliers, weapon racks, anvils, cauldrons, tables, chairs, sacks, pots, lanterns,
+wellheads and ore veins. Many are **interactive**:
+
+| Fixture | What it does |
+|---|---|
+| **Lever** | Grinds open a hidden cache of loot nearby |
+| **Unlit brazier** | Light it — it becomes a permanent light source |
+| **Ore vein** | Mine it for gold, several charges deep |
+| **Bookshelf** | Search it for hidden items or coin |
+| **Fountain** | Drink to heal and gain Fountain's Vigor |
+| **Crates, pots, urns, sacks** | Smash them into physics debris, sometimes loot |
+
+![Isometric camera](screenshots/camera_iso.png)
+![Third-person camera](screenshots/camera_third.png)
+![Camera settings](screenshots/camera_settings.png)
+
 ### A living social world — friends, guilds, chat, emotes
 Haven's Rest is now populated: simulated players (the same personalities that fill the season
 ladder) walk the town, chatter, and react to what you do.
@@ -169,6 +218,8 @@ ladder) walk the town, chatter, and react to what you do.
 | **I · C · K · L** | Inventory · Character · Skills · Ladder |
 | **J · O** | Quest log · Settings |
 | **U · G** | Social (friends) · Guild |
+| **V** | Toggle isometric / third-person camera |
+| **[ · ]** | Rotate camera · **wheel / + · -** — zoom |
 | **Enter** | Chat (`/help` for commands) |
 | **N** | Mute · **Esc** — menu |
 | **Click** | Talk, loot, open, smash, activate |

@@ -249,10 +249,12 @@ const Dungeon = {
     // guarantee lights at entry/exit
     map.lights.push({ x: map.entry.x, y: map.entry.y, r: 5, color: '#8fc8ff', flick: false });
     map.lights.push({ x: map.exit.x, y: map.exit.y, r: 5, color: '#ff8a2f', flick: true });
-    // props on floor
+    // props on floor — denser scatter, plus interactive fixtures
     const props = th.props || [];
+    const SMASHABLE = { crate: 'wood', pot: 'clay', urn: 'clay', sack: 'cloth', barrelprop: 'wood', sarcophagus: 'stone' };
+    const LOOSE = { pot: 1, sack: 1, chair: 1, crate: 1, urn: 1 };
     if (props.length) {
-      const n = Math.floor(w * h * 0.013);
+      const n = Math.floor(w * h * 0.022);
       for (let i = 0; i < n; i++) {
         const x = U.ri(rng, 2, w - 3), y = U.ri(rng, 2, h - 3);
         const t = map.t[this.idx(map, x, y)];
@@ -262,11 +264,51 @@ const Dungeon = {
         // cobwebs cling to walls: only keep them next to one
         if (kind === 'cobweb' && !(this.isWall(map, x, y - 1) || this.isWall(map, x - 1, y))) kind = 'rubble';
         const pr = { kind, x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 9999) };
+        if (SMASHABLE[kind]) { pr.hp = 1; pr.mat = SMASHABLE[kind]; pr.smashable = true; }
+        if (LOOSE[kind]) pr.loose = true;
         map.props.push(pr);
         // emissive props bring their own dim light
         if (kind === 'crystal') map.lights.push({ x: pr.x, y: pr.y, r: 2.6, color: '#7bdcff', flick: false });
         else if (kind === 'mushroom') map.lights.push({ x: pr.x, y: pr.y, r: 2.2, color: '#6ae8a0', flick: false });
         else if (kind === 'candles') map.lights.push({ x: pr.x, y: pr.y, r: 2.4, color: '#ffcf6f', flick: true });
+        else if (kind === 'lantern') map.lights.push({ x: pr.x, y: pr.y, r: 3.2, color: '#ffcf8f', flick: true });
+        else if (kind === 'chandelier') map.lights.push({ x: pr.x, y: pr.y, r: 4.2, color: '#ffc98f', flick: true });
+        else if (kind === 'orevein') map.lights.push({ x: pr.x, y: pr.y, r: 1.8, color: '#ffd94f', flick: false });
+      }
+    }
+
+    // interactive fixtures — each one does something when you click it
+    const fixtures = th.fixtures || [];
+    if (fixtures.length) {
+      const nf = U.ri(rng, 3, 6);
+      for (let i = 0; i < nf; i++) {
+        const kind = U.pick(rng, fixtures);
+        let x, y, ok = false;
+        for (let tries = 0; tries < 40 && !ok; tries++) {
+          x = U.ri(rng, 2, w - 3); y = U.ri(rng, 2, h - 3);
+          const ix = this.idx(map, x, y);
+          if (map.t[ix] !== TILE.FLOOR || map.haz[ix]) continue;
+          if (Math.abs(x - map.entry.x) < 4 && Math.abs(y - map.entry.y) < 4) continue;
+          if (map.props.some(p2 => Math.abs(p2.x - x - 0.5) < 1.2 && Math.abs(p2.y - y - 0.5) < 1.2)) continue;
+          ok = true;
+        }
+        if (!ok) continue;
+        const pr = { kind, x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 9999), fixture: true, used: false };
+        if (kind === 'lever') {
+          pr.on = false;
+          // wire the lever to a nearby cache of treasure it unseals
+          pr.cache = { x: pr.x + U.rf(rng, -2.5, 2.5), y: pr.y + U.rf(rng, -2.5, 2.5) };
+        } else if (kind === 'brazier_unlit') {
+          pr.lit = false;
+        } else if (kind === 'orevein') {
+          pr.ore = U.ri(rng, 2, 4);
+        } else if (kind === 'bookshelf') {
+          pr.searched = false;
+        } else if (kind === 'fountain') {
+          pr.charges = U.ri(rng, 1, 2);
+          map.lights.push({ x: pr.x, y: pr.y, r: 3, color: '#8fd8ff', flick: false });
+        }
+        map.props.push(pr);
       }
     }
     // volumetric god-ray shafts falling from cracks in the unseen ceiling
@@ -431,8 +473,15 @@ const Dungeon = {
     // trees + greenery around the edges of the square
     for (const [px, py] of [[3, 5], [8, 3], [20, 3], [24, 6], [24, 16], [8, 24], [16, 24], [23, 23], [3, 20]])
       map.props.push({ kind: 'tree', x: px + 0.5, y: py + 0.5, seed: px * 13 + py * 7 });
-    for (let i = 0; i < 16; i++)
-      map.props.push({ kind: U.pick(rng, ['rock', 'urn', 'rubble', 'candles']), x: U.rf(rng, 2, w - 2), y: U.rf(rng, 2, h - 2), seed: i * 77 });
+    for (let i = 0; i < 26; i++) {
+      const kind = U.pick(rng, ['rock', 'urn', 'rubble', 'candles', 'crate', 'pot', 'sack', 'table', 'chair', 'lantern', 'anvil', 'weaponrack', 'bookshelf']);
+      const pr = { kind, x: U.rf(rng, 2, w - 2), y: U.rf(rng, 2, h - 2), seed: i * 77 };
+      if (['crate', 'pot', 'urn', 'sack'].includes(kind)) { pr.hp = 1; pr.smashable = true; pr.loose = true; pr.mat = kind === 'pot' || kind === 'urn' ? 'clay' : kind === 'sack' ? 'cloth' : 'wood'; }
+      map.props.push(pr);
+      if (kind === 'lantern') map.lights.push({ x: pr.x, y: pr.y, r: 3, color: '#ffcf8f', flick: true });
+    }
+    map.props.push({ kind: 'fountain', x: 14.5, y: 15.5, seed: 5, fixture: true, charges: 99 });
+    map.lights.push({ x: 14.5, y: 15.5, r: 3.4, color: '#8fd8ff', flick: false });
     map.shafts = [];
     this.computeAO(map);
     return map;
