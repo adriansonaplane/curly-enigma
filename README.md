@@ -127,6 +127,36 @@ via Edit Mode (layout persists between sessions):
 ![Settings](screenshots/ui_settings.png)
 ![Interface edit mode — drag any frame](screenshots/ui_editmode.png)
 
+### A living social world — friends, guilds, chat, emotes
+Haven's Rest is now populated: simulated players (the same personalities that fill the season
+ladder) walk the town, chatter, and react to what you do.
+
+- **Friends system** — `/friend` players, see them in a movable Friends frame with online status,
+  and get login/logout alerts. Whisper from the Social panel with one click.
+- **Guild system** — browse five recruiting guilds or found your own for 2,500 gold. Guild tag on
+  your player frame, roster with ranks (Guild Master / Officer / Member / Initiate), editable
+  MOTD (`/gmotd`, Guild Master only), a movable Guild frame, and a green guild chat channel.
+- **Chat channels** — Local and Guild tabs join the chat frame; `/w` private messages get
+  personality-driven replies (traders, helpers, memers, grinders, recruiters, lorekeepers),
+  `/r` answers the last whisper, `/who` lists who's around. Other players congratulate your
+  level-ups, boss kills and unique drops.
+- **Mute & block** — `/mute` hides a player's chat; `/block` also rejects their whispers. Manage
+  both from the Social panel (U).
+- **Emotes & dances** — 13 emotes (`/wave /bow /cheer /laugh /roar /flex …` — see `/emotes`) and
+  `/dance`, which spins your character with musical notes; townsfolk sometimes dance along.
+- **Chat & emote bubbles** — speech bubbles over your character and simulated players in the
+  world (toggleable in Settings → Interface).
+- **Special nameplates** — notable players carry colored names: gold ★GM, purple MVP, teal
+  Veteran — plus guild tags and levels on every player nameplate.
+- **Command list** — `/help` in the chat window lists everything.
+
+> ⚠️ Same honest fine print as the ladder: there is no server, so the "other players" are a
+> deterministic client-side simulation — consistent, chatty, occasionally helpful, never real.
+
+![Haven's Rest, populated](screenshots/social_town.png)
+![Social panel](screenshots/social_panel.png)
+![Guild panel](screenshots/social_guild.png)
+
 ## 🎮 Controls (defaults — everything rebindable in Settings → Keybinds)
 
 | Input | Action |
@@ -138,6 +168,7 @@ via Edit Mode (layout persists between sessions):
 | **T** | Town portal |
 | **I · C · K · L** | Inventory · Character · Skills · Ladder |
 | **J · O** | Quest log · Settings |
+| **U · G** | Social (friends) · Guild |
 | **Enter** | Chat (`/help` for commands) |
 | **N** | Mute · **Esc** — menu |
 | **Click** | Talk, loot, open, smash, activate |

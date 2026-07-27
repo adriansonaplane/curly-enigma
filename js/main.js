@@ -577,6 +577,7 @@ const Game = {
 
     UI.updateHUD();
     WUI.update(dt);
+    Social.update(dt);
 
     // interactable hover tooltip + cursor
     if (UI.openPanel === null) {
@@ -636,6 +637,7 @@ window.addEventListener('DOMContentLoaded', () => {
   Render.init();
   UI.init();
   WUI.init();
+  Social.init();
   UI.initMenu();
   Game.bindInput();
   requestAnimationFrame(t => Game.loop(t));
