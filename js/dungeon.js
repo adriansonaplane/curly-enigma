@@ -2,7 +2,17 @@
 'use strict';
 
 const TILE = { WALL: 0, FLOOR: 1, EXIT: 2, ENTRY: 3, DOOR: 4 };
-const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3, WATER: 4, VENT: 5 };
+const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3, WATER: 4, VENT: 5, SPORE: 6, EMBER: 7 };
+
+// The three cycling vents share all their machinery and differ only in what
+// they spit. Keyed by HAZ value so the renderer and the damage code can look
+// up one record instead of branching three ways in four places.
+const VENT_KINDS = {
+  5: { tile: 'vent',  color: '#ff9a3f', hot: '#ffd9a0', elem: 'fire', dmg: 0.055, mul: 1.8, name: 'steam vent' },
+  6: { tile: 'spore', color: '#8ae8a0', hot: '#d8ffe0', elem: 'pois', dmg: 0.040, mul: 1.2, name: 'spore vent' },
+  7: { tile: 'ember', color: '#ff5a2f', hot: '#ffc060', elem: 'fire', dmg: 0.070, mul: 2.2, name: 'ember geyser' },
+};
+function isVent(hz) { return hz === HAZ.VENT || hz === HAZ.SPORE || hz === HAZ.EMBER; }
 
 // Steam vents fire on a cycle instead of burning constantly: a visible
 // build-up, then a scalding jet, then a lull you can walk through. The phase
@@ -276,7 +286,9 @@ const Dungeon = {
     map.lights.push({ x: map.exit.x, y: map.exit.y, r: 5, color: '#ff8a2f', flick: true });
     // props on floor — denser scatter, plus interactive fixtures
     const props = th.props || [];
-    const SMASHABLE = { crate: 'wood', pot: 'clay', urn: 'clay', sack: 'cloth', barrelprop: 'wood', sarcophagus: 'stone' };
+    const SMASHABLE = { crate: 'wood', pot: 'clay', urn: 'clay', sack: 'cloth', barrelprop: 'wood', sarcophagus: 'stone',
+                        spider_eggsac: 'cloth', plague_vat: 'wood', dynamite: 'wood', soul_cage: 'stone',
+                        haunted_doll: 'cloth', corrupted_stone: 'stone', charred_bones: 'stone', giant_clam: 'stone' };
     const LOOSE = { pot: 1, sack: 1, chair: 1, crate: 1, urn: 1 };
     if (props.length) {
       const n = Math.floor(w * h * 0.022);
@@ -423,9 +435,10 @@ const Dungeon = {
         }
       } else {
         // spike traps, gas pockets and steam vents: sprinkled singles
-        const density = { spikes: 0.004, gas: 0.0025, vent: 0.003 }[kind];
+        const density = { spikes: 0.004, gas: 0.0025, vent: 0.003, spore: 0.003, ember: 0.0028 }[kind];
         if (density === undefined) continue;   // unknown hazard: place nothing
-        const type = { spikes: HAZ.SPIKES, gas: HAZ.GAS, vent: HAZ.VENT }[kind];
+        const type = { spikes: HAZ.SPIKES, gas: HAZ.GAS, vent: HAZ.VENT,
+                       spore: HAZ.SPORE, ember: HAZ.EMBER }[kind];
         const n = Math.floor(w * h * density);
         for (let i = 0; i < n; i++) {
           const x = U.ri(rng, 2, w - 3), y = U.ri(rng, 2, h - 3);
@@ -435,7 +448,8 @@ const Dungeon = {
           map.haz[ix] = type;
           // the jet throws its own light when it fires; the renderer scales
           // this by the live cycle so a dormant vent stays dark
-          if (type === HAZ.VENT) map.lights.push({ x: x + 0.5, y: y + 0.5, r: 3.4, color: '#ff9a3f', vent: ix });
+          if (isVent(type))
+            map.lights.push({ x: x + 0.5, y: y + 0.5, r: 3.4, color: VENT_KINDS[type].color, vent: ix });
         }
       }
     }

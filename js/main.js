@@ -784,6 +784,7 @@ const Game = {
 
 // ---------------- boot ----------------
 window.addEventListener('DOMContentLoaded', () => {
+  Assets.absorbPacks();   // curated per-act slugs win over generic name matches
   Render.init();
   Cam.init();
   UI.init();

@@ -234,11 +234,11 @@ const Render = {
         else if (hz === HAZ.WATER) img = tiles.water[waterFrame];
         else if (hz === HAZ.SPIKES) img = tiles.spikes;
         else if (hz === HAZ.GAS) img = tiles.gas;
-        else if (hz === HAZ.VENT) img = tiles.vent;
+        else if (isVent(hz)) img = tiles[VENT_KINDS[hz].tile];
         else img = tiles.floors[map.variant[i] % tiles.floors.length];
         ctx.drawImage(img, px - ISO_X, py - ISO_Y, ISO_X * 2, ISO_Y * 2);
         if (useAO && map.ao[i]) ctx.drawImage(aoTiles[map.ao[i]], px - ISO_X, py - ISO_Y, ISO_X * 2, ISO_Y * 2);
-        if (tile === TILE.EXIT || tile === TILE.ENTRY || hz === HAZ.VENT || (hz === HAZ.WATER && hiQ))
+        if (tile === TILE.EXIT || tile === TILE.ENTRY || isVent(hz) || (hz === HAZ.WATER && hiQ))
           special.push([tx, ty, tile, hz, sx, sy]);
       }
     }
@@ -269,7 +269,7 @@ const Render = {
         ctx.fillStyle = U.rgba(glow, 0.18); ctx.fill();
         ctx.restore();
       }
-      if (hz === HAZ.VENT) this.drawVent(ctx, tx, ty, sx, sy, t);
+      if (isVent(hz)) this.drawVent(ctx, tx, ty, sx, sy, t, VENT_KINDS[hz]);
     }
 
     // ground effect zones
@@ -530,7 +530,7 @@ const Render = {
   // shimmer and a widening ring, then fires a scalding column. Drawing both
   // phases off the same shared clock keeps what you see and what burns you
   // in agreement — the warning is honest.
-  drawVent(ctx, tx, ty, sx, sy, t) {
+  drawVent(ctx, tx, ty, sx, sy, t, kind) {
     const i = ty * G.map.w + tx;
     const jetting = ventJetting(i, t);
     const charge = ventCharge(i, t);
@@ -541,11 +541,11 @@ const Render = {
     if (jetting) {
       const p = ventPhase(i, t) / VENT_JET;          // 0..1 through the jet
       const env = Math.sin(Math.min(1, p) * Math.PI); // fade in and out
-      const H = (46 + 26 * env) * z;
+      const H = (46 + 26 * env) * z * (kind.mul / 1.8);
       const g = ctx.createLinearGradient(sx, sy, sx, sy - H);
-      g.addColorStop(0, U.rgba('#ffd9a0', 0.62 * env));
-      g.addColorStop(0.45, U.rgba('#ff9a3f', 0.34 * env));
-      g.addColorStop(1, 'rgba(255,150,60,0)');
+      g.addColorStop(0, U.rgba(kind.hot, 0.62 * env));
+      g.addColorStop(0.45, U.rgba(kind.color, 0.34 * env));
+      g.addColorStop(1, U.rgba(kind.color, 0));
       ctx.fillStyle = g;
       ctx.beginPath();
       ctx.moveTo(sx - 7 * z, sy + 2 * z);
@@ -554,17 +554,17 @@ const Render = {
       ctx.quadraticCurveTo(sx + 11 * z, sy - H * 0.6, sx + 7 * z, sy + 2 * z);
       ctx.closePath(); ctx.fill();
       // hot core
-      ctx.fillStyle = U.rgba('#fff2c0', 0.5 * env);
+      ctx.fillStyle = U.rgba(kind.hot, 0.5 * env);
       ctx.beginPath(); ctx.ellipse(sx, sy - 6 * z, 4 * z, 9 * z * env, 0, 0, Math.PI * 2); ctx.fill();
       // ground flash
-      ctx.fillStyle = U.rgba('#ff9a3f', 0.3 * env);
+      ctx.fillStyle = U.rgba(kind.color, 0.3 * env);
       ctx.beginPath(); ctx.ellipse(sx, sy, 15 * z, 7 * z, 0, 0, Math.PI * 2); ctx.fill();
     } else {
       // telegraph: a shimmer at the mouth and a ring that closes as it charges
-      ctx.fillStyle = U.rgba('#ff9a3f', 0.16 * charge);
+      ctx.fillStyle = U.rgba(kind.color, 0.16 * charge);
       ctx.beginPath(); ctx.ellipse(sx, sy - 3 * z, 6 * z, 4 * z, 0, 0, Math.PI * 2); ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = U.rgba('#ffb04f', 0.3 + 0.45 * charge);
+      ctx.strokeStyle = U.rgba(kind.hot, 0.3 + 0.45 * charge);
       ctx.lineWidth = 1.4;
       const rr = 1 - charge * 0.55;
       ctx.beginPath();
@@ -1756,6 +1756,327 @@ const Render = {
         break;
       }
       case 'tree': break; // drawn after restore — needs its own transform
+
+      // ---- props added alongside the Act asset packs ----
+      // Vector stand-ins, so each act reads as its own place today; every one
+      // has a model reserved in js/assetpacks.js for when art lands.
+
+      // Act I — the parish
+      case 'soul_cage': {          // hanging iron cage with a trapped wisp
+        const gl = 0.5 + Math.sin(t * 2.2 + pr.seed) * 0.4;
+        ctx.strokeStyle = '#3a3a44'; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(0, -26); ctx.stroke();
+        ctx.fillStyle = U.rgba('#8fc8ff', 0.16 + gl * 0.2);
+        ctx.beginPath(); ctx.ellipse(0, -16, 8, 10, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = U.rgba('#dff4ff', 0.5 + gl * 0.4);
+        ctx.beginPath(); ctx.ellipse(0, -16 + Math.sin(t * 1.7) * 2, 2.6, 3.2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#4a4a54'; ctx.lineWidth = 1.2;
+        for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.moveTo(i * 2.4, -26); ctx.lineTo(i * 2.9, -6); ctx.stroke(); }
+        ctx.beginPath(); ctx.ellipse(0, -26, 8, 2.6, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, -6, 9, 3, 0, 0, Math.PI * 2); ctx.stroke();
+        break;
+      }
+      case 'reliquary': {          // little gilded shrine box on a plinth
+        ctx.fillStyle = 'rgba(0,0,0,0.36)'; ctx.beginPath(); ctx.ellipse(0, 2, 10, 4.2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = U.shade('#5a5a64', 1); ctx.fillRect(-8, -10, 16, 10);
+        const g = ctx.createLinearGradient(-7, -24, 7, -10);
+        g.addColorStop(0, '#c9a44f'); g.addColorStop(1, '#7a6224');
+        ctx.fillStyle = g; ctx.fillRect(-7, -22, 14, 12);
+        ctx.fillStyle = '#e8d089';
+        ctx.beginPath(); ctx.moveTo(-7, -22); ctx.lineTo(0, -28); ctx.lineTo(7, -22); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = '#3a2e12'; ctx.lineWidth = 1; ctx.strokeRect(-7, -22, 14, 12);
+        break;
+      }
+      case 'grave_marker': {       // small leaning slab
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 2, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.rotate(((pr.seed % 11) - 5) * 0.012);
+        ctx.fillStyle = U.shade('#7a7a84', 0.9);
+        ctx.beginPath();
+        ctx.moveTo(-5, 0); ctx.lineTo(-5, -11); ctx.arc(0, -11, 5, Math.PI, 0); ctx.lineTo(5, 0);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(20,20,26,0.6)'; ctx.lineWidth = 0.9; ctx.stroke();
+        break;
+      }
+      case 'corpse_shroud': {      // wrapped body on the floor
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 1, 13, 5, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createLinearGradient(-12, -6, 12, 2);
+        g.addColorStop(0, '#b8b0a0'); g.addColorStop(1, '#6a6558');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(0, -3, 12, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(60,56,48,0.8)'; ctx.lineWidth = 1;
+        for (const f of [-6, 0, 6]) { ctx.beginPath(); ctx.moveTo(f, -7); ctx.lineTo(f, 1); ctx.stroke(); }
+        break;
+      }
+      case 'prison_cell': {        // barred alcove front
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(-13, -30, 26, 30);
+        ctx.strokeStyle = '#4a4e56'; ctx.lineWidth = 2;
+        for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 5.5, -30); ctx.lineTo(i * 5.5, 0); ctx.stroke(); }
+        ctx.beginPath(); ctx.moveTo(-13, -30); ctx.lineTo(13, -30); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-13, -16); ctx.lineTo(13, -16); ctx.stroke();
+        break;
+      }
+
+      // Act II — the catacombs
+      case 'ritual_circle': {      // glowing sigil painted on the floor
+        const pulse = 0.4 + Math.sin(t * 1.6 + pr.seed) * 0.25;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = U.rgba('#c07bff', pulse); ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.ellipse(0, 0, 17, 8.5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, 0, 11, 5.5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 5; i++) {
+          const a = i * Math.PI * 2 / 5 - Math.PI / 2, b = a + Math.PI * 4 / 5;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * 16, Math.sin(a) * 8);
+          ctx.lineTo(Math.cos(b) * 16, Math.sin(b) * 8);
+          ctx.stroke();
+        }
+        ctx.restore();
+        break;
+      }
+      case 'spider_eggsac': {      // pale sac slung against the wall
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(0, 2, 8, 3.4, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createRadialGradient(-2, -14, 1, 0, -12, 11);
+        g.addColorStop(0, '#e8e4d0'); g.addColorStop(1, '#9a9478');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(0, -12, 8, 11, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(90,86,66,0.55)'; ctx.lineWidth = 0.8;
+        for (let i = 0; i < 4; i++) {
+          ctx.beginPath(); ctx.ellipse(0, -12, 8 - i * 1.6, 11 - i * 2.2, 0, 0, Math.PI * 2); ctx.stroke();
+        }
+        break;
+      }
+      case 'plague_vat': {         // bubbling barrel of something wrong
+        ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createLinearGradient(-10, -22, 10, 0);
+        g.addColorStop(0, '#5a5a4a'); g.addColorStop(1, '#32321f');
+        ctx.fillStyle = g; ctx.fillRect(-10, -22, 20, 22);
+        ctx.strokeStyle = '#6a6a58'; ctx.lineWidth = 1.4;
+        for (const yy of [-17, -9, -2]) { ctx.beginPath(); ctx.moveTo(-10, yy); ctx.lineTo(10, yy); ctx.stroke(); }
+        const bub = 0.5 + Math.sin(t * 3 + pr.seed) * 0.5;
+        ctx.fillStyle = U.rgba('#8ef04a', 0.55);
+        ctx.beginPath(); ctx.ellipse(0, -22, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = U.rgba('#d8ff9a', 0.5 * bub);
+        ctx.beginPath(); ctx.ellipse(2 - bub * 3, -23, 2, 1.2, 0, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'haunted_doll': {       // small seated figure, faintly wrong
+        ctx.fillStyle = 'rgba(0,0,0,0.26)'; ctx.beginPath(); ctx.ellipse(0, 2, 5, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#8a6a5a';
+        ctx.beginPath(); ctx.arc(0, -11, 4.2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#7a3a4a'; ctx.fillRect(-4, -7, 8, 7);
+        ctx.strokeStyle = '#7a3a4a'; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(-4, -5); ctx.lineTo(-7, -1); ctx.moveTo(4, -5); ctx.lineTo(7, -1); ctx.stroke();
+        ctx.fillStyle = U.rgba('#ff4f4f', 0.75 + Math.sin(t * 4 + pr.seed) * 0.25);
+        ctx.fillRect(-2.2, -12, 1.4, 1.4); ctx.fillRect(0.8, -12, 1.4, 1.4);
+        break;
+      }
+
+      // Act III — the undercity
+      case 'stalactite': {         // hanging spike from the unseen roof
+        const g = ctx.createLinearGradient(0, -40, 0, -8);
+        g.addColorStop(0, U.shade('#4a3a2e', 1.2)); g.addColorStop(1, '#241a12');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.moveTo(-6, -40); ctx.lineTo(6, -40); ctx.lineTo(1.2, -8); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.beginPath(); ctx.moveTo(-6, -40); ctx.lineTo(-1, -40); ctx.lineTo(0, -12); ctx.closePath(); ctx.fill();
+        break;
+      }
+      case 'echo_crystal': {       // resonating shard, hums with light
+        const gl = 0.55 + Math.sin(t * 1.8 + pr.seed) * 0.45;
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 2, 8, 3.4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = U.rgba('#8fd8ff', 0.14 * gl);
+        ctx.beginPath(); ctx.arc(0, -13, 15, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        for (const [dx, h, w] of [[-4, 18, 3.4], [0, 26, 4.4], [4.5, 14, 3]]) {
+          const g = ctx.createLinearGradient(dx, -h, dx, 0);
+          g.addColorStop(0, U.rgba('#cfefff', 0.95)); g.addColorStop(1, U.rgba('#3a7aa0', 0.85));
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.moveTo(dx, -h); ctx.lineTo(dx + w, -h * 0.42); ctx.lineTo(dx, 0);
+          ctx.lineTo(dx - w, -h * 0.42); ctx.closePath(); ctx.fill();
+        }
+        break;
+      }
+      case 'mining_beam': {        // timber pit prop
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 2, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#5a4228';
+        ctx.fillRect(-13, -34, 4.5, 34); ctx.fillRect(8.5, -34, 4.5, 34);
+        ctx.fillStyle = '#6a5030'; ctx.fillRect(-14, -38, 28, 5);
+        ctx.strokeStyle = '#3a2a16'; ctx.lineWidth = 1;
+        ctx.strokeRect(-14, -38, 28, 5);
+        break;
+      }
+      case 'dynamite': {           // bundled charges, smashable
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 2, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+        for (let i = -1; i <= 1; i++) {
+          ctx.fillStyle = i === 0 ? '#b8442a' : '#9a3a22';
+          ctx.fillRect(i * 3.4 - 1.5, -12, 3, 12);
+        }
+        ctx.strokeStyle = '#3a2a16'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(-5, -7); ctx.lineTo(5, -7); ctx.stroke();
+        ctx.strokeStyle = '#c8b070'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, -12); ctx.quadraticCurveTo(4, -18, 1, -21); ctx.stroke();
+        break;
+      }
+      case 'ogre_bonepile': {      // gnawed leavings
+        ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.beginPath(); ctx.ellipse(0, 2, 12, 5, 0, 0, Math.PI * 2); ctx.fill();
+        const br = makeRng(pr.seed + 3);
+        for (let i = 0; i < 9; i++) {
+          const a = br() * Math.PI * 2, r = br() * 9;
+          ctx.save(); ctx.translate(Math.cos(a) * r, Math.sin(a) * r * 0.45 - 2); ctx.rotate(br() * Math.PI);
+          ctx.strokeStyle = U.shade('#d8d2be', 0.8 + br() * 0.4); ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(-3.5, 0); ctx.lineTo(3.5, 0); ctx.stroke();
+          ctx.restore();
+        }
+        break;
+      }
+
+      // Act IV — the drowned fane
+      case 'marsh_grass': {        // reed clump, swaying
+        const sw = Math.sin(t * 1.1 + pr.seed) * 2;
+        const gr = makeRng(pr.seed + 7);
+        for (let i = 0; i < 9; i++) {
+          const dx = (gr() - 0.5) * 13, h = 10 + gr() * 13;
+          ctx.strokeStyle = U.shade('#4a7a3a', 0.7 + gr() * 0.6); ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(dx, 0);
+          ctx.quadraticCurveTo(dx + sw * 0.5, -h * 0.6, dx + sw, -h);
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'poison_vine': {        // creeping vine with fat sacs
+        const gr = makeRng(pr.seed + 11);
+        ctx.strokeStyle = '#3a6a3a'; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(-11, 0);
+        ctx.quadraticCurveTo(-3, -14, 4, -6); ctx.quadraticCurveTo(9, -1, 12, -13);
+        ctx.stroke();
+        for (let i = 0; i < 4; i++) {
+          const px = -9 + i * 6, py = -4 - gr() * 8;
+          ctx.fillStyle = U.rgba('#8ef04a', 0.7);
+          ctx.beginPath(); ctx.ellipse(px, py, 2.4, 3, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        break;
+      }
+      case 'bog_skeleton': {       // half-sunk remains
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 1, 12, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#b8b49a'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-8, -1); ctx.lineTo(6, -3); ctx.stroke();
+        for (let i = -2; i <= 2; i++) {
+          ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(i * 2.6, -2); ctx.lineTo(i * 2.6 - 1, -6); ctx.stroke();
+        }
+        ctx.fillStyle = '#c8c4ac';
+        ctx.beginPath(); ctx.ellipse(8, -5, 4, 3.4, 0.3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#2a3a2a';
+        ctx.beginPath(); ctx.arc(7, -5.5, 1, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'coral_pillar': {       // branching coral column
+        const g = ctx.createLinearGradient(0, -34, 0, 0);
+        g.addColorStop(0, '#c86a8a'); g.addColorStop(1, '#5a2a44');
+        ctx.strokeStyle = g; ctx.lineWidth = 5; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -22); ctx.stroke();
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, -18); ctx.quadraticCurveTo(-8, -26, -7, -33); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -21); ctx.quadraticCurveTo(8, -28, 7, -35); ctx.stroke();
+        ctx.fillStyle = U.rgba('#ffb0c8', 0.5);
+        for (const [px, py] of [[-7, -33], [7, -35], [0, -23]]) {
+          ctx.beginPath(); ctx.arc(px, py, 2.2, 0, Math.PI * 2); ctx.fill();
+        }
+        break;
+      }
+      case 'giant_clam': {         // shell, ajar, pearl inside
+        ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.4, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createLinearGradient(-10, -8, 10, 2);
+        g.addColorStop(0, '#9ab8c8'); g.addColorStop(1, '#4a6a7a');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(0, -2, 11, 6, 0, Math.PI, 0); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(0, -8, 11, 6, 0, Math.PI, 0); ctx.fill();
+        ctx.strokeStyle = 'rgba(30,44,54,0.7)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(0, -8, 11, 6, 0, Math.PI, 0); ctx.stroke();
+        const gl = 0.6 + Math.sin(t * 1.4 + pr.seed) * 0.4;
+        ctx.fillStyle = U.rgba('#f0f8ff', 0.6 + gl * 0.4);
+        ctx.beginPath(); ctx.arc(0, -5, 2.4, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+
+      // Act V — the burning throne
+      case 'demonic_sigil': {      // burning ward branded into the floor
+        const pulse = 0.45 + Math.sin(t * 2.4 + pr.seed) * 0.3;
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = U.rgba('#ff4f2f', pulse); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 0, 15, 7.5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1.3;
+        for (let i = 0; i < 3; i++) {
+          const a = i * Math.PI * 2 / 3 + t * 0.25;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * 14, Math.sin(a) * 7);
+          ctx.lineTo(Math.cos(a + 2.09) * 14, Math.sin(a + 2.09) * 7);
+          ctx.stroke();
+        }
+        ctx.fillStyle = U.rgba('#ff8a2f', 0.16 * pulse);
+        ctx.beginPath(); ctx.ellipse(0, 0, 15, 7.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case 'fel_crystal': {        // jagged green shard, lit from within
+        const gl = 0.5 + Math.sin(t * 2 + pr.seed) * 0.4;
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = U.rgba('#8ef04a', 0.13 * gl);
+        ctx.beginPath(); ctx.arc(0, -14, 16, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        const g = ctx.createLinearGradient(0, -28, 0, 0);
+        g.addColorStop(0, '#d8ff9a'); g.addColorStop(1, '#2a5a1a');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(0, -28); ctx.lineTo(6, -12); ctx.lineTo(2, 0); ctx.lineTo(-5, -2); ctx.lineTo(-6, -14);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = U.rgba('#f0ffd0', 0.5); ctx.lineWidth = 0.9; ctx.stroke();
+        break;
+      }
+      case 'twisted_tree': {       // dead, wrong-angled trunk
+        ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.beginPath(); ctx.ellipse(0, 2, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#2c1c18'; ctx.lineCap = 'round';
+        ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-4, -16, 3, -30); ctx.stroke();
+        ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.moveTo(1, -20); ctx.quadraticCurveTo(-9, -25, -12, -34); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(2, -25); ctx.quadraticCurveTo(11, -29, 13, -38); ctx.stroke();
+        ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(-12, -34); ctx.lineTo(-15, -39); ctx.moveTo(13, -38); ctx.lineTo(16, -43); ctx.stroke();
+        break;
+      }
+      case 'charred_bones': {      // burnt ribcage
+        ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#3a3230'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-9, -2); ctx.lineTo(9, -4); ctx.stroke();
+        for (let i = -3; i <= 3; i++) {
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(i * 2.8, -3);
+          ctx.quadraticCurveTo(i * 3.4, -10, i * 2.2, -12);
+          ctx.stroke();
+        }
+        ctx.fillStyle = U.rgba('#ff5a2f', 0.25 + Math.sin(t * 3 + pr.seed) * 0.15);
+        ctx.beginPath(); ctx.ellipse(0, -3, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'corrupted_stone': {    // boulder veined with something alive
+        ctx.fillStyle = 'rgba(0,0,0,0.36)'; ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createLinearGradient(-9, -16, 9, 0);
+        g.addColorStop(0, '#4a3a4a'); g.addColorStop(1, '#241a26');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(-10, 0); ctx.lineTo(-7, -12); ctx.lineTo(1, -16); ctx.lineTo(9, -10); ctx.lineTo(10, 0);
+        ctx.closePath(); ctx.fill();
+        const pulse = 0.4 + Math.sin(t * 1.9 + pr.seed) * 0.3;
+        ctx.strokeStyle = U.rgba('#c07bff', pulse); ctx.lineWidth = 1.3;
+        ctx.beginPath(); ctx.moveTo(-6, -2); ctx.lineTo(-2, -9); ctx.lineTo(3, -6); ctx.lineTo(7, -12); ctx.stroke();
+        break;
+      }
     }
     ctx.restore();
     if (pr.kind === 'tree') this.drawTree(ctx, pr, t);
@@ -1933,7 +2254,7 @@ const Render = {
         else if (tl === TILE.ENTRY) m.fillStyle = '#8fc8ff';
         else if (map.haz[i] === HAZ.LAVA) m.fillStyle = 'rgba(200,70,10,0.8)';
         else if (map.haz[i] === HAZ.WATER) m.fillStyle = 'rgba(40,90,140,0.8)';
-        else if (map.haz[i] === HAZ.VENT) m.fillStyle = 'rgba(220,140,60,0.8)';
+        else if (isVent(map.haz[i])) m.fillStyle = U.rgba(VENT_KINDS[map.haz[i]].color, 0.8);
         else m.fillStyle = 'rgba(52,48,40,0.8)';
         m.fillRect(x * sc, y * sc, Math.ceil(sc), Math.ceil(sc));
       }

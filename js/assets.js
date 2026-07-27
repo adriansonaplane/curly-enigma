@@ -214,17 +214,150 @@ const Assets = {
     return out;
   },
 
-  // Convenience resolver for when the assets are reachable over HTTP. Unused
-  // today — fabclaude.com is refused at the gateway — but this is the shape
-  // the ingest expects, and it is what should be pointed at a real host.
-  urlResolver(base) {
-    return (slug) => new Promise((ok, no) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => ok(img);
-      img.onerror = () => no(new Error('unreachable: ' + slug));
-      img.src = base.replace(/\/$/, '') + '/' + slug + '.png';
-    });
+  // ---- the catalogue API ----
+  // Four documented endpoints:
+  //   GET /api/models/:slug          full metadata + HTML source
+  //   GET /api/models/:slug/html     raw HTML document, for an iframe
+  //   GET /api/effects/:slug         effect metadata + preview HTML
+  //   GET /api/effects/:slug/preview raw animation HTML, for an iframe
+  //
+  // Note what that means: these assets are **HTML documents**, not images.
+  // There is no .png to point an <img> at. So the ingest path is: load the
+  // document in an offscreen iframe, let it paint, then capture it. Canvas 2D
+  // cannot rasterise arbitrary DOM, so capture goes through whatever the
+  // document exposes — a <canvas> inside it is the common case for these
+  // (the catalogue describes them as procedurally animated scenes), and an
+  // SVG root is handled as a fallback via a data-URI blob.
+  //
+  // NONE OF THIS RUNS TODAY. fabclaude.com is refused at the network gateway
+  // (403 to CONNECT, every endpoint, HTTP 000 — the connection is never
+  // established). This is written and wired so that the day egress opens, the
+  // only change needed is calling Assets.api.ingestPacks().
+  api: {
+    base: 'https://fabclaude.com/api',
+    timeout: 15000,
+    // one shared hidden host for the iframes we spin up
+    _host: null,
+
+    url(kind, slug, sub) {
+      const seg = kind === 'effect' || kind === 'f' ? 'effects' : 'models';
+      return this.base + '/' + seg + '/' + encodeURIComponent(slug) + (sub ? '/' + sub : '');
+    },
+
+    async meta(slug, kind) {
+      const r = await fetch(this.url(kind, slug), { mode: 'cors' });
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + slug);
+      return r.json();
+    },
+
+    // Raw document for the iframe: /html for models, /preview for effects.
+    async html(slug, kind) {
+      const sub = (kind === 'effect' || kind === 'f') ? 'preview' : 'html';
+      const r = await fetch(this.url(kind, slug, sub), { mode: 'cors' });
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + slug + '/' + sub);
+      return r.text();
+    },
+
+    host() {
+      if (this._host) return this._host;
+      const d = document.createElement('div');
+      d.style.cssText = 'position:fixed;left:-10000px;top:0;width:0;height:0;overflow:hidden';
+      document.body.appendChild(d);
+      this._host = d;
+      return d;
+    },
+
+    // Render one document offscreen and hand back a canvas. `settle` is how
+    // long to let a procedural animation run before capturing, so we grab a
+    // representative frame rather than frame zero.
+    async rasterise(srcHtml, opts = {}) {
+      const W = opts.w || 256, H = opts.h || 256, settle = opts.settle ?? 600;
+      const frame = document.createElement('iframe');
+      frame.width = W; frame.height = H;
+      frame.setAttribute('sandbox', 'allow-scripts');   // no same-origin: it is untrusted third-party markup
+      this.host().appendChild(frame);
+      try {
+        await new Promise((ok, no) => {
+          const timer = setTimeout(() => no(new Error('iframe load timeout')), this.timeout);
+          frame.onload = () => { clearTimeout(timer); ok(); };
+          frame.onerror = () => { clearTimeout(timer); no(new Error('iframe failed')); };
+          frame.srcdoc = srcHtml;
+        });
+        await new Promise(r => setTimeout(r, settle));
+        // A sandboxed frame without allow-same-origin cannot be read from the
+        // parent — by design, since this is third-party markup. Capture has to
+        // come from inside, so the document must post a bitmap out. Documents
+        // that don't cooperate cannot be rasterised, and that is the honest
+        // outcome rather than a silent blank.
+        return await this.capture(frame, W, H);
+      } finally {
+        frame.remove();
+      }
+    },
+
+    // Ask the framed document for a bitmap. Anything that answers the
+    // 'diabloid:capture' message with an ImageBitmap or a data URL works.
+    capture(frame, W, H) {
+      return new Promise((ok, no) => {
+        const timer = setTimeout(() => no(new Error('no capture response')), 4000);
+        const onMsg = (ev) => {
+          if (ev.source !== frame.contentWindow) return;
+          const d = ev.data;
+          if (!d || d.type !== 'diabloid:capture:result') return;
+          clearTimeout(timer); window.removeEventListener('message', onMsg);
+          if (d.bitmap) {
+            const cv = document.createElement('canvas');
+            cv.width = d.bitmap.width || W; cv.height = d.bitmap.height || H;
+            cv.getContext('2d').drawImage(d.bitmap, 0, 0);
+            ok(cv);
+          } else if (d.dataUrl) {
+            const img = new Image();
+            img.onload = () => ok(img);
+            img.onerror = () => no(new Error('bad capture data URL'));
+            img.src = d.dataUrl;
+          } else no(new Error('capture response carried nothing'));
+        };
+        window.addEventListener('message', onMsg);
+        frame.contentWindow.postMessage({ type: 'diabloid:capture', w: W, h: H }, '*');
+      });
+    },
+
+    // A resolver for Assets.ingest: slug -> canvas, via metadata + iframe.
+    resolver(opts = {}) {
+      return async (slug, src) => {
+        const kind = src === 'f' ? 'effect' : 'model';
+        const doc = await this.html(slug, kind);
+        return this.rasterise(doc, opts);
+      };
+    },
+
+    // Pull only what the act packs ask for — a few dozen entries, not 4,127.
+    async ingestPacks(themes, opts = {}) {
+      const want = new Set();
+      const list = themes ? [].concat(themes) : Object.keys(ACT_PACKS);
+      for (const th of list) {
+        const p = ACT_PACKS[th];
+        if (!p) continue;
+        for (const m of p.models) want.add(m.slot);
+        for (const e of p.effects) want.add(e.slot);
+      }
+      return Assets.ingest(this.resolver(opts), { only: [...want] });
+    },
+  },
+
+  // Fold the curated act packs into MANIFEST. Called once at boot, after
+  // assetpacks.js has defined them — pack entries win, since they were chosen
+  // per act rather than by a generic name match.
+  absorbPacks() {
+    if (typeof packManifest !== 'function') return 0;
+    const extra = packManifest();
+    let n = 0;
+    for (const slot in extra) {
+      const e = extra[slot];
+      this.MANIFEST[slot] = Object.assign({}, this.MANIFEST[slot], e, { fit: 'good' });
+      n++;
+    }
+    return n;
   },
 
   // ---- reporting ----

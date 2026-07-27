@@ -394,7 +394,8 @@ const Sprites = {
     const th = THEMES[theme];
     const rng = makeRng(hashStr(theme));
     const W = 64, H = 32, WALL_H = 40;
-    const out = { floors: [], wall: null, lava: [], water: [], gas: null, spikes: null, vent: null };
+    const out = { floors: [], wall: null, lava: [], water: [], gas: null, spikes: null,
+                  vent: null, spore: null, ember: null };
 
     // ---- floors: 6 hi-res variants with per-theme masonry + moss ----
     for (let v = 0; v < 6; v++) {
@@ -694,36 +695,38 @@ const Sprites = {
       out.gas = cv;
     }
 
-    { // steam vent: a cracked fissure ringed with mineral scorch
+    // The three cycling vents share one plate: a cracked fissure with a
+    // scorch halo, tinted per kind. Baked here rather than at draw time so a
+    // level full of vents still costs one blit each.
+    for (const [key, lip, halo] of [['vent', '#ff9a3f', '60,30,10'],
+                                    ['spore', '#8ae8a0', '30,60,34'],
+                                    ['ember', '#ff5a2f', '70,24,8']]) {
       const [cv, ctx] = this.mkTile(W, H);
       this.diamond(ctx, W, H);
       ctx.fillStyle = U.shade(th.floor, 0.72); ctx.fill();
       ctx.save(); ctx.clip();
       this.mottle(ctx, rng, W, H, U.shade(th.floor, 0.72), 5);
-      // scorch halo baked into the plate, so a dormant vent still reads as one
       const sg = ctx.createRadialGradient(W / 2, H / 2, 2, W / 2, H / 2, 16);
-      sg.addColorStop(0, 'rgba(60,30,10,0.55)'); sg.addColorStop(1, 'rgba(60,30,10,0)');
+      sg.addColorStop(0, 'rgba(' + halo + ',0.55)'); sg.addColorStop(1, 'rgba(' + halo + ',0)');
       ctx.fillStyle = sg; ctx.fillRect(0, 0, W, H);
       ctx.restore();
       this.diamond(ctx, W, H);
       ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.stroke();
-      // the fissure itself — a dark slot with a hot lip
       const vr = makeRng(717);
       ctx.strokeStyle = '#0a0604'; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(W / 2 - 9, H / 2 + 2);
-      for (let s = 1; s <= 3; s++)
-        ctx.lineTo(W / 2 - 9 + s * 6, H / 2 + 2 - 1.5 + (vr() - 0.5) * 3);
+      for (let s2 = 1; s2 <= 3; s2++)
+        ctx.lineTo(W / 2 - 9 + s2 * 6, H / 2 + 2 - 1.5 + (vr() - 0.5) * 3);
       ctx.stroke();
-      ctx.strokeStyle = U.rgba('#ff9a3f', 0.42); ctx.lineWidth = 1.1;
+      ctx.strokeStyle = U.rgba(lip, 0.42); ctx.lineWidth = 1.1;
       ctx.stroke();
-      // mineral crust flecks around the mouth
-      ctx.fillStyle = U.rgba('#e8b070', 0.35);
+      ctx.fillStyle = U.rgba(lip, 0.35);
       for (let i = 0; i < 7; i++) {
         const a = vr() * Math.PI * 2, rr = 7 + vr() * 6;
         ctx.fillRect(W / 2 + Math.cos(a) * rr, H / 2 + Math.sin(a) * rr * 0.5, 1.5, 1);
       }
-      out.vent = cv;
+      out[key] = cv;
     }
     return out;
   },

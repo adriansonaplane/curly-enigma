@@ -1128,7 +1128,7 @@ const Ent = {
         this.damagePlayer(pl.derived.maxHp * 0.07 + map.mlvl * 2, 'phys', null);
         FX.spikeBurst(tx + 0.5, ty + 0.5);
       }
-    } else if (hz === HAZ.VENT) {
+    } else if (isVent(hz)) {
       // Only the jet burns. Standing on a dormant vent is safe, and the
       // telegraph gives you time to step off, so a hit is always earned.
       map.hazCd = map.hazCd || {};
@@ -1136,8 +1136,9 @@ const Ent = {
         if (!map.hazCd[i] || map.hazCd[i] <= 0) {
           map.hazCd[i] = VENT_PERIOD * 0.75;
           sfx('trap');
-          this.damagePlayer(pl.derived.maxHp * 0.055 + map.mlvl * 1.8, 'fire', null);
-          FX.spark(pl.x, pl.y, '#ffb04f', 7);
+          const vk = VENT_KINDS[hz];
+          this.damagePlayer(pl.derived.maxHp * vk.dmg + map.mlvl * vk.mul, vk.elem, null);
+          FX.spark(pl.x, pl.y, vk.hot, 7);
         }
       }
     } else if (hz === HAZ.WATER) {
@@ -1154,7 +1155,7 @@ const Ent = {
         if (rh === HAZ.LAVA) FX.ember(rx, ry);
         else if (rh === HAZ.GAS) FX.gasPuff(rx, ry);
         else if (rh === HAZ.WATER && U.rand() < 0.5) FX.ripple(rx, ry);
-        else if (rh === HAZ.VENT && ventJetting(rty * map.w + rtx, G.time)) FX.ember(rx, ry);
+        else if (isVent(rh) && ventJetting(rty * map.w + rtx, G.time)) FX.ember(rx, ry);
       }
     }
   },
