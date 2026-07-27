@@ -424,13 +424,32 @@ const ABYSS = { name: 'The Endless Abyss', themes: ['crypt', 'catacomb', 'cavern
   pool: ['zombie', 'skeleton', 'skelarcher', 'spider', 'shaman', 'wraith', 'goatman', 'imp', 'golem', 'exploder', 'cultist', 'succubus', 'knight', 'brute', 'serpent', 'lich'],
   mlvl0: 48 };
 
+// Visual language of each tileset. Beyond the base palette:
+//   pattern — floor masonry style baked into the hi-res tiles
+//   fog     — [color, alpha] drifting atmospheric fog layer
+//   grade   — [topColor, bottomColor, alpha] screen color grading
+//   shaft   — god-ray color (falls from unseen cracks above), null = none
+//   amb     — ambient particle field: dust | ember | spore | ash | firefly
+//   water   — standing-liquid tint, enables 'water' hazard pools
+//   moss    — accent growth color painted on walls/floors
 const THEMES = {
-  town:     { floor: '#4a4a3c', floorAlt: '#565646', wall: '#6a5a44', wallTop: '#8a7a5c', ambient: 0.34, torch: '#ffb04f', name: 'Haven\'s Rest' },
-  crypt:    { floor: '#3c4048', floorAlt: '#34383e', wall: '#2c3038', wallTop: '#4c525e', ambient: 0.82, torch: '#ffb04f', hazards: ['spikes'], props: ['pillar', 'grave', 'bones'] },
-  catacomb: { floor: '#453c30', floorAlt: '#3c342a', wall: '#33291c', wallTop: '#584a34', ambient: 0.84, torch: '#ff9a3f', hazards: ['spikes', 'gas'], props: ['pillar', 'bones', 'urn'] },
-  cavern:   { floor: '#33261e', floorAlt: '#2c201a', wall: '#221610', wallTop: '#44342a', ambient: 0.86, torch: '#ff6a2f', hazards: ['lava', 'vent'], props: ['rock', 'crystal'] },
-  fane:     { floor: '#26362e', floorAlt: '#203028', wall: '#182420', wallTop: '#32463c', ambient: 0.85, torch: '#5affc8', hazards: ['gas', 'spikes'], props: ['pillar', 'idol', 'urn'] },
-  hell:     { floor: '#38201c', floorAlt: '#301a16', wall: '#24100c', wallTop: '#4c2c24', ambient: 0.87, torch: '#ff4f2f', hazards: ['lava', 'spikes'], props: ['spike', 'bones', 'idol'] },
+  town:     { floor: '#4a4a3c', floorAlt: '#565646', wall: '#6a5a44', wallTop: '#8a7a5c', ambient: 0.34, torch: '#ffb04f', name: 'Haven\'s Rest',
+              pattern: 'cobble', fog: ['#a8b8c8', 0.045], grade: ['#28384c', '#c8843c', 0.07], shaft: null, amb: 'firefly', water: '#38648a', moss: '#5a7040' },
+  crypt:    { floor: '#3c4048', floorAlt: '#34383e', wall: '#2c3038', wallTop: '#4c525e', ambient: 0.82, torch: '#ffb04f', hazards: ['spikes', 'water'],
+              props: ['pillar', 'grave', 'bones', 'statue', 'cobweb', 'rubble', 'candles'],
+              pattern: 'slab', fog: ['#8ca4c0', 0.09], grade: ['#16243e', '#0a1018', 0.13], shaft: '#a8c8f0', amb: 'dust', water: '#28455c', moss: '#3e5548' },
+  catacomb: { floor: '#453c30', floorAlt: '#3c342a', wall: '#33291c', wallTop: '#584a34', ambient: 0.84, torch: '#ff9a3f', hazards: ['spikes', 'gas'],
+              props: ['pillar', 'bones', 'urn', 'skullpile', 'cobweb', 'banner', 'rubble'],
+              pattern: 'brick', fog: ['#a89468', 0.08], grade: ['#382a12', '#120a04', 0.11], shaft: '#e8c88a', amb: 'dust', water: null, moss: '#564a2c' },
+  cavern:   { floor: '#33261e', floorAlt: '#2c201a', wall: '#221610', wallTop: '#44342a', ambient: 0.86, torch: '#ff6a2f', hazards: ['lava', 'vent'],
+              props: ['rock', 'crystal', 'stalagmite', 'mushroom'],
+              pattern: 'rough', fog: ['#c06438', 0.06], grade: ['#4a1c08', '#160400', 0.14], shaft: null, amb: 'ember', water: null, moss: '#6a3c1e' },
+  fane:     { floor: '#26362e', floorAlt: '#203028', wall: '#182420', wallTop: '#32463c', ambient: 0.85, torch: '#5affc8', hazards: ['gas', 'spikes', 'water'],
+              props: ['pillar', 'idol', 'urn', 'mushroom', 'statue', 'rubble'],
+              pattern: 'slab', fog: ['#6aa87a', 0.11], grade: ['#0a2818', '#040e06', 0.13], shaft: '#8ae8b0', amb: 'spore', water: '#1c4636', moss: '#3e7a4e' },
+  hell:     { floor: '#38201c', floorAlt: '#301a16', wall: '#24100c', wallTop: '#4c2c24', ambient: 0.87, torch: '#ff4f2f', hazards: ['lava', 'spikes'],
+              props: ['spike', 'bones', 'idol', 'skullpile', 'rubble'],
+              pattern: 'cracked', fog: ['#a83428', 0.09], grade: ['#581408', '#1a0000', 0.16], shaft: '#ff8a50', amb: 'ash', water: null, moss: '#742818' },
 };
 
 // ---------- Elite affixes ----------

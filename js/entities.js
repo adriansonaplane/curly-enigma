@@ -1063,6 +1063,9 @@ const Ent = {
         this.damagePlayer(pl.derived.maxHp * 0.07 + map.mlvl * 2, 'phys', null);
         FX.spikeBurst(tx + 0.5, ty + 0.5);
       }
+    } else if (hz === HAZ.WATER) {
+      pl.hazAcc = 0;
+      if (pl.moving && U.rand() < dt * 8) { FX.ripple(pl.x, pl.y); }
     } else pl.hazAcc = 0;
     if (map.hazCd) for (const k in map.hazCd) if (map.hazCd[k] > 0) map.hazCd[k] -= dt;
     // ambient hazard particles
@@ -1073,6 +1076,7 @@ const Ent = {
         const rh = map.haz[rty * map.w + rtx];
         if (rh === HAZ.LAVA) FX.ember(rx, ry);
         else if (rh === HAZ.GAS) FX.gasPuff(rx, ry);
+        else if (rh === HAZ.WATER && U.rand() < 0.5) FX.ripple(rx, ry);
       }
     }
   },

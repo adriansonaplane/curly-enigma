@@ -33,10 +33,11 @@ The Burning Throne* — each procedurally generated on every visit (room-and-cor
 cellular-automata caverns), ending in a hand-crafted act boss with unique abilities and taunts.
 After the fifth throne falls: **The Endless Abyss**, infinitely scaling floors for ladder pushing.
 
-Hazards and furniture everywhere: lava lakes, spike traps, poison gas vents, exploding barrels,
-treasure chests, gold piles, and six kinds of blessing shrines.
+Hazards and furniture everywhere: lava lakes, still water pools, spike traps, poison gas vents,
+exploding barrels, treasure chests, gold piles, and six kinds of blessing shrines.
 
-![The Molten Undercity](screenshots/final_cavern.png)
+![The Molten Undercity](screenshots/cavern.png)
+![The Drowned Fane](screenshots/fane.png)
 
 ### Dynamically generated loot
 Common → Magic → Rare → **Set** → **Unique**. A 46-affix pool rolls tiered prefixes/suffixes onto
@@ -65,18 +66,34 @@ season — hardcore deaths are permanent and displayed with full RIP honors.
 
 ### "Pre-rendered" graphics, real-time lighting
 All sprites — 7 heroes, 29 monsters, 5 bosses, NPCs, tiles for 6 tilesets — are procedurally
-painted **once at load time into sprite-sheet canvases** (8 facings × 6 animation frames), then
-blitted every frame like classic pre-rendered ARPGs. On top of that, a real-time pass adds:
+painted **once at load time into sprite-sheet canvases** (8 facings × 6 animation frames, tiles
+supersampled at 2× on hi-DPI displays), then blitted every frame like classic pre-rendered
+ARPGs. On top of that, a real-time pass adds:
 
 - dynamic per-source lighting with flickering torches, colored glows and punch-out darkness
-- drop shadows, elite underglows, hit-flashes, screenshake, hurt vignette
+- **volumetric god rays** falling from cracks in the unseen ceiling, with dust motes in the beam
+- **drifting atmospheric fog**, tinted and lit per tileset, plus per-theme color grading & vignette
+- **baked ambient occlusion** where floors meet walls, beveled hi-res masonry per theme
+  (slabs, brick courses, cobbles, magma-veined hellstone) with moss, cracks and mineral glints
+- **animated liquids** — churning 4-frame lava and still water that *reflects the actors standing
+  in it*, with travelling specular glints and ripple rings
+- **directional soft shadows** cast away from the nearest light source, sharpening near the flame
+- Diablo-style **rarity light pillars** over dropped loot, sparkling on uniques and sets
+- a living prop population: torch sconces and braziers with layered living flames, statues,
+  banners, cobwebs, candle clusters, skull piles, glowing crystals and bioluminescent mushrooms,
+  stalagmites, gravestones, swaying trees
+- per-theme ambient particle fields: crypt dust, cavern embers, fane spores, hellish falling ash,
+  fireflies over the town pond
 - particles for blood, embers, gas, sparks, lightning strikes, level-up bursts
-- an isometric depth-sorted world with animated lava, portals and waypoints
+- an isometric depth-sorted world with animated portals and waypoints
+- an automatic quality governor that quietly sheds the priciest layers on weak hardware
 
 Plus: minimap with fog of war, floating damage numbers, boss health bars, synthesized WebAudio
 sound effects, town hub with 5 NPCs, town portals, waypoints, autosave, and hardcore mode.
 
-![Haven's Rest](screenshots/final_town.png)
+![Haven's Rest](screenshots/town.png)
+![The Weeping Parish](screenshots/crypt.png)
+![The Burning Throne](screenshots/hell.png)
 
 ## 🎮 Controls
 
