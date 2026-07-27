@@ -331,6 +331,26 @@ const Assets = {
       };
     },
 
+    // Ingest from files already on disk, pulled by tools/pull-effects.sh on a
+    // machine that can reach the host. Same rasterise path as a live fetch —
+    // only the source of the HTML differs — so whatever works here works there.
+    async ingestLocal(indexUrl, opts = {}) {
+      const dir = indexUrl.replace(/[^/]+$/, '');
+      const idx = await (await fetch(indexUrl)).json();
+      const bySlug = Object.create(null);
+      for (const e of idx.entries) bySlug[e.slug] = dir + e.html;
+      // map catalogue slugs back onto the slots that asked for them
+      const only = [];
+      for (const slot in Assets.MANIFEST)
+        if (bySlug[Assets.MANIFEST[slot].slug]) only.push(slot);
+      return Assets.ingest(async (slug) => {
+        const url = bySlug[slug];
+        if (!url) return null;
+        const doc = await (await fetch(url)).text();
+        return this.rasterise(doc, opts);
+      }, { only });
+    },
+
     // Pull only what the act packs ask for — a few dozen entries, not 4,127.
     async ingestPacks(themes, opts = {}) {
       const want = new Set();
