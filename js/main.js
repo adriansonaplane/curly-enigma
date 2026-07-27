@@ -623,13 +623,20 @@ const Game = {
       pl.mp = Math.min(d.maxMp, pl.mp + d.regenMp * dt);
     }
 
-    // movement (screen-relative, rebindable, mapped to iso world axes)
+    // camera orbit on held rotate keys — the camera moves, the world doesn't
     const km = WUI.keymap;
+    if (Cam.mode === 'third') {
+      const rot = (this.keys[km.camRotR] ? 1 : 0) - (this.keys[km.camRotL] ? 1 : 0);
+      if (rot) Cam.orbit(rot * Cam.orbitSpeed * dt, 0);
+    }
+
+    // movement is camera-relative: "up the screen" is always away from the
+    // viewer, so the controls stay correct at any orbit angle
     let mx = (this.keys[km.moveR] || this.keys['arrowright'] ? 1 : 0) - (this.keys[km.moveL] || this.keys['arrowleft'] ? 1 : 0);
     let my = (this.keys[km.moveD] || this.keys['arrowdown'] ? 1 : 0) - (this.keys[km.moveU] || this.keys['arrowup'] ? 1 : 0);
     pl.moving = false;
     if (!pl.dead && (mx || my)) {
-      let wx = mx + my, wy = my - mx;
+      let [wx, wy] = Cam.screenToWorldDir(mx, my);
       const len = Math.hypot(wx, wy);
       wx /= len; wy /= len;
       const spd = d.moveSpd * (G.map.town ? 1.15 : 1);
@@ -726,6 +733,22 @@ const Game = {
       if (e.button === 2) this.mouse.rmb = false;
     });
     cv.addEventListener('contextmenu', e => e.preventDefault());
+    cv.addEventListener('pointerdown', e => {
+      if (e.button !== 1) return;               // middle button orbits
+      e.preventDefault();
+      let lx = e.clientX, ly = e.clientY;
+      const move = ev => {
+        Cam.orbit((ev.clientX - lx) * 0.008, -(ev.clientY - ly) * 0.0016);
+        lx = ev.clientX; ly = ev.clientY;
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+    cv.addEventListener('auxclick', e => { if (e.button === 1) e.preventDefault(); });
     cv.addEventListener('wheel', e => {
       if (G.state !== 'game') return;
       e.preventDefault();
