@@ -204,6 +204,42 @@ player).
 ![Targeting a slowed, burning enemy in range](screenshots/targeting.png)
 ![Out of range warning](screenshots/targeting_range.png)
 
+### Let the torches do the work — spooky lighting
+The world no longer floods itself with light. In the default **Spooky** mood the hero stops
+carrying a lantern: ambient darkness closes in, and torches, braziers, chandeliers, lava and
+glowing growths become the only real light sources you have.
+
+- **Ambient darkness rises** from the tileset's own value to ~0.95, so unlit stone reads as black
+  rather than grey
+- **The hero's lamp is cut back** to 42% of its radius (tunable 0–100% in Settings → Video), and
+  the wide soft fill that used to keep midtones alive is gone entirely
+- **Prop lights push out** — every placed light gains ~18% radius and a stronger warm glow, so
+  the pools they cast are what you actually navigate by. Torch sconces are placed ~30% denser to
+  keep a darker dungeon readable
+- **`Classic` mood** restores the old bright look from the same dropdown — nothing is lost
+
+Measured on a fixed seed: the torch-to-unlit-floor contrast goes from **0.65× (hero lamp wins)
+in classic to 2.5× (torches win) in spooky**, while the hero still stands in a readable pool.
+
+![Spooky — the torches are the only light](screenshots/mood_spooky.png)
+![Classic — the old bright look](screenshots/mood_classic.png)
+![Lighting controls in Settings → Video](screenshots/mood_settings.png)
+
+### Effects that fill the whole viewport
+The atmosphere layers used to be seeded in a fixed ring around the hero, which left the screen
+corners bare as soon as you zoomed out or widened the window. All three now derive their extent
+from the actual camera frustum:
+
+- **Fog** spans the frustum and rescales when it changes — 36 puffs at 1.6× zoom, 67 across a
+  76-tile radius at 0.6× (previously a flat 24 puffs / 25 tiles regardless of zoom)
+- **Ambient particle fields** spawn across the full view, with the spawn box clipped to the map
+  so a frustum wider than the level doesn't throw most of its spawns out of bounds and thin the
+  field out exactly when you can see the most of it
+- **The tile view radius cap** was truncating the world before the frustum ended; raised so the
+  floor pass reaches the screen corners at minimum zoom
+
+![Zoomed out — atmosphere still reaches the edges](screenshots/mood_wide.png)
+
 ### A living social world — friends, guilds, chat, emotes
 Haven's Rest is now populated: simulated players (the same personalities that fill the season
 ladder) walk the town, chatter, and react to what you do.
@@ -262,12 +298,22 @@ any action bar slot (right-click a slot to lift its contents; right-click a skil
 | File | Purpose |
 |---|---|
 | `js/data.js` | All content: classes, 210 skills, monsters, bosses, acts, affixes, uniques, sets |
-| `js/dungeon.js` | Procedural generation: rooms, caves, hazards, spawns, the town |
+| `js/dungeon.js` | Procedural generation: rooms, caves, hazards, props, spawns, the town |
 | `js/sprites.js` | Bakes every sprite sheet, tile and icon to offscreen canvases at load |
-| `js/entities.js` | Combat math, the 15-archetype skill engine, monster/boss AI |
-| `js/render.js` | Isometric renderer, dynamic lighting, particles, minimap |
+| `js/entities.js` | Combat math, the 15-archetype skill engine, skill ranges, monster/boss AI |
+| `js/render.js` | Isometric renderer, lighting moods, atmosphere, props, particles, minimap |
+| `js/camera.js` | Projection matrix, iso/third-person modes, free orbit, zoom and pitch |
+| `js/figure.js` | Skeletal human figure with equipment fixtures and animation |
+| `js/physics.js` | Rigid-body debris, ragdolls, per-material restitution and friction |
+| `js/target.js` | Unit targeting: reticles, tab cycling, click-to-focus, range checks |
 | `js/items.js` | Loot generator: affix rolls, rarities, pricing, tooltips |
 | `js/ui.js` | HUD, panels, vendors, ladder simulation, main menu |
+| `js/wui.js` | WoW-style interface layer: movable frames, action bars, settings, macros |
+| `js/social.js` | Simulated players, friends, guilds, chat, whispers, emotes |
+| `js/audio.js` | Synthesized WebAudio sound effects |
 | `js/main.js` | Game state, input, save system, seasons, the loop |
+
+See [`ASSETS.md`](ASSETS.md) for the art and VFX gap list — every prop, environment feature and
+effect surveyed and scored by how much a real model or VFX would improve it.
 
 *Built with vanilla JavaScript and the Canvas API. May the loot gods smile upon you.*

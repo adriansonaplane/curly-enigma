@@ -163,8 +163,11 @@ const Cam = {
   // how far (in tiles) the visible frustum reaches from the focus
   // Half-extent of the visible region, in tiles. The screen maps to a box in
   // rotated space; unrotating it can grow the bound by at most sqrt(2).
+  // The cap has to sit above the true visible extent at minimum zoom, or the
+  // tile loop stops short of the frustum and the screen corners render empty.
+  // Culling inside the loop keeps the cost of the headroom negligible.
   viewRadius(W, H) {
     const half = (W / (this.ux * 2) + H / (this.uy * 2)) * 0.5;
-    return Math.min(52, Math.ceil(half * 1.415 + 3));
+    return Math.min(84, Math.ceil(half * 1.415 + 3));
   },
 };

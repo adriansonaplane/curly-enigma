@@ -79,6 +79,16 @@ const Render = {
   exploreT: 0,
   fx: {},               // effect toggles owned by the settings UI
   qualityMode: 'auto',  // 'auto' lets trackFps degrade; 'high'/'low' pin it
+  // Lighting mood. In 'spooky' the hero stops carrying a lantern: ambient
+  // darkness closes in and torches, braziers, lava and glowing growths become
+  // the only real light sources.
+  mood: 'spooky',
+  heroLightMul: 0.42,   // fraction of the hero's light radius that survives
+
+  ambientFor(th) {
+    if (this.mood !== 'spooky') return th.ambient;
+    return Math.min(0.985, 1 - (1 - th.ambient) * 0.28);
+  },
 
   init() {
     this.cv = document.getElementById('game');
@@ -420,27 +430,36 @@ const Render = {
   // ---------- atmosphere: fog, god rays, grading, ambient particles ----------
   fogMap: null, fogPuffs: [],
 
+  // Fog is seeded across the whole visible frustum, not a fixed ring around the
+  // hero — zooming out or widening the window must not leave bare corners.
+  fogR: 0,
   updateFog(dt) {
-    const map = G.map, pl = G.player, th = THEMES[map.theme];
+    const map = G.map, th = THEMES[map.theme];
     if (!th.fog) { this.fogPuffs = []; this.fogMap = null; return; }
-    if (this.fogMap !== map) {
+    const R = Cam.viewRadius(this.W, this.H) * 1.15;
+    const want = U.clamp(Math.round(14 + R * 0.7), 24, 70);
+    // re-seed on a map change or when the view grows/shrinks materially
+    if (this.fogMap !== map || Math.abs(R - this.fogR) > R * 0.25 || this.fogPuffs.length !== want) {
       this.fogMap = map;
-      this.fogPuffs = [];
+      this.fogR = R;
       const imgs = Sprites.getFog(map.theme);
-      for (let i = 0; i < 24; i++) {
+      const keep = this.fogPuffs.slice(0, want);
+      this.fogPuffs = keep;
+      while (this.fogPuffs.length < want) {
         this.fogPuffs.push({
-          x: pl.x + U.rf(U.rand, -20, 20), y: pl.y + U.rf(U.rand, -20, 20),
+          x: Cam.fx + U.rf(U.rand, -R, R), y: Cam.fy + U.rf(U.rand, -R, R),
           vx: U.rf(U.rand, -0.16, 0.16), vy: U.rf(U.rand, -0.16, 0.16),
           s: U.rf(U.rand, 3.5, 8), a: U.rf(U.rand, 0.5, 1),
           ph: U.rand() * 7, img: U.pick(U.rand, imgs),
         });
       }
     }
+    const recycle = this.fogR * 1.25;
     for (const p of this.fogPuffs) {
       p.x += p.vx * dt; p.y += p.vy * dt;
-      // drifted out of range: mirror it across the camera so cover never thins
-      if (U.dist(p.x, p.y, pl.x, pl.y) > 25) {
-        p.x = pl.x - (p.x - pl.x) * 0.9; p.y = pl.y - (p.y - pl.y) * 0.9;
+      // drifted past the frustum: mirror it across the camera so cover never thins
+      if (U.dist(p.x, p.y, Cam.fx, Cam.fy) > recycle) {
+        p.x = Cam.fx - (p.x - Cam.fx) * 0.9; p.y = Cam.fy - (p.y - Cam.fy) * 0.9;
       }
     }
   },
@@ -536,11 +555,23 @@ const Render = {
     if (!th.amb) return;
     let rate = { dust: 9, ember: 6, spore: 8, ash: 12, firefly: 2.5 }[th.amb] || 6;
     if (this.quality === 'low') rate *= 0.35;
+    // spawn across the whole frustum, scaling the rate with its width so the
+    // apparent density stays put as the camera zooms
+    const R = Math.max(12, Cam.viewRadius(this.W, this.H) * 0.95);
+    // A wider frustum sweeps in proportionally more wall tiles, which are
+    // rejected below, so the headroom here has to sit above the pure area
+    // ratio or the field visibly thins out at low zoom.
+    rate *= U.clamp(R / 12, 1, 4.2);
     if (U.rand() >= dt * rate) return;
-    const R = 12;
-    const x = pl.x + U.rf(U.rand, -R, R), y = pl.y + U.rf(U.rand, -R, R);
+    // Clamp the spawn box to the map before sampling. A wide frustum can be
+    // larger than the level itself, and sampling the raw box would throw most
+    // spawns away out of bounds — thinning the field exactly when the camera
+    // pulls back and shows the most of it.
+    const bx0 = Math.max(0, Cam.fx - R), bx1 = Math.min(map.w - 0.01, Cam.fx + R);
+    const by0 = Math.max(0, Cam.fy - R), by1 = Math.min(map.h - 0.01, Cam.fy + R);
+    if (bx1 <= bx0 || by1 <= by0) return;
+    const x = U.rf(U.rand, bx0, bx1), y = U.rf(U.rand, by0, by1);
     const tx = Math.floor(x), ty = Math.floor(y);
-    if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h) return;
     if (map.t[ty * map.w + tx] === TILE.WALL && th.amb !== 'ash') return;
     switch (th.amb) {
       case 'dust':
@@ -600,7 +631,7 @@ const Render = {
     lctx.setTransform(1, 0, 0, 1, 0, 0);
     lctx.globalCompositeOperation = 'source-over';
     lctx.clearRect(0, 0, lw, lh);
-    lctx.fillStyle = `rgba(2,2,6,${th.ambient})`;
+    lctx.fillStyle = `rgba(2,2,6,${this.ambientFor(th)})`;
     lctx.fillRect(0, 0, lw, lh);
     lctx.globalCompositeOperation = 'destination-out';
 
@@ -613,11 +644,19 @@ const Render = {
       lctx.drawImage(punchImg, px - pr, py - pr, pr * 2, pr * 2);
     };
 
-    punch(pl.x, pl.y, pl.derived.lightRad, 1);
-    punch(pl.x, pl.y, pl.derived.lightRad * 2.1, 0.32); // soft fill so midtones survive
+    const spooky = this.mood === 'spooky';
+    // the hero's own light: a full lantern in classic, a faint personal glow in
+    // spooky (gear that grants +light radius still widens it)
+    const heroR = pl.derived.lightRad * (spooky ? this.heroLightMul : 1);
+    if (heroR > 0.2) {
+      punch(pl.x, pl.y, heroR, spooky ? 0.85 : 1);
+      if (!spooky) punch(pl.x, pl.y, heroR * 2.1, 0.32); // soft fill so midtones survive
+    }
+    // props carry the scene, so give their pools a little more reach in spooky
+    const propR = spooky ? 1.18 : 1;
     for (const l of map.lights) {
       const fl = l.flick ? 0.85 + Math.sin(t * 11 + l.x * 7 + l.y * 13) * 0.15 : 1;
-      punch(l.x, l.y, l.r * fl, 0.95);
+      punch(l.x, l.y, l.r * fl * propR, 0.95);
     }
     for (const p of G.projs) punch(p.x, p.y, 2.2, 0.8);
     for (const f of G.flashes) punch(f.x, f.y, f.r * 2, f.t / f.maxT);
@@ -643,7 +682,7 @@ const Render = {
     };
     for (const l of map.lights) {
       const fl = l.flick ? 0.8 + Math.sin(t * 11 + l.x * 7 + l.y * 13) * 0.2 : 1;
-      glow(l.x, l.y, l.r * 0.8 * fl, l.color, 0.10);
+      glow(l.x, l.y, l.r * 0.8 * fl, l.color, this.mood === 'spooky' ? 0.15 : 0.10);
     }
     for (const p of G.projs) glow(p.x, p.y, 1.6, ELEM[p.elem].color, 0.16);
     for (const f of G.flashes) glow(f.x, f.y, f.r, f.color, 0.25 * f.t / f.maxT);

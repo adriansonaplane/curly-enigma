@@ -241,7 +241,7 @@ const Dungeon = {
     for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
       if (map.t[this.idx(map, x, y)] !== TILE.WALL) continue;
       const openBelow = map.t[this.idx(map, x, y + 1)] !== TILE.WALL || map.t[this.idx(map, x + 1, y)] !== TILE.WALL;
-      if (openBelow && U.chance(rng, 0.045)) {
+      if (openBelow && U.chance(rng, 0.058)) {
         map.lights.push({ x: x + 0.5, y: y + 0.5, r: 4.5, color: th.torch, flick: true, torch: true });
         map.props.push({ kind: 'torch', x: x + 0.5, y: y + 0.5, seed: x * 31 + y, color: th.torch });
       }
