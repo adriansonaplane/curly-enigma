@@ -292,6 +292,9 @@ const Render = {
       ctx.restore();
     }
 
+    // ---------- target reticle (painted on the ground) ----------
+    Target.draw(ctx, t);
+
     // ---------- depth-sorted pass: walls, props, things, entities ----------
     const list = [];
     for (let ty = y0; ty <= y1; ty++) {

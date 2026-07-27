@@ -89,6 +89,31 @@ const Ent = {
 
   manaCost(sk, lvl) { return Math.round(sk.mana * (1 + 0.06 * (lvl - 1))); },
 
+  // Effective reach of an ability, in tiles. Self-centred archetypes report
+  // their own radius (you must stand near the target); aimed ones report how
+  // far from the caster the effect can be placed; projectiles derive it from
+  // travel speed and lifetime. Passives and self-buffs are unlimited.
+  PROJ_TTL: 2.2, CHAIN_TTL: 1.6,
+  skillRange(sk, pl) {
+    if (!sk) {                                    // plain weapon attack
+      const w = pl && pl.equip ? pl.equip.weapon : null;
+      const base = w ? Items.baseById(w.type) : null;
+      return (base && (base.ranged || base.caster)) ? 8.5 : 2.0;
+    }
+    switch (sk.arch) {
+      case 'strike': return sk.range || 1.9;
+      case 'slam': case 'nova': return sk.radius || 2.5;
+      case 'proj': return sk.range || (sk.speed || 10) * this.PROJ_TTL;
+      case 'chain': return sk.range || (sk.speed || 10) * this.CHAIN_TTL;
+      case 'beam': return sk.range || 9;
+      case 'dash': return sk.range || 6;
+      case 'trap': return sk.range || 6;
+      case 'meteor': case 'storm': case 'curse': return sk.range || sk.castRange || 11;
+      case 'summon': case 'buff': case 'passive': case 'heal': return Infinity;
+      default: return sk.range || 9;
+    }
+  },
+
   // ======================= SKILL CASTING =======================
   // Returns true if cast happened.
   castSkill(pl, skId, tx, ty) {

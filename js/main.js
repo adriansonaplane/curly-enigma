@@ -144,7 +144,7 @@ const Save = {
 
 // ---------------- game controller ----------------
 const Game = {
-  keys: {}, mouse: { x: 0, y: 0, lmb: false, rmb: false },
+  keys: {}, mouse: { x: 0, y: 0, lmb: false, rmb: false }, lmbCasting: false,
   potCd: 0,
 
   newGame(name, clsId, hardcore) {
@@ -648,13 +648,10 @@ const Game = {
     // mouse world position
     G.mouseWorld = Render.screenToWorld(this.mouse.x, this.mouse.y);
 
-    // held mouse buttons cast
+    // held mouse buttons cast — at the focused unit if there is one
     if (!pl.dead && UI.openPanel === null) {
-      if (this.mouse.lmb) {
-        const hov = this.hoverInteractable();
-        if (!hov) Ent.castSkill(pl, pl.hotbar.lmb || 'atk', G.mouseWorld[0], G.mouseWorld[1]);
-      }
-      if (this.mouse.rmb && pl.hotbar.rmb) Ent.castSkill(pl, pl.hotbar.rmb, G.mouseWorld[0], G.mouseWorld[1]);
+      if (this.mouse.lmb && this.lmbCasting) Target.tryCast(pl.hotbar.lmb || 'atk');
+      if (this.mouse.rmb && pl.hotbar.rmb) Target.tryCast(pl.hotbar.rmb);
     }
 
     // gait phase drives the walk/run cycle
@@ -692,6 +689,7 @@ const Game = {
     G.autosaveT -= dt;
     if (G.autosaveT <= 0) { G.autosaveT = 25; Save.saveChar(pl); }
 
+    Target.update(dt);
     UI.updateHUD();
     WUI.update(dt);
     Social.update(dt);
@@ -724,12 +722,26 @@ const Game = {
       if (G.state !== 'game') return;
       if (e.button === 0) {
         this.mouse.lmb = true;
+        this.lmbCasting = false;
+        if (G.player.dead) return;
+        // 1) a unit under the cursor: focus it, or act on it if already focused
+        const unit = Target.pick(e.clientX, e.clientY);
+        if (unit) {
+          if (Target.current !== unit) { Target.set(unit); return; }
+          if (Target.kindOf(unit) === 'npc') { this.interact({ kind: 'npc', x: unit.x, y: unit.y, npc: unit }); return; }
+          this.lmbCasting = true;                 // second click on a focused unit casts
+          Target.tryCast(G.player.hotbar.lmb || 'atk');
+          return;
+        }
+        // 2) otherwise the usual world interaction, then free-aim casting
         const hov = this.hoverInteractable();
-        if (hov && !G.player.dead) this.interact(hov);
+        if (hov) { this.interact(hov); return; }
+        Target.clear();
+        this.lmbCasting = true;
       } else if (e.button === 2) this.mouse.rmb = true;
     });
     window.addEventListener('mouseup', e => {
-      if (e.button === 0) this.mouse.lmb = false;
+      if (e.button === 0) { this.mouse.lmb = false; this.lmbCasting = false; }
       if (e.button === 2) this.mouse.rmb = false;
     });
     cv.addEventListener('contextmenu', e => e.preventDefault());

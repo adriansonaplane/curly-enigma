@@ -22,6 +22,7 @@ const WUI = {
     inv: 'i', char: 'c', skills: 'k', ladder: 'l', quests: 'j', settings: 'o', chat: 'enter',
     social: 'u', guildp: 'g',
     camMode: 'v', camRotL: '[', camRotR: ']', camIn: '+', camOut: '-',
+    targetNext: 'tab', targetClear: 'x',
     slot1: '1', slot2: '2', slot3: '3', slot4: '4', slot5: '5',
     slot6: '6', slot7: '7', slot8: '8', slot9: '9', slot10: '0',
   },
@@ -33,6 +34,7 @@ const WUI = {
     ['social', 'Social (friends)'], ['guildp', 'Guild panel'],
     ['camMode', 'Toggle camera mode'], ['camRotL', 'Rotate camera left'], ['camRotR', 'Rotate camera right'],
     ['camIn', 'Zoom in'], ['camOut', 'Zoom out'],
+    ['targetNext', 'Target nearest enemy'], ['targetClear', 'Clear target'],
     ['slot1', 'Action slot 1'], ['slot2', 'Action slot 2'], ['slot3', 'Action slot 3'], ['slot4', 'Action slot 4'],
     ['slot5', 'Action slot 5'], ['slot6', 'Action slot 6'], ['slot7', 'Action slot 7'], ['slot8', 'Action slot 8'],
     ['slot9', 'Action slot 9'], ['slot10', 'Action slot 10'],
@@ -359,8 +361,8 @@ const WUI = {
   execEntry(s) {
     const pl = G.player;
     if (!pl || pl.dead) return false;
-    if (s.t === 'skill') return Ent.castSkill(pl, s.id, G.mouseWorld[0], G.mouseWorld[1]);
-    if (s.t === 'atk') return Ent.castSkill(pl, 'atk', G.mouseWorld[0], G.mouseWorld[1]);
+    if (s.t === 'skill') return Target.tryCast(s.id);
+    if (s.t === 'atk') return Target.tryCast('atk');
     if (s.t === 'pot') { Game.drinkPotion(s.id); return true; }
     if (s.t === 'macro') return this.runMacro(s.id);
     return false;
@@ -372,14 +374,14 @@ const WUI = {
     if (!m || !m.seq.length) return false;
     if (m.mode === 'seq') {
       const id = m.seq[(m.idx || 0) % m.seq.length];
-      if (Ent.castSkill(pl, id, G.mouseWorld[0], G.mouseWorld[1])) {
+      if (Target.tryCast(id)) {
         m.idx = ((m.idx || 0) + 1) % m.seq.length;
         return true;
       }
       return false;
     }
     for (const id of m.seq) // priority: first castable wins
-      if (Ent.castSkill(pl, id, G.mouseWorld[0], G.mouseWorld[1])) return true;
+      if (Target.tryCast(id)) return true;
     return false;
   },
 
@@ -508,37 +510,42 @@ const WUI = {
 
   updateTargetFrame() {
     const el = document.getElementById('wui-target');
-    // pick: hovered live enemy beats sticky last-hit target
-    let t = this.hover && !this.hover.dead ? this.hover : this.target;
-    if (t && (t.dead || t.ally || U.dist(t.x, t.y, G.player.x, G.player.y) > 42)) { t = null; this.target = null; }
+    const t = Target.shown();
     if (!t) { el.innerHTML = ''; el.style.display = 'none'; return; }
     el.style.display = '';
-    const key = t.boss ? t.bossKey : t.fam;
-    const rank = t.rank !== 'normal' ? ` rk-${t.rank}` : '';
-    const mods = (t.mods || []).map(k => ELITE_MODS[k].name).join(' · ');
-    let icons = '';
-    for (const st of this.monsterStatus(t))
-      icons += `<div class="wu-ico" style="border-color:${st.c};color:${st.c};background:${U.rgba(st.c, 0.15)}" title="${U.esc(st.n)}">${st.s}<span class="wi-t">${Math.ceil(st.t)}</span></div>`;
+    const kind = Target.kindOf(t);
+    const focused = Target.current === t;
+    const col = Target.colorOf(t);
+    let bars = '', sub = '', icons = '';
+    if (kind === 'monster' || kind === 'pet') {
+      bars = this.bar('wb-hp', t.hp / t.maxHp, Math.ceil(t.hp) + ' / ' + Math.ceil(t.maxHp));
+      const mods = (t.mods || []).map(k => ELITE_MODS[k].name).join(' · ');
+      if (mods) sub = mods;
+      for (const st of this.monsterStatus(t))
+        icons += `<div class="wu-ico" style="border-color:${st.c};color:${st.c};background:${U.rgba(st.c, 0.15)}" title="${U.esc(st.n)}">${st.s}<span class="wi-t">${Math.ceil(st.t)}</span></div>`;
+    } else if (kind === 'npc') {
+      sub = '« ' + U.esc(t.def.role) + ' »';
+    } else {
+      sub = (t.guild ? '⟨' + t.guild.tag + '⟩ ' : '') + 'Level ' + t.lvl;
+    }
+    const lvl = kind === 'npc' ? '' : ` <span class="wu-lvl">· ${t.lvl}</span>`;
+    const rangeTag = focused && Target.isHostile(t)
+      ? `<span class="wt-range${Target.outOfRange ? ' oor' : ''}">${Target.outOfRange ? 'OUT OF RANGE' : 'in range'} · ${Target.dist.toFixed(1)}m</span>` : '';
+    const rank = kind === 'monster' && t.rank !== 'normal' ? ` rk-${t.rank}` : '';
     el.innerHTML = `<div class="wu-row">
       <div class="wu-portrait"></div>
       <div class="wu-body">
-        <div class="wu-name${rank}">${U.esc(t.name || t.fam)} <span class="wu-lvl">· ${t.lvl}</span></div>
-        ${this.bar('wb-hp', t.hp / t.maxHp, Math.ceil(t.hp) + ' / ' + Math.ceil(t.maxHp))}
-        ${mods ? `<div class="wui-mini-title">${mods}</div>` : ''}
+        <div class="wu-name${rank}" style="${rank ? '' : `color:${col}`}">${U.esc(Target.nameOf(t))}${lvl}</div>
+        ${bars}
+        ${sub ? `<div class="wui-mini-title">${sub}</div>` : ''}
+        ${rangeTag}
         ${icons ? `<div class="wu-status">${icons}</div>` : ''}
       </div></div>`;
-    try { el.querySelector('.wu-portrait').appendChild(this.portrait(key)); } catch (e) {}
-  },
-
-  updateHover() {
-    const [wx, wy] = G.mouseWorld;
-    let best = null, bd = 1.4 * 1.4;
-    for (const m of G.monsters) {
-      if (m.dead || m.ally) continue;
-      const d2 = U.dist2(wx, wy, m.x, m.y);
-      if (d2 < bd) { bd = d2; best = m; }
-    }
-    this.hover = best;
+    el.classList.toggle('wt-soft', !focused);
+    try {
+      const key = kind === 'npc' ? t.id : kind === 'player' ? t.cls : (t.boss ? t.bossKey : t.fam);
+      el.querySelector('.wu-portrait').appendChild(this.portrait(key));
+    } catch (e) {}
   },
 
   // ================= BUFF TRAY =================
@@ -1114,7 +1121,7 @@ const WUI = {
         const src = opts.srcName || Ent._src || 'Attack';
         self.ctLine('out', (opts.crit ? '✹ ' : '') + U.fmt(Math.floor(dealt)), opts.crit ? '#ffd94f' : ELEM[elem].color, opts.crit);
         self.trackOut(dealt, src, opts.crit);
-        if (!m.dead) self.target = m;
+        if (!m.dead && !Target.current) Target.soft = m;
       }
       return dealt;
     };
@@ -1240,6 +1247,8 @@ const WUI = {
     if (k === m.settings) { UI.toggle('settings'); return true; }
     if (k === m.social) { UI.toggle('social'); return true; }
     if (k === m.guildp) { UI.toggle('guild'); return true; }
+    if (k === m.targetNext) { Target.tabNext(); return true; }
+    if (k === m.targetClear) { Target.clear(); return true; }
     if (k === m.camMode) { Cam.cycleMode(); return true; }
     if (k === m.camRotL) { if (Cam.mode === 'iso') Cam.rotate(-1); return true; }
     if (k === m.camRotR) { if (Cam.mode === 'iso') Cam.rotate(1); return true; }
@@ -1279,7 +1288,6 @@ const WUI = {
       this._fpsN = 0; this._fpsT = 0;
     }
 
-    this.updateHover();
     this.updateActionBar();
 
     this._t1 += dt;
