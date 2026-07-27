@@ -320,3 +320,16 @@ body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
   background: #1a1208; border: 1px solid #4a3a1c; color: #e8dcc0;
   font-family: inherit; font-size: 12px; padding: 5px 8px; flex: 1;
 }
+
+/* ---------------- targeting ---------------- */
+.wt-range {
+  display: inline-block; font-size: 9.5px; letter-spacing: 1px; margin-top: 3px;
+  color: #6be26b; text-shadow: 0 1px 2px #000;
+}
+.wt-range.oor { color: #ff6a5a; font-weight: bold; }
+#wui-target.wt-soft { opacity: 0.72; }
+#wui-target.wt-oor-flash { animation: wt-flash 0.32s ease-out; }
+@keyframes wt-flash {
+  0%   { box-shadow: 0 0 0 2px rgba(255,90,70,0.9); background: rgba(120,20,10,0.55); }
+  100% { box-shadow: none; }
+}

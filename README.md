@@ -179,6 +179,31 @@ wellheads and ore veins. Many are **interactive**:
 ![Third-person camera](screenshots/camera_third.png)
 ![Camera settings](screenshots/camera_settings.png)
 
+### Target anything, and mind your range
+A modern targeting layer sits over the whole cast — hostile monsters, your own summoned pets,
+town NPCs and the simulated players walking Haven's Rest are all selectable, each with a
+colour-coded ring painted on the ground beneath them (red hostile, green pet, gold NPC, blue
+player).
+
+- **Click to focus, click again to act** — the first click on any unit selects it without
+  attacking; a second click casts your left-mouse ability at it (or opens dialogue, on an NPC)
+- **Tab targeting** — Tab locks the nearest enemy and cycles outward through the rest. It only
+  reaches enemies within 14 tiles and **never targets through walls**
+- **Hotkeys follow your target** — every action-bar slot and macro casts at the focused unit
+  wherever your cursor happens to be pointing; with nothing focused, abilities free-aim at the
+  cursor exactly as before
+- **Skill ranges** — every archetype has a real reach: melee strikes ~2 tiles, novas and slams
+  use their own radius, beams ~9, projectiles derive theirs from travel speed and lifetime, and
+  aimed effects like meteors can be placed up to 11 tiles out. Self-buffs and passives are
+  unlimited.
+- **Out-of-range warnings** — the target frame shows live distance and flips to a red
+  **OUT OF RANGE**, the reticle greys out and turns dashed, and attempting the cast flashes the
+  frame, plays a rejection sound and spends no mana or cooldown
+- Focus releases itself when a target dies, despawns or wanders more than 34 tiles away
+
+![Targeting a slowed, burning enemy in range](screenshots/targeting.png)
+![Out of range warning](screenshots/targeting_range.png)
+
 ### A living social world — friends, guilds, chat, emotes
 Haven's Rest is now populated: simulated players (the same personalities that fill the season
 ladder) walk the town, chatter, and react to what you do.
@@ -221,6 +246,8 @@ ladder) walk the town, chatter, and react to what you do.
 | **I · C · K · L** | Inventory · Character · Skills · Ladder |
 | **J · O** | Quest log · Settings |
 | **U · G** | Social (friends) · Guild |
+| **Tab** | Target nearest enemy · press again to cycle |
+| **X** | Clear target · **click** a unit to focus, click again to cast |
 | **V** | Toggle isometric / third-person camera |
 | **[ · ]** | Orbit camera (hold) · **middle-drag** — free orbit · **wheel / + · -** — zoom |
 | **Enter** | Chat (`/help` for commands) |
