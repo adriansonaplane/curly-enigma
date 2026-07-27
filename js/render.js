@@ -288,6 +288,8 @@ const Render = {
     for (const gi of G.groundItems) list.push({ d: gi.x + gi.y, kind: 'gitem', gi });
     for (const m of G.monsters) list.push({ d: m.x + m.y, kind: 'mon', m });
     for (const n of G.npcs) list.push({ d: n.x + n.y, kind: 'npc', n });
+    if (map.town && typeof Social !== 'undefined')
+      for (const sp of Social.townSims) list.push({ d: sp.x + sp.y, kind: 'sim', sp });
     const pp = G.portalOnMap(map);
     if (pp) list.push({ d: pp.x + pp.y, kind: 'portal', pp });
     if (map.waypoint) list.push({ d: map.waypoint.x + map.waypoint.y, kind: 'waypoint' });
@@ -308,6 +310,7 @@ const Render = {
         case 'gitem': this.drawGroundItem(ctx, it.gi, t); break;
         case 'mon': this.drawActor(ctx, it.m, t); break;
         case 'npc': this.drawNpc(ctx, it.n, t); break;
+        case 'sim': this.drawSim(ctx, it.sp, t); break;
         case 'player': this.drawPlayer(ctx, pl, t); break;
         case 'proj': this.drawProj(ctx, it.p, t); break;
         case 'portal': this.drawPortal(ctx, it.pp, t); break;
@@ -364,6 +367,9 @@ const Render = {
       if (d.crit) ctx.font = 'bold 15px Palatino Linotype, serif';
     }
     ctx.restore();
+
+    // chat & emote bubbles
+    this.drawBubbles(ctx, t);
 
     // hurt vignette
     if (pl.hurtT > 0) {
@@ -796,6 +802,75 @@ const Render = {
     }
     ctx.drawImage(sheet.canvas, frame * C, dir * C, C, C, -C / 2, -C * 0.78, C, C);
     ctx.restore();
+  },
+
+  // simulated players in town: class sprite + player-style nameplate
+  drawSim(ctx, sp, t) {
+    const [sx, sy] = this.worldToScreen(sp.x, sp.y);
+    if (sx < -80 || sx > this.W + 80 || sy < -100 || sy > this.H + 100) return;
+    const sheet = Sprites.getActor(sp.cls);
+    this.drawShadow(ctx, sp.x, sp.y, 1);
+    const dir = this.dirIndex(sp.dir);
+    const frame = sp.moving ? Math.floor(t * 9) % 4 : sp.danceT > 0 ? Math.floor(t * 6) % 4 : 0;
+    const C = sheet.cell;
+    ctx.drawImage(sheet.canvas, frame * C, dir * C, C, C, sx - C / 2, sy - C * 0.78, C, C);
+    const role = Social.ROLES[sp.role || 'none'];
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = sp.role === 'gm' ? 'bold 12px Palatino Linotype, serif' : '12px Palatino Linotype, serif';
+    const nm = (sp.role === 'gm' ? '★ ' : '') + sp.name;
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillText(nm, sx + 1, sy - 51);
+    ctx.fillStyle = role.c;
+    ctx.fillText(nm, sx, sy - 52);
+    ctx.font = '10px Palatino Linotype, serif';
+    ctx.fillStyle = '#9a8a62';
+    ctx.fillText((sp.guild ? '⟨' + sp.guild.tag + '⟩ ' : '') + 'Lv ' + sp.lvl, sx, sy - 40);
+    ctx.restore();
+  },
+
+  // chat / emote bubbles over the player and simulated players
+  drawBubbles(ctx, t) {
+    if (this.fx.bubbles === false) return;
+    const draw = ent => {
+      const b = ent.bubble;
+      if (!b) return;
+      const [sx, sy] = this.worldToScreen(ent.x, ent.y);
+      if (sx < -220 || sx > this.W + 220 || sy < -120 || sy > this.H + 220) return;
+      ctx.save();
+      ctx.font = b.kind === 'emote' ? 'italic 11.5px Palatino Linotype, serif' : '11.5px Palatino Linotype, serif';
+      const words = String(b.text).split(' ');
+      const lines = [];
+      let cur = '';
+      for (const w of words) {
+        const test = cur ? cur + ' ' + w : w;
+        if (ctx.measureText(test).width > 150 && cur) { lines.push(cur); cur = w; } else cur = test;
+      }
+      if (cur) lines.push(cur);
+      if (lines.length > 3) { lines.length = 3; lines[2] += '…'; }
+      let wMax = 0;
+      for (const l of lines) wMax = Math.max(wMax, ctx.measureText(l).width);
+      const bw = wMax + 16, bh = lines.length * 14 + 9;
+      const bx = sx - bw / 2, by = sy - 80 - bh;
+      ctx.globalAlpha = Math.min(1, b.t / 0.4);
+      ctx.fillStyle = b.kind === 'emote' ? 'rgba(28,15,2,0.85)' : 'rgba(10,8,4,0.88)';
+      ctx.strokeStyle = b.kind === 'emote' ? '#8a5a24' : '#4a3a1c';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 5); else ctx.rect(bx, by, bw, bh);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(sx - 4, by + bh); ctx.lineTo(sx + 4, by + bh); ctx.lineTo(sx, by + bh + 6);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = b.kind === 'emote' ? '#ffb066' : '#e8dcc0';
+      ctx.textAlign = 'center';
+      lines.forEach((l, i) => ctx.fillText(l, sx, by + 16 + i * 14));
+      ctx.restore();
+    };
+    const pl = G.player;
+    if (pl && !pl.dead) draw(pl);
+    if (typeof Social !== 'undefined' && G.map && G.map.town)
+      for (const sp of Social.townSims) draw(sp);
   },
 
   drawNpc(ctx, n, t) {

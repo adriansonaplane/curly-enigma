@@ -12,13 +12,15 @@ const WUI = {
     vol: 0.5, mute: false,
     quality: 'auto', fog: true, shafts: true, ao: true, reflections: true, grade: true, fps: false,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
-    ctIn: true, ctOut: true,
+    ctIn: true, ctOut: true, bubbles: true,
     fPlayer: true, fParty: true, fTarget: true, fBuffs: true, fChat: true, fDps: true, fTracker: true,
+    fFriends: true, fGuild: true,
   },
   DEF_KEYS: {
     moveU: 'w', moveL: 'a', moveD: 's', moveR: 'd',
     potHp: 'q', potMp: 'e', portal: 't', mute: 'n',
     inv: 'i', char: 'c', skills: 'k', ladder: 'l', quests: 'j', settings: 'o', chat: 'enter',
+    social: 'u', guildp: 'g',
     slot1: '1', slot2: '2', slot3: '3', slot4: '4', slot5: '5',
     slot6: '6', slot7: '7', slot8: '8', slot9: '9', slot10: '0',
   },
@@ -27,6 +29,7 @@ const WUI = {
     ['potHp', 'Healing potion'], ['potMp', 'Mana potion'], ['portal', 'Town portal'], ['mute', 'Toggle sound'],
     ['inv', 'Inventory'], ['char', 'Character'], ['skills', 'Skill trees'], ['ladder', 'Season ladder'],
     ['quests', 'Quest log'], ['settings', 'Settings'], ['chat', 'Focus chat'],
+    ['social', 'Social (friends)'], ['guildp', 'Guild panel'],
     ['slot1', 'Action slot 1'], ['slot2', 'Action slot 2'], ['slot3', 'Action slot 3'], ['slot4', 'Action slot 4'],
     ['slot5', 'Action slot 5'], ['slot6', 'Action slot 6'], ['slot7', 'Action slot 7'], ['slot8', 'Action slot 8'],
     ['slot9', 'Action slot 9'], ['slot10', 'Action slot 10'],
@@ -103,6 +106,8 @@ const WUI = {
       <div class="wd-head"><span>⚔ DAMAGE METER</span><span class="wd-reset" title="Reset">↺</span></div>
       <div class="wd-stats"></div><div class="wd-rows"></div>`);
     const tracker = mk('wui-tracker', 'wui-frame', '');
+    const friends = mk('wui-friends', 'wui-frame wui-social', '');
+    const guildf = mk('wui-guildframe', 'wui-frame wui-social', '');
     const bar = mk('wui-actionbar', 'wui-frame', '');
     mk('wui-fps', '', '');
     const cur = document.createElement('div');
@@ -119,6 +124,8 @@ const WUI = {
     this.regFrame('chat', chat, 'Chat', 12, H - 342);
     this.regFrame('dps', dps, 'Damage Meter', W - 306, H - 330);
     this.regFrame('tracker', tracker, 'Quest Tracker', W - 254, 252);
+    this.regFrame('friends', friends, 'Friends', 14, 330);
+    this.regFrame('guildf', guildf, 'Guild', 14, 470);
     this.regFrame('bar', bar, 'Action Bar', W / 2 - 372, H - 96);
     this.regFrame('minimap', document.getElementById('minimap'), 'Minimap', W - 236, 12);
     this.regFrame('mainhud', document.getElementById('bottom-hud'), 'Globes', null, null); // keeps its own CSS spot unless moved
@@ -137,11 +144,14 @@ const WUI = {
       btns.insertBefore(b, document.getElementById('btn-mute'));
     };
     addBtn('J', 'Quest Log (' + this.keyLabel('quests') + ')', () => UI.toggle('quests'));
+    addBtn('U', 'Social (' + this.keyLabel('social') + ')', () => UI.toggle('social'));
+    addBtn('G', 'Guild (' + this.keyLabel('guildp') + ')', () => UI.toggle('guild'));
     addBtn('⚙', 'Settings (' + this.keyLabel('settings') + ')', () => UI.toggle('settings'));
 
     // panels
     document.getElementById('panels').insertAdjacentHTML('beforeend',
-      '<div id="panel-settings" class="panel wide hidden"></div><div id="panel-quests" class="panel hidden"></div>');
+      '<div id="panel-settings" class="panel wide hidden"></div><div id="panel-quests" class="panel hidden"></div>' +
+      '<div id="panel-social" class="panel hidden"></div><div id="panel-guild" class="panel hidden"></div>');
 
     // edit banner
     const banner = document.createElement('div');
@@ -448,10 +458,12 @@ const WUI = {
     const pl = G.player, d = pl.derived;
     const el = document.getElementById('wui-player');
     const xpPrev = XP_TABLE(pl.lvl), xpNext = XP_TABLE(pl.lvl + 1);
+    const gtag = (typeof Social !== 'undefined' && Social.state && Social.state.guild)
+      ? ` <span style="color:#5fd88a">⟨${Social.state.guild.tag}⟩</span>` : '';
     el.innerHTML = `<div class="wu-row">
       <div class="wu-portrait"></div>
       <div class="wu-body">
-        <div class="wu-name">${U.esc(pl.name)} <span class="wu-lvl">· ${pl.lvl}${pl.hardcore ? ' · HC' : ''}</span></div>
+        <div class="wu-name">${U.esc(pl.name)}${gtag} <span class="wu-lvl">· ${pl.lvl}${pl.hardcore ? ' · HC' : ''}</span></div>
         ${this.bar('wb-hp', pl.hp / d.maxHp, Math.ceil(pl.hp) + ' / ' + d.maxHp)}
         ${this.bar('wb-mp', pl.mp / d.maxMp, Math.ceil(pl.mp) + ' / ' + d.maxMp)}
         ${this.bar('wb-xp', (pl.xp - xpPrev) / (xpNext - xpPrev), '')}
@@ -609,7 +621,7 @@ const WUI = {
   },
 
   // ================= CHAT =================
-  CHAT_TABS: [['all', 'ALL'], ['combat', 'COMBAT'], ['loot', 'LOOT'], ['sys', 'SYSTEM']],
+  CHAT_TABS: [['all', 'ALL'], ['local', 'LOCAL'], ['guild', 'GUILD'], ['combat', 'COMBAT'], ['loot', 'LOOT'], ['sys', 'SYSTEM']],
   buildChat() {
     const el = document.getElementById('wui-chat');
     const tabs = el.querySelector('.wc-tabs');
@@ -667,11 +679,15 @@ const WUI = {
   },
 
   chatCommand(v) {
-    if (!v.startsWith('/')) { this.chat('sys', `<span style="color:#8fc8ff">${U.esc(G.player.name)}:</span> ${U.esc(v)}`); return; }
+    if (!v.startsWith('/')) { Social.localSay(v); return; }
     const [cmd, ...rest] = v.slice(1).split(' ');
+    if (Social.command(cmd.toLowerCase(), rest)) return;
     switch (cmd.toLowerCase()) {
       case 'help':
-        this.chat('sys', '/played · /quests · /dps · /resetui · /editui · /macro · /dance', '#ffd94f');
+        this.chat('sys', 'Chat: <b>/w</b> name msg · <b>/r</b> · <b>/g</b> msg · <b>/who</b> · <b>/say</b>', '#ffd94f');
+        this.chat('sys', 'Social: <b>/friend /unfriend /mute /unmute /block /unblock /social /guild /gquit /gmotd</b>', '#ffd94f');
+        this.chat('sys', 'Emotes: <b>/emotes</b> for the list · <b>/dance</b> to dance', '#ffd94f');
+        this.chat('sys', 'Misc: <b>/played /quests /dps /editui /resetui /macro</b>', '#ffd94f');
         break;
       case 'played': {
         const m = Math.floor(this.playedT / 60), s = Math.floor(this.playedT % 60);
@@ -683,8 +699,7 @@ const WUI = {
       case 'resetui': this.layout = {}; this._save(this.LAYK, this.layout); location.reload(); break;
       case 'editui': this.setEditMode(true); break;
       case 'macro': UI.open('settings'); this.settingsTab = 5; this.renderSettings(); break;
-      case 'dance': this.chat('sys', `${U.esc(G.player.name)} busts a move. The skeletons are unimpressed.`, '#c07bff'); break;
-      default: this.chat('sys', `Unknown command: /${U.esc(cmd)}`, '#ff6a5a');
+      default: this.chat('sys', `Unknown command: /${U.esc(cmd)} — try /help`, '#ff6a5a');
     }
   },
 
@@ -886,6 +901,9 @@ const WUI = {
     this.wsToggle(body, 'Chat window', '', 'fChat');
     this.wsToggle(body, 'Damage meter', '', 'fDps');
     this.wsToggle(body, 'Quest tracker', '', 'fTracker');
+    this.wsToggle(body, 'Friends frame', 'Online friends at a glance', 'fFriends');
+    this.wsToggle(body, 'Guild frame', 'Your guild and who\'s online', 'fGuild');
+    this.wsToggle(body, 'Chat & emote bubbles', 'Speech bubbles over characters in the world', 'bubbles');
   },
 
   tabKeybinds(body) {
@@ -1010,12 +1028,13 @@ const WUI = {
     Render.fx = {
       fog: s.fog, shafts: s.shafts, ao: s.ao, reflections: s.reflections,
       grade: s.grade, dmgNums: s.dmgNums, shake: s.shake, nameplates: s.nameplates,
+      bubbles: s.bubbles,
     };
     Render.qualityMode = s.quality;
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
     // frames
-    const vis = { player: s.fPlayer, party: s.fParty, target: s.fTarget, buffs: s.fBuffs, chat: s.fChat, dps: s.fDps, tracker: s.fTracker };
+    const vis = { player: s.fPlayer, party: s.fParty, target: s.fTarget, buffs: s.fBuffs, chat: s.fChat, dps: s.fDps, tracker: s.fTracker, friends: s.fFriends, guildf: s.fGuild };
     for (const id in vis) {
       const f = this.frames[id];
       if (f) f.el.classList.toggle('wui-hidden', !vis[id]);
@@ -1161,6 +1180,8 @@ const WUI = {
     if (k === m.ladder) { UI.toggle('ladder'); return true; }
     if (k === m.quests) { UI.toggle('quests'); return true; }
     if (k === m.settings) { UI.toggle('settings'); return true; }
+    if (k === m.social) { UI.toggle('social'); return true; }
+    if (k === m.guildp) { UI.toggle('guild'); return true; }
     if (k === m.potHp) { Game.drinkPotion('hp'); return true; }
     if (k === m.potMp) { Game.drinkPotion('mp'); return true; }
     if (k === m.portal) { Game.castPortal(); return true; }
@@ -1216,6 +1237,39 @@ const WUI = {
       this._t3 = 0;
       if (this.set.fTracker) this.updateTracker();
       this.checkQuests(); // catches level / gold / abyss quests
+      this.refreshSocialFrames();
+    }
+  },
+
+  // ---------------- friends & guild HUD frames ----------------
+  refreshSocialFrames() {
+    if (typeof Social === 'undefined' || !Social.state) return;
+    const fr = document.getElementById('wui-friends');
+    if (fr && this.set.fFriends) {
+      const list = Social.state.friends
+        .map(n => Social.sim(n)).filter(Boolean)
+        .sort((a, b) => (Social.online.has(b.name) ? 1 : 0) - (Social.online.has(a.name) ? 1 : 0));
+      const onN = list.filter(s => Social.online.has(s.name)).length;
+      let h = `<div class="wui-mini-title">FRIENDS · ${onN}/${list.length} ONLINE</div>`;
+      if (!list.length) h += '<div class="soc-empty">/friend a player to add them</div>';
+      for (const s of list.slice(0, 7)) {
+        const on = Social.online.has(s.name);
+        h += `<div class="soc-mini${on ? '' : ' off'}"><span class="soc-dot" style="background:${on ? '#6be26b' : '#555'}"></span>${Social.nameHtml(s)}<span class="soc-sub"> ${s.lvl}</span></div>`;
+      }
+      fr.innerHTML = h;
+    }
+    const gf = document.getElementById('wui-guildframe');
+    if (gf && this.set.fGuild) {
+      const g = Social.state.guild;
+      if (!g) {
+        gf.innerHTML = `<div class="wui-mini-title">GUILD</div><div class="soc-empty">Guildless — press ${this.keyLabel('guildp')} to browse</div>`;
+      } else {
+        const on = g.members.filter(n => Social.online.has(n)).length;
+        let h = `<div class="wui-mini-title">⟨${g.tag}⟩ ${U.esc(g.name).toUpperCase()}</div>
+          <div class="soc-mini"><span class="soc-sub">${on + 1}/${g.members.length + 1} online · ${g.rank}</span></div>
+          <div class="soc-motd">“${U.esc(g.motd)}”</div>`;
+        gf.innerHTML = h;
+      }
     }
   },
 };
