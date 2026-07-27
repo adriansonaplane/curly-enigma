@@ -11,6 +11,7 @@ const WUI = {
   DEF_SET: {
     vol: 0.5, mute: false,
     quality: 'auto', fog: true, shafts: true, ao: true, reflections: true, grade: true, fps: false,
+    mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
     ctIn: true, ctOut: true, bubbles: true, physics: true,
     fPlayer: true, fParty: true, fTarget: true, fBuffs: true, fChat: true, fDps: true, fTracker: true,
@@ -931,6 +932,25 @@ const WUI = {
     sel.value = this.set.quality;
     sel.addEventListener('change', () => { this.set.quality = sel.value; this.saveSet(); this.applySettings(); sfx('ui'); });
     body.appendChild(row);
+
+    const mood = document.createElement('div');
+    mood.className = 'ws-row';
+    mood.innerHTML = `<span class="ws-label">Lighting mood<span class="ws-hint">Spooky drops the ambient light and lets torches, fires and glowing growths do the work</span></span>
+      <select><option value="spooky">Spooky — lit by props</option><option value="classic">Classic — lantern</option></select>`;
+    const msel = mood.querySelector('select');
+    msel.value = this.set.mood;
+    msel.addEventListener('change', () => { this.set.mood = msel.value; this.saveSet(); this.applySettings(); sfx('ui'); });
+    body.appendChild(mood);
+
+    const hl = document.createElement('div');
+    hl.className = 'ws-row';
+    hl.innerHTML = `<span class="ws-label">Hero light<span class="ws-hint">How much of your own light you carry in spooky mode — 0 is pitch dark</span></span>`;
+    const hi = document.createElement('input');
+    hi.type = 'range'; hi.min = 0; hi.max = 100;
+    hi.value = this.set.heroLight;
+    hi.addEventListener('input', () => { this.set.heroLight = +hi.value; this.saveSet(); this.applySettings(); });
+    hl.appendChild(hi);
+    body.appendChild(hl);
     this.wsToggle(body, 'Atmospheric fog', 'Drifting fog banks', 'fog');
     this.wsToggle(body, 'Volumetric god rays', 'Light shafts from the ceiling', 'shafts');
     this.wsToggle(body, 'Ambient occlusion', 'Contact shading where floors meet walls', 'ao');
@@ -1095,6 +1115,8 @@ const WUI = {
       bubbles: s.bubbles,
     };
     Render.qualityMode = s.quality;
+    Render.mood = s.mood || 'spooky';
+    Render.heroLightMul = U.clamp((s.heroLight === undefined ? 42 : s.heroLight) / 100, 0, 1);
     Physics.enabled = s.physics !== false;
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
