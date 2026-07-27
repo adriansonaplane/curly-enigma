@@ -701,7 +701,7 @@ const WUI = {
       case 'dps': this.chat('sys', `Rolling DPS: ${U.fmt(Math.round(this.rolling(this.dps.samples, 8)))}`); break;
       case 'resetui': this.layout = {}; this._save(this.LAYK, this.layout); location.reload(); break;
       case 'editui': this.setEditMode(true); break;
-      case 'macro': UI.open('settings'); this.settingsTab = 5; this.renderSettings(); break;
+      case 'macro': UI.open('settings'); this.settingsTab = this.SETTINGS_TABS.indexOf('MACROS'); this.renderSettings(); break;
       default: this.chat('sys', `Unknown command: /${U.esc(cmd)} — try /help`, '#ff6a5a');
     }
   },
@@ -877,18 +877,11 @@ const WUI = {
       i.addEventListener('input', () => Cam.setPitch(i.value / 100));
       r.appendChild(i);
     });
-    row('Follow distance', 'Third person only — how far ahead the camera leads', r => {
+    row('Orbit speed', 'How fast the rotate keys swing the camera around you', r => {
       const i = document.createElement('input');
-      i.type = 'range'; i.min = 0; i.max = 60;
-      i.value = Math.round(Cam.follow * 10);
-      i.addEventListener('input', () => { Cam.follow = i.value / 10; Cam.save(); });
-      r.appendChild(i);
-    });
-    row('Turn speed', 'How quickly the third-person camera swings behind you', r => {
-      const i = document.createElement('input');
-      i.type = 'range'; i.min = 8; i.max = 90;
-      i.value = Math.round(Cam.turnRate * 10);
-      i.addEventListener('input', () => { Cam.turnRate = i.value / 10; });
+      i.type = 'range'; i.min = 5; i.max = 60;
+      i.value = Math.round(Cam.orbitSpeed * 10);
+      i.addEventListener('input', () => { Cam.orbitSpeed = i.value / 10; Cam.save(); });
       r.appendChild(i);
     });
     this.wsToggle(body, 'Physics debris', 'Smashed props throw bouncing, rolling chunks', 'physics',
@@ -901,7 +894,7 @@ const WUI = {
     b.textContent = 'Reset';
     b.addEventListener('click', () => {
       Cam.prefs = { iso: { zoom: 1.0, pitch: 0.50 }, third: { zoom: 1.6, pitch: 0.40 } };
-      Cam.follow = 2.4; Cam.turnRate = 3.2; Cam.applyPrefs(false); Cam.save();
+      Cam.orbitSpeed = 2.2; Cam.yawTarget = 0; Cam.applyPrefs(false); Cam.save();
       this.renderSettings();
     });
     r2.appendChild(b);
@@ -1248,8 +1241,8 @@ const WUI = {
     if (k === m.social) { UI.toggle('social'); return true; }
     if (k === m.guildp) { UI.toggle('guild'); return true; }
     if (k === m.camMode) { Cam.cycleMode(); return true; }
-    if (k === m.camRotL) { Cam.rotate(-1); return true; }
-    if (k === m.camRotR) { Cam.rotate(1); return true; }
+    if (k === m.camRotL) { if (Cam.mode === 'iso') Cam.rotate(-1); return true; }
+    if (k === m.camRotR) { if (Cam.mode === 'iso') Cam.rotate(1); return true; }
     if (k === m.camIn) { Cam.adjustZoom(0.12); return true; }
     if (k === m.camOut) { Cam.adjustZoom(-0.12); return true; }
     if (k === m.potHp) { Game.drinkPotion('hp'); return true; }

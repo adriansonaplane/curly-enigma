@@ -131,14 +131,17 @@ via Edit Mode (layout persists between sessions):
 Two perspectives, a rigid-body layer, and an articulated body that wears what you equip.
 
 **Adjustable camera** — switch between the classic **Isometric** view and a **Third Person**
-camera that swings in behind your hero and follows their facing. Both perspectives expose
-independent, persisted settings:
+camera that **orbits freely around your hero, like a sphere**. The world is fixed: the level never
+moves on its own, your character moves through it, and the camera only turns when you turn it.
+Both perspectives expose independent, persisted settings:
 
 - **Zoom** 0.55×–2.8× on the mouse wheel, the `+`/`-` keys or a settings slider
-- **Pitch**, from near top-down to a low, horizon-heavy angle
-- **Free yaw rotation** — `[` and `]` rotate the world; iso snaps to 90°, third person turns
-  smoothly and auto-swings behind you after a manual nudge
-- **Follow distance** and **turn speed** for the third-person rig
+- **Pitch** (elevation), from near top-down to a low, horizon-heavy angle
+- **Free orbit** — hold `[` / `]` to swing around the hero, or drag with the middle mouse button
+  for combined yaw and pitch. Isometric keeps its 90° snap so the classic view stays square.
+- **Orbit speed** for the rotate keys
+- **Camera-relative movement** — W is always "away from the viewer" no matter where the camera
+  sits, so the controls never invert as you orbit
 - Walls between the camera and your hero **fade out** so a low angle never boxes you in
 
 Pre-rendered diamond tiles stay pixel-correct at any yaw: the camera matrix
@@ -219,7 +222,7 @@ ladder) walk the town, chatter, and react to what you do.
 | **J · O** | Quest log · Settings |
 | **U · G** | Social (friends) · Guild |
 | **V** | Toggle isometric / third-person camera |
-| **[ · ]** | Rotate camera · **wheel / + · -** — zoom |
+| **[ · ]** | Orbit camera (hold) · **middle-drag** — free orbit · **wheel / + · -** — zoom |
 | **Enter** | Chat (`/help` for commands) |
 | **N** | Mute · **Esc** — menu |
 | **Click** | Talk, loot, open, smash, activate |

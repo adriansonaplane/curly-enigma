@@ -23,9 +23,7 @@ const Cam = {
   },
   ZOOM_MIN: 0.55, ZOOM_MAX: 2.8,
   PITCH_MIN: 0.22, PITCH_MAX: 0.85,
-  follow: 2.4,        // third-person: how far the focus leads ahead of the hero
-  turnRate: 3.2,      // third-person yaw tracking speed
-  snap: false,        // iso mode: keep yaw locked to 0
+  orbitSpeed: 2.2,    // radians/second while a rotate key is held
 
   KEY: 'cam_v1',
 
@@ -34,13 +32,13 @@ const Cam = {
     if (s) {
       this.mode = s.mode || 'iso';
       if (s.prefs) this.prefs = Object.assign(this.prefs, s.prefs);
-      this.follow = s.follow !== undefined ? s.follow : this.follow;
+      this.orbitSpeed = s.orbitSpeed !== undefined ? s.orbitSpeed : this.orbitSpeed;
     }
     this.applyPrefs(true);
   },
   _load() { try { return JSON.parse(localStorage.getItem(this.KEY) || 'null'); } catch (e) { return null; } },
   save() {
-    try { localStorage.setItem(this.KEY, JSON.stringify({ mode: this.mode, prefs: this.prefs, follow: this.follow })); } catch (e) {}
+    try { localStorage.setItem(this.KEY, JSON.stringify({ mode: this.mode, prefs: this.prefs, orbitSpeed: this.orbitSpeed })); } catch (e) {}
   },
 
   applyPrefs(instant) {
@@ -79,43 +77,42 @@ const Cam = {
     this.pitchTarget = p.pitch;
     this.save();
   },
-  // manual yaw nudge — allowed in both modes; iso snaps back to axis-aligned
+  // Free orbit around the hero — the camera moves, the world does not.
+  orbit(dYaw, dPitch) {
+    this.yawTarget += dYaw;
+    if (dPitch) this.setPitch(this.prefs[this.mode].pitch + dPitch);
+    if (dYaw) this.save();
+  },
+  // discrete nudge: iso keeps its axis-aligned snap, third person turns freely
   rotate(dir) {
     if (this.mode === 'iso') {
       this.yawTarget = Math.round((this.yawTarget + dir * Math.PI / 2) / (Math.PI / 2)) * (Math.PI / 2);
     } else {
       this.yawTarget += dir * Math.PI / 4;
-      this.manualT = 2.5; // pause auto-follow briefly after a manual turn
     }
   },
-  manualT: 0,
 
   // ---------------- per-frame ----------------
   update(dt, pl) {
     if (!pl) return;
-    // focus: hero, nudged forward in third person so more of the view is ahead
-    let tfx = pl.x, tfy = pl.y;
-    if (this.mode === 'third') {
-      tfx += Math.cos(pl.dir) * this.follow * 0.35;
-      tfy += Math.sin(pl.dir) * this.follow * 0.35;
-      if (this.manualT > 0) this.manualT -= dt;
-      else {
-        // swing behind the hero: their facing should point up-screen
-        this.yawTarget = 5 * Math.PI / 4 - pl.dir;
-      }
-    } else this.yawTarget = Math.round(this.yawTarget / (Math.PI / 2)) * (Math.PI / 2);
+    // The orbit is centred on the hero in both modes. Nothing leads ahead of
+    // them and nothing tracks their facing, so the world only appears to turn
+    // when the player actually asks the camera to turn.
+    const tfx = pl.x, tfy = pl.y;
+    if (this.mode === 'iso')
+      this.yawTarget = Math.round(this.yawTarget / (Math.PI / 2)) * (Math.PI / 2);
 
-    // focus easing (snappier in iso so the classic view feels locked)
-    const fk = this.mode === 'third' ? 1 - Math.pow(0.0006, dt) : 1;
+    // focus easing — third person lags a touch so movement feels weighty
+    const fk = this.mode === 'third' ? 1 - Math.pow(0.0000004, dt) : 1;
     this.fx += (tfx - this.fx) * fk;
     this.fy += (tfy - this.fy) * fk;
-    if (!isFinite(this.fx)) { this.fx = pl.x; this.fy = pl.y; }
+    if (!isFinite(this.fx) || !isFinite(this.fy)) { this.fx = pl.x; this.fy = pl.y; }
 
     // yaw takes the short way round
     let dy = this.yawTarget - this.yaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
-    this.yaw += dy * Math.min(1, dt * (this.mode === 'third' ? this.turnRate : 7));
+    this.yaw += dy * Math.min(1, dt * 9);
     while (this.yaw > Math.PI * 2) { this.yaw -= Math.PI * 2; this.yawTarget -= Math.PI * 2; }
     while (this.yaw < -Math.PI * 2) { this.yaw += Math.PI * 2; this.yawTarget += Math.PI * 2; }
 
@@ -125,9 +122,17 @@ const Cam = {
 
     // cached projection scalars
     this.cos = Math.cos(this.yaw); this.sin = Math.sin(this.yaw);
-    this.ux = ISO_X * this.zoom;             // screen-x per rotated world unit
+    this.ux = ISO_X * this.zoom;              // screen-x per rotated world unit
     this.uy = ISO_X * this.zoom * this.pitch; // screen-y per rotated world unit
     this.rotated = Math.abs(this.sin) > 0.0015 || Math.abs(this.cos - 1) > 0.0015;
+  },
+
+  // Screen-relative input -> world direction. Undoes the camera yaw so "up
+  // the screen" is always away from the viewer, whatever the orbit angle.
+  screenToWorldDir(mx, my) {
+    const wx = mx + my, wy = my - mx;          // classic iso basis (yaw 0)
+    const c = this.cos, s = this.sin;
+    return [wx * c + wy * s, -wx * s + wy * c]; // R(-yaw)
   },
 
   // world -> rotated frame (relative to focus)
@@ -142,12 +147,17 @@ const Cam = {
     return (dx * this.sin + dy * this.cos) + (dx * this.cos - dy * this.sin);
   },
 
-  // Transform mapping a base-projected tile sprite into the current view.
-  // Derived from  T = P(zoom,pitch)·R(yaw)·P(1,0.5)⁻¹  so pre-baked diamond
-  // tiles stay pixel-correct under arbitrary rotation.
+  // Transform mapping a base-projected tile sprite into the current view:
+  //   T = P(zoom,pitch) · R(yaw) · P(1, 0.5)⁻¹
+  // With ISO_Y = ISO_X/2 this works out to
+  //   [ z·cos     -2z·sin  ]
+  //   [ z·p·sin    2z·p·cos]
+  // returned column-major as [a, b, c, d] for setTransform(a,b,c,d,e,f).
+  // Every term must agree exactly with worldToScreen or the floor slides out
+  // from under the entities standing on it — see the regression test.
   tileMatrix() {
     const z = this.zoom, p = this.pitch, c = this.cos, s = this.sin;
-    return [c * z, s * z * p * 2, -s * z * 2, c * z * p * 2];
+    return [c * z, s * z * p, -s * z * 2, c * z * p * 2];
   },
 
   // how far (in tiles) the visible frustum reaches from the focus
