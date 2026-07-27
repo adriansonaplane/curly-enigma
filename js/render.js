@@ -541,6 +541,18 @@ const Render = {
     if (jetting) {
       const p = ventPhase(i, t) / VENT_JET;          // 0..1 through the jet
       const env = Math.sin(Math.min(1, p) * Math.PI); // fade in and out
+      // Baked jet if we have one for this vent kind. Driven off the vent's own
+      // phase rather than wall-clock, so the sprite plays in step with the
+      // damage window instead of drifting out of sync with it.
+      if (kind.sheet && Assets.hasSheet(kind.sheet)) {
+        const sheet = Assets.tintedSheet(kind.sheet, kind.hot) || Assets.sheets[kind.sheet];
+        const fr = Math.min(sheet.frames - 1, Math.floor(p * sheet.frames));
+        ctx.globalAlpha = env;
+        ctx.drawImage(sheet.img, fr * sheet.cell, 0, sheet.cell, sheet.cell,
+                      sx - 34 * z, sy - 62 * z, 68 * z, 68 * z);
+        ctx.restore();
+        return;
+      }
       const H = (46 + 26 * env) * z * (kind.mul / 1.8);
       const g = ctx.createLinearGradient(sx, sy, sx, sy - H);
       g.addColorStop(0, U.rgba(kind.hot, 0.62 * env));
@@ -1594,6 +1606,11 @@ const Render = {
         ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(0, -34); ctx.stroke();
         ctx.fillStyle = '#55483a';
         ctx.beginPath(); ctx.moveTo(-4, -34); ctx.lineTo(4, -34); ctx.lineTo(2.5, -39); ctx.lineTo(-2.5, -39); ctx.closePath(); ctx.fill();
+        // Baked flame if one is loaded; the bracket above is ours either way.
+        // The phase is derived from the prop seed so a corridor of torches
+        // does not flicker in unison.
+        if (Assets.drawSheet(ctx, 'torch-3d', 0, -46, 40, t,
+              { phase: (pr.seed % 97) / 97, fps: 11, tint: col })) break;
         const fl = 0.85 + Math.sin(t * 11 + pr.x * 7 + pr.y * 13) * 0.15;
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
@@ -1621,6 +1638,9 @@ const Render = {
         ctx.fillRect(-9.5, -16, 19, 4.5);
         ctx.fillStyle = U.rgba('#ff6a20', 0.9);
         ctx.beginPath(); ctx.ellipse(0, -16, 7, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+        // the bowl is ours; the fire in it comes from the baked sheet if loaded
+        if (Assets.drawSheet(ctx, 'torch-3d', 0, -26, 46, t,
+            { phase: (pr.seed % 89) / 89, fps: 10, tint: col })) break;
         const fl = 0.85 + Math.sin(t * 9 + pr.seed) * 0.15;
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';

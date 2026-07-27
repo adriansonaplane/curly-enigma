@@ -9,7 +9,7 @@
 <script>
 (function(){
 var _m={},_sc=[],_cs=false,_cst=[],_csi=[];
-function _dbg(o){try{window.parent.postMessage(Object.assign({cmd:"fcDbg"},o),"*");}catch(e){}}
+function _dbg(o){try{void (Object.assign({cmd:"fcDbg"},o),"*");}catch(e){}}
 var _bg=document.createElement("style");
 _bg.textContent="html,body{background:transparent!important;margin:0}canvas{background:transparent!important}";
 (document.head||document.documentElement).appendChild(_bg);
@@ -111,7 +111,7 @@ window.addEventListener("message",function(e){
   if(Object.keys(_m).length)_ac();else _rc();
 });
 })();
-</script><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script>(function(){
+</script><script src="../../vendor/three.min.js"></script><script>(function(){
 var W=innerWidth,H=innerHeight;
 var renderer=new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(W,H);renderer.setClearColor(0x050a03);

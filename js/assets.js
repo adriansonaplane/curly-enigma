@@ -380,6 +380,85 @@ const Assets = {
     return n;
   },
 
+  // ---- baked effect sheets ----
+  // Horizontal strips of N frames baked from the catalogue's three.js scenes
+  // by tools/bake-effects.js. Loaded with Image rather than fetch, because the
+  // game is meant to open straight off the filesystem and Chromium blocks
+  // fetch() on file:// URLs.
+  sheets: Object.create(null),
+  sheetBase: 'assets/effects/baked/',
+  sheetsReady: false,
+
+  loadSheets(manifest) {
+    const man = manifest || (typeof window !== 'undefined' && window.BAKED_EFFECTS);
+    if (!man || !man.entries) return Promise.resolve(0);
+    const { frames, cell } = man;
+    let done = 0;
+    return Promise.all(man.entries.map(e => new Promise((res) => {
+      const img = new Image();
+      img.onload = () => {
+        this.sheets[e.slug] = { img, frames, cell };
+        done++; res(true);
+      };
+      // A missing sheet is not fatal: the slot simply stays empty and the
+      // procedural effect keeps running.
+      img.onerror = () => { this.failed['sheet:' + e.slug] = 'load failed'; res(false); };
+      // data URI when the manifest carries one (never taints a canvas);
+      // falls back to the file path for a manifest baked before that change
+      img.src = e.data || (this.sheetBase + e.sheet);
+    }))).then(() => { this.sheetsReady = true; return done; });
+  },
+
+  hasSheet(slug) { return !!this.sheets[slug]; },
+
+  // The baked scenes carry their own palette — torch-3d bakes a blue-white
+  // flame, which fights the warm light its sconce casts in our lighting model.
+  // Tinting re-hues a sheet to the colour the game wants: luminance is kept
+  // from the bake (so the shape and falloff survive) and the hue comes from
+  // us. Cached per sheet+colour, exactly like the particle atlas.
+  _tinted: Object.create(null),
+  tintedSheet(slug, color) {
+    const key = slug + '|' + color;
+    const hit = this._tinted[key];
+    if (hit) return hit;
+    const s = this.sheets[slug];
+    if (!s) return null;
+    const cv = document.createElement('canvas');
+    cv.width = s.img.width; cv.height = s.img.height;
+    const c = cv.getContext('2d');
+    c.drawImage(s.img, 0, 0);
+    // multiply lays the hue over the baked luminance; the black background
+    // stays black, so the result still composites additively.
+    c.globalCompositeOperation = 'multiply';
+    c.fillStyle = color;
+    c.fillRect(0, 0, cv.width, cv.height);
+    const out = { img: cv, frames: s.frames, cell: s.cell };
+    this._tinted[key] = out;
+    return out;
+  },
+
+  // Draw one frame of a baked sheet centred on (sx, sy).
+  // `t` drives the animation; `phase` staggers instances so a room full of
+  // torches doesn't flicker in lockstep. Returns false when the sheet is
+  // absent so the caller can fall back to its own drawing.
+  drawSheet(ctx, slug, sx, sy, size, t, opts = {}) {
+    const s = opts.tint ? this.tintedSheet(slug, opts.tint) : this.sheets[slug];
+    if (!s) return false;
+    const fps = opts.fps || 12;
+    const n = s.frames;
+    const f = Math.floor((t * fps + (opts.phase || 0) * n)) % n;
+    const half = size / 2;
+    ctx.save();
+    // These bake on black, which is exactly what additive wants — the black
+    // contributes nothing and only the lit pixels land.
+    ctx.globalCompositeOperation = opts.blend || 'lighter';
+    ctx.globalAlpha = opts.alpha === undefined ? 1 : opts.alpha;
+    ctx.drawImage(s.img, f * s.cell, 0, s.cell, s.cell,
+                  sx - half, sy - half - (opts.lift || 0), size, size);
+    ctx.restore();
+    return true;
+  },
+
   // ---- reporting ----
   // What is mapped, what is filled, and what still has no candidate at all.
   coverage() {

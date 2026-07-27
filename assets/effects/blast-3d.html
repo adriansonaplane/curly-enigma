@@ -9,7 +9,7 @@
 <script>
 (function(){
 var _m={},_sc=[],_cs=false,_cst=[],_csi=[];
-function _dbg(o){try{window.parent.postMessage(Object.assign({cmd:"fcDbg"},o),"*");}catch(e){}}
+function _dbg(o){try{void (Object.assign({cmd:"fcDbg"},o),"*");}catch(e){}}
 var _bg=document.createElement("style");
 _bg.textContent="html,body{background:transparent!important;margin:0}canvas{background:transparent!important}";
 (document.head||document.documentElement).appendChild(_bg);
@@ -111,7 +111,7 @@ window.addEventListener("message",function(e){
   if(Object.keys(_m).length)_ac();else _rc();
 });
 })();
-</script><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script>(function(){
+</script><script src="../../vendor/three.min.js"></script><script>(function(){
 var W=innerWidth,H=innerHeight;
 var renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(W,H);
 document.body.appendChild(renderer.domElement);
@@ -164,7 +164,7 @@ if(NF){var fl=o.fireLife||1;for(var i=0;i<NF;i++){fvy[i]-=0.001*(o.grav||0);SF.p
 if(NS){for(var i=0;i<NS;i++){svy[i]-=0.003;SS.p[i*3]+=svx[i];SS.p[i*3+1]+=svy[i];SS.p[i*3+2]+=svz[i];}SS.m.opacity=Math.max(0,0.95*(1-c*1.05));SS.g.attributes.position.needsUpdate=true;}
 if(NM){var md=Math.max(0,c-0.25),sl2=o.smokeLife||1.5;for(var i=0;i<NM;i++){SM.p[i*3]+=mvx[i];SM.p[i*3+1]+=mvy[i];SM.p[i*3+2]+=mvz[i];}SM.m.opacity=Math.max(0,0.4*Math.min(1,md*3)*(1-md/sl2));SM.g.attributes.position.needsUpdate=true;}
 for(var i=0;i<debris.length;i++){var d=debris[i];d.vy-=0.003;d.m.position.x+=d.vx;d.m.position.y+=d.vy;d.m.position.z+=d.vz;if(d.m.position.y<0.04){d.m.position.y=0.04;d.vy=0;d.vx*=0.8;d.vz*=0.8;}d.m.rotation.x+=d.rx;d.m.rotation.z+=d.rz;d.m.visible=(1-c*1.1)>0.05;}
-for(var i=0;i<rays.length;i++){rays[i].material.opacity=Math.max(0,0.85*(1-c*1.1));rays[i].parent.scale.setScalar(0.3+Math.min(1,c/0.3)*1.6);}
+for(var i=0;i<rays.length;i++){rays[i].material.opacity=Math.max(0,0.85*(1-c*1.1));rays[i].window.scale.setScalar(0.3+Math.min(1,c/0.3)*1.6);}
 renderer.render(scene,camera);}A0();}
 
 window.addEventListener('resize',function(){W=innerWidth;H=innerHeight;renderer.setSize(W,H);camera.aspect=W/H;camera.updateProjectionMatrix();});

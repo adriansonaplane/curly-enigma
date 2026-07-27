@@ -8,9 +8,9 @@ const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3, WATER: 4, VENT: 5, SPORE: 6, 
 // they spit. Keyed by HAZ value so the renderer and the damage code can look
 // up one record instead of branching three ways in four places.
 const VENT_KINDS = {
-  5: { tile: 'vent',  color: '#ff9a3f', hot: '#ffd9a0', elem: 'fire', dmg: 0.055, mul: 1.8, name: 'steam vent' },
-  6: { tile: 'spore', color: '#8ae8a0', hot: '#d8ffe0', elem: 'pois', dmg: 0.040, mul: 1.2, name: 'spore vent' },
-  7: { tile: 'ember', color: '#ff5a2f', hot: '#ffc060', elem: 'fire', dmg: 0.070, mul: 2.2, name: 'ember geyser' },
+  5: { tile: 'vent',  color: '#ff9a3f', hot: '#ffd9a0', elem: 'fire', dmg: 0.055, mul: 1.8, name: 'steam vent',   sheet: 'geothermalsteam-3d' },
+  6: { tile: 'spore', color: '#8ae8a0', hot: '#d8ffe0', elem: 'pois', dmg: 0.040, mul: 1.2, name: 'spore vent',   sheet: 'swampgas-3d' },
+  7: { tile: 'ember', color: '#ff5a2f', hot: '#ffc060', elem: 'fire', dmg: 0.070, mul: 2.2, name: 'ember geyser', sheet: 'flamejet-3d' },
 };
 function isVent(hz) { return hz === HAZ.VENT || hz === HAZ.SPORE || hz === HAZ.EMBER; }
 
