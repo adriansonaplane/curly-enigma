@@ -77,6 +77,8 @@ const Render = {
   cv: null, ctx: null, lightCv: null, lctx: null,
   W: 0, H: 0, dpr: 1, mmCv: null, mmCtx: null,
   exploreT: 0,
+  fx: {},               // effect toggles owned by the settings UI
+  qualityMode: 'auto',  // 'auto' lets trackFps degrade; 'high'/'low' pin it
 
   init() {
     this.cv = document.getElementById('game');
@@ -139,6 +141,7 @@ const Render = {
   // directional shadows). Degrade-only, re-evaluated over 2.5s windows.
   quality: 'high', _fpsN: 0, _fpsT: 0,
   trackFps(dt) {
+    if (this.qualityMode !== 'auto') { this.quality = this.qualityMode; return; }
     this._fpsN++; this._fpsT += dt;
     if (this._fpsT >= 2.5) {
       const avg = this._fpsN / this._fpsT;
@@ -156,6 +159,7 @@ const Render = {
     this.updateAmbient(dt);
 
     // camera + shake
+    if (this.fx.shake === false) G.shake = 0;
     G.shake = Math.max(0, G.shake - dt * 30);
     const shx = G.shake ? U.rf(U.rand, -G.shake, G.shake) * 0.5 : 0;
     const shy = G.shake ? U.rf(U.rand, -G.shake, G.shake) * 0.5 : 0;
@@ -203,7 +207,7 @@ const Render = {
         else img = tiles.floors[map.variant[i] % tiles.floors.length];
         ctx.drawImage(img, sx - ISO_X, sy - ISO_Y, ISO_X * 2, ISO_Y * 2);
         // baked ambient occlusion where floor meets walls
-        const ao = hiQ && map.ao ? map.ao[i] : 0;
+        const ao = hiQ && this.fx.ao !== false && map.ao ? map.ao[i] : 0;
         if (ao) ctx.drawImage(aoTiles[ao], sx - ISO_X, sy - ISO_Y, ISO_X * 2, ISO_Y * 2);
         // travelling specular glint on water
         if (hz === HAZ.WATER && hiQ) {
@@ -409,7 +413,7 @@ const Render = {
   // Fog renders into a quarter-res buffer once per frame (mult === 1), then
   // both passes just blit it — huge fill-rate savings on soft alpha blends.
   drawFog(ctx, t, mult) {
-    if (this.quality === 'low') return;
+    if (this.quality === 'low' || this.fx.fog === false) return;
     const th = THEMES[G.map.theme];
     if (!th.fog || !this.fogPuffs.length) return;
     if (mult === 1) {
@@ -435,7 +439,7 @@ const Render = {
   },
 
   drawShafts(ctx, t) {
-    if (this.quality === 'low') return;
+    if (this.quality === 'low' || this.fx.shafts === false) return;
     const map = G.map, th = THEMES[map.theme];
     if (!map.shafts || !map.shafts.length || !th.shaft) return;
     ctx.save();
@@ -470,6 +474,7 @@ const Render = {
   // Color grade + vignette baked per (theme, viewport) — one blit per frame.
   gradeKey: '',
   drawGrade(ctx) {
+    if (this.fx.grade === false) return;
     const th = THEMES[G.map.theme];
     if (!th.grade) { ctx.drawImage(this.vinCv, 0, 0, this.W, this.H); return; }
     const key = G.map.theme + '_' + this.W + 'x' + this.H;
@@ -659,6 +664,7 @@ const Render = {
 
   // Mirror an actor's sprite into standing water beneath it.
   drawReflection(ctx, sheet, frame, dir, sx, sy, C, scale) {
+    if (this.fx.reflections === false) return;
     ctx.save();
     ctx.globalAlpha = 0.24;
     ctx.translate(sx, sy + 3);
@@ -721,21 +727,47 @@ const Render = {
     ctx.drawImage(sheet.canvas, frame * C, dir * C, C, C, -C / 2 * scale, -C * 0.78 * scale, C * scale, C * scale);
     ctx.restore();
 
-    // health bar + debuff tint
-    if (!m.dead && !m.ally && m.hp < m.maxHp) {
+    // nameplate: health bar, status effect icons, name
+    const plates = this.fx.nameplates;
+    const plateY = sy - 48 * m.size - 6;
+    if (!m.dead && !m.ally && (m.hp < m.maxHp || plates)) {
       const w = 30 * Math.min(2, m.size);
       ctx.save();
       ctx.fillStyle = 'rgba(0,0,0,0.65)';
-      ctx.fillRect(sx - w / 2, sy - 48 * m.size - 6, w, 4);
+      ctx.fillRect(sx - w / 2, plateY, w, 4);
       ctx.fillStyle = m.rank === 'elite' ? '#ffd94f' : m.rank === 'champion' ? '#7b9bff' : '#c0392b';
-      ctx.fillRect(sx - w / 2, sy - 48 * m.size - 6, w * Math.max(0, m.hp / m.maxHp), 4);
+      ctx.fillRect(sx - w / 2, plateY, w * Math.max(0, m.hp / m.maxHp), 4);
       ctx.restore();
     }
-    if (!m.dead && m.rank === 'elite') {
+    if (!m.dead && !m.ally) {
+      // status icons row above the bar
+      const sts = [];
+      if (m.stunT > 0) sts.push('#ffd94f');
+      if (m.debuffT > 0) {
+        if (m.debuffs.slow) sts.push('#7bdcff');
+        if (m.debuffs.dot) sts.push(ELEM[m.debuffs.dotElem || 'pois'].color);
+        if (m.debuffs.dmgTaken) sts.push('#c07bff');
+        if (m.debuffs.weaken) sts.push('#9a9a9a');
+      }
+      if (sts.length) {
+        ctx.save();
+        const iw = 7, gap = 2, total = sts.length * iw + (sts.length - 1) * gap;
+        let ix = sx - total / 2;
+        for (const col of sts) {
+          ctx.fillStyle = 'rgba(0,0,0,0.75)';
+          ctx.fillRect(ix - 1, plateY - 12, iw + 2, iw + 2);
+          ctx.fillStyle = col;
+          ctx.fillRect(ix, plateY - 11, iw, iw);
+          ix += iw + gap;
+        }
+        ctx.restore();
+      }
+    }
+    if (!m.dead && (m.rank === 'elite' || (plates && !m.ally))) {
       ctx.save();
       ctx.font = '11px Palatino Linotype, serif'; ctx.textAlign = 'center';
-      ctx.fillStyle = '#ffd94f';
-      ctx.fillText(m.name, sx, sy - 48 * m.size - 12);
+      ctx.fillStyle = m.rank === 'elite' ? '#ffd94f' : m.rank === 'champion' ? '#a8bcff' : '#d8cdb0';
+      ctx.fillText(m.name, sx, plateY - (m.stunT > 0 || m.debuffT > 0 ? 16 : 5));
       ctx.restore();
     }
   },

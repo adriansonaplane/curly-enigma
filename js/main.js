@@ -122,6 +122,7 @@ const Save = {
       lvl: pl.lvl, xp: pl.xp, stats: pl.stats, statPts: pl.statPts, skillPts: pl.skillPts,
       skills: pl.skills, hotbar: pl.hotbar, equip: pl.equip, inv: pl.inv,
       gold: pl.gold, potions: pl.potions, progress: pl.progress,
+      bars: pl.bars, macros: pl.macros, quests: pl.quests,
       kills: G.stats.kills, season: SEASON.current().num,
     };
     try { localStorage.setItem(this.CHARS, JSON.stringify(all)); } catch (e) { /* storage full */ }
@@ -177,6 +178,7 @@ const Game = {
       lvl: c.lvl, xp: c.xp, stats: c.stats, statPts: c.statPts, skillPts: c.skillPts,
       skills: c.skills || {}, cds: {}, buffs: [],
       hotbar: c.hotbar, equip: c.equip, inv: c.inv || new Array(48).fill(null),
+      bars: c.bars || null, macros: c.macros || [], quests: c.quests || { p: {}, done: {} },
       gold: c.gold, potions: c.potions, progress: c.progress,
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
@@ -515,9 +517,10 @@ const Game = {
       pl.mp = Math.min(d.maxMp, pl.mp + d.regenMp * dt);
     }
 
-    // movement (screen-relative WASD mapped to iso world axes)
-    let mx = (this.keys['d'] || this.keys['arrowright'] ? 1 : 0) - (this.keys['a'] || this.keys['arrowleft'] ? 1 : 0);
-    let my = (this.keys['s'] || this.keys['arrowdown'] ? 1 : 0) - (this.keys['w'] || this.keys['arrowup'] ? 1 : 0);
+    // movement (screen-relative, rebindable, mapped to iso world axes)
+    const km = WUI.keymap;
+    let mx = (this.keys[km.moveR] || this.keys['arrowright'] ? 1 : 0) - (this.keys[km.moveL] || this.keys['arrowleft'] ? 1 : 0);
+    let my = (this.keys[km.moveD] || this.keys['arrowdown'] ? 1 : 0) - (this.keys[km.moveU] || this.keys['arrowup'] ? 1 : 0);
     pl.moving = false;
     if (!pl.dead && (mx || my)) {
       let wx = mx + my, wy = my - mx;
@@ -573,6 +576,7 @@ const Game = {
     if (G.autosaveT <= 0) { G.autosaveT = 25; Save.saveChar(pl); }
 
     UI.updateHUD();
+    WUI.update(dt);
 
     // interactable hover tooltip + cursor
     if (UI.openPanel === null) {
@@ -591,26 +595,8 @@ const Game = {
       const k = e.key.toLowerCase();
       this.keys[k] = true;
       if (G.state !== 'game') return;
-      const pl = G.player;
-      switch (k) {
-        case 'i': UI.toggle('inv'); break;
-        case 'c': UI.toggle('char'); break;
-        case 'k': UI.toggle('skills'); break;
-        case 'l': UI.toggle('ladder'); break;
-        case 'q': this.drinkPotion('hp'); break;
-        case 'e': this.drinkPotion('mp'); break;
-        case 't': this.castPortal(); break;
-        case 'n': AUDIO.toggleMute(); break;
-        case 'escape':
-          if (UI.openPanel && UI.openPanel !== 'death') UI.closeAll();
-          else if (!UI.openPanel) UI.open('menu');
-          break;
-        case '1': case '2': case '3': case '4': {
-          const skId = pl.hotbar['s' + k];
-          if (skId && !pl.dead) Ent.castSkill(pl, skId, G.mouseWorld[0], G.mouseWorld[1]);
-          break;
-        }
-      }
+      // all game actions run through the rebindable keymap layer
+      if (WUI.handleKey(k, e)) { if (k !== 'escape') e.preventDefault(); }
     });
     window.addEventListener('keyup', e => { this.keys[e.key.toLowerCase()] = false; });
     const cv = document.getElementById('game');
@@ -649,6 +635,7 @@ const Game = {
 window.addEventListener('DOMContentLoaded', () => {
   Render.init();
   UI.init();
+  WUI.init();
   UI.initMenu();
   Game.bindInput();
   requestAnimationFrame(t => Game.loop(t));

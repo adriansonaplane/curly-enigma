@@ -103,6 +103,7 @@ const Ent = {
     if (pl.mp < cost) { UI.flashMana(); return false; }
 
     pl.mp -= cost;
+    this._src = sk.name; // damage-meter attribution
     if (sk.cd) pl.cds[skId] = sk.cd;
     pl.gcd = sk.wd ? 1 / pl.derived.atkRate : 0.38;
     pl.attackT = 0.32;
@@ -344,6 +345,7 @@ const Ent = {
 
   basicAttack(pl, tx, ty) {
     if (pl.gcd > 0) return false;
+    this._src = 'Attack';
     const d = pl.derived;
     pl.gcd = 1 / d.atkRate;
     pl.attackT = 0.3;
@@ -623,7 +625,7 @@ const Ent = {
   hurtTarget(m, target, dmg) {
     if (target === G.player) this.damagePlayer(dmg, m.elem, m);
     else if (target.ally) this.minionDamage(target, dmg, m.elem);
-    else this.damageMonster(target, dmg, m.elem, { from: m.owner });
+    else this.damageMonster(target, dmg, m.elem, { from: m.owner, srcName: 'Minions' });
   },
 
   // ======================= AI UPDATE =======================
@@ -645,8 +647,10 @@ const Ent = {
         if (m.dotAcc >= 0.5) {
           m.dotAcc -= 0.5;
           const delem = m.debuffs.dotElem || 'pois';
-          m.hp -= m.debuffs.dot * 0.5;
-          UI.dmgNum(m.x, m.y - m.size * 0.7, Math.max(1, Math.floor(m.debuffs.dot * 0.5)), ELEM[delem].color);
+          const tick = m.debuffs.dot * 0.5;
+          m.hp -= tick;
+          UI.dmgNum(m.x, m.y - m.size * 0.7, Math.max(1, Math.floor(tick)), ELEM[delem].color);
+          if (!m.ally) WUI.trackOut(tick, 'Damage over Time');
           if (m.hp <= 0) { this.killMonster(m, G.player); return; }
         }
       }
@@ -670,13 +674,13 @@ const Ent = {
           if (def.shoot) {
             const a = U.angleTo(m.x, m.y, target.x, target.y);
             sfx('shoot');
-            G.projs.push({ x: m.x, y: m.y, vx: Math.cos(a) * 11, vy: Math.sin(a) * 11, dmg, elem: def.elem, ally: true, from: m.owner, r: 0.28, ttl: 1.4, kind: 'bolt', jumps: def.chain ? 2 : 0, slowHit: def.slowHit });
+            G.projs.push({ x: m.x, y: m.y, vx: Math.cos(a) * 11, vy: Math.sin(a) * 11, dmg, elem: def.elem, ally: true, from: m.owner, r: 0.28, ttl: 1.4, kind: 'bolt', jumps: def.chain ? 2 : 0, slowHit: def.slowHit, srcName: 'Minions' });
           } else {
             FX.ring(m.x, m.y, def.radius || 2.4, ELEM[def.elem].color);
             for (const o of G.monsters) {
               if (o.ally || o.dead) continue;
               if (U.dist(m.x, m.y, o.x, o.y) < (def.radius || 2.4) + o.size * 0.3) {
-                this.damageMonster(o, dmg, def.elem, { from: m.owner });
+                this.damageMonster(o, dmg, def.elem, { from: m.owner, srcName: 'Minions' });
                 if (def.slowHit) this.applyDebuff(o, { slow: def.slowHit }, 2);
               }
             }
@@ -925,7 +929,7 @@ const Ent = {
         if (U.dist2(p.x, p.y, m.x, m.y) < Math.pow(p.r + m.size * 0.33, 2)) {
           let dmg = p.dmg;
           if (p.crit && p.from === G.player) dmg *= G.player.derived.critDmg;
-          this.damageMonster(m, dmg, p.elem, { crit: p.crit, from: p.from });
+          this.damageMonster(m, dmg, p.elem, { crit: p.crit, from: p.from, srcName: p.srcName });
           if (p.slowHit) this.applyDebuff(m, { slow: p.slowHit }, 2.5);
           if (p.jumps && p.jumps > 0) {
             let best = null, bd = 30;

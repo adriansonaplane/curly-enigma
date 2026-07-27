@@ -2,14 +2,14 @@
 'use strict';
 
 const AUDIO = {
-  ctx: null, master: null, muted: false,
+  ctx: null, master: null, muted: false, vol: 0.5,
   ensure() {
     if (!this.ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return false;
       this.ctx = new AC();
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.5;
+      this.master.gain.value = this.muted ? 0 : this.vol;
       this.master.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
@@ -17,7 +17,7 @@ const AUDIO = {
   },
   toggleMute() {
     this.muted = !this.muted;
-    if (this.master) this.master.gain.value = this.muted ? 0 : 0.5;
+    if (this.master) this.master.gain.value = this.muted ? 0 : this.vol;
     return this.muted;
   },
   tone(freq, dur, type = 'square', vol = 0.2, slide = 0) {

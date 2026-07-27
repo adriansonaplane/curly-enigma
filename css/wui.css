@@ -1,0 +1,292 @@
+/* ============ DIABLOID: wui.css — WoW-style interface layer ============ */
+
+/* hide the legacy fixed hotbar & buff strip; WUI replaces them */
+#hotbar { display: none !important; }
+#buff-bar { display: none !important; }
+/* globes flank the new action bar instead of hugging the dead hotbar */
+#bottom-hud { gap: 800px !important; }
+
+/* ---------------- movable frames ---------------- */
+.wui-frame {
+  position: fixed;
+  z-index: 12;
+  font-family: 'Palatino Linotype', Palatino, serif;
+  color: #cfc4a8;
+  user-select: none;
+  pointer-events: auto;
+}
+body.wui-edit .wui-frame { pointer-events: auto !important; }
+.wui-frame.wui-hidden { display: none; }
+body.wui-edit .wui-frame {
+  outline: 1px dashed rgba(255, 217, 79, 0.85);
+  outline-offset: 2px;
+  cursor: grab;
+  background: rgba(60, 45, 12, 0.25);
+  min-width: 40px; min-height: 22px;
+}
+body.wui-edit .wui-frame::before {
+  content: attr(data-label);
+  position: absolute; top: -17px; left: 0;
+  font-size: 10px; letter-spacing: 1px; color: #ffd94f;
+  background: rgba(10, 7, 4, 0.85); padding: 1px 6px;
+  border: 1px solid #4a3a1c; white-space: nowrap;
+  pointer-events: none;
+}
+body.wui-edit .wui-frame * { pointer-events: none !important; }
+#wui-editbanner {
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
+  z-index: 60; background: rgba(20, 14, 4, 0.95); border: 1px solid #ffd94f;
+  color: #ffd94f; padding: 8px 20px; font-size: 13px; letter-spacing: 1px;
+  font-family: 'Palatino Linotype', serif; text-align: center;
+}
+#wui-editbanner button {
+  margin-left: 14px; background: #3c2c0c; color: #ffd94f;
+  border: 1px solid #6a5a24; padding: 3px 12px; cursor: pointer; font-family: inherit;
+}
+
+/* ---------------- action bar ---------------- */
+#wui-actionbar { display: flex; gap: 4px; align-items: flex-end; }
+.wab-slot {
+  width: 46px; height: 46px; position: relative;
+  background: linear-gradient(160deg, #16100a, #090604);
+  border: 2px solid #4a3a1c; border-radius: 4px;
+  cursor: pointer;
+}
+.wab-slot:hover { border-color: #8a6a2c; }
+.wab-slot canvas { width: 42px; height: 42px; display: block; }
+.wab-slot .wab-key {
+  position: absolute; top: 1px; right: 3px; font-size: 9px; color: #b8a468;
+  text-shadow: 0 1px 2px #000; z-index: 3; pointer-events: none;
+}
+.wab-slot .wab-count {
+  position: absolute; bottom: 1px; right: 3px; font-size: 11px; color: #fff;
+  text-shadow: 0 1px 2px #000; z-index: 3; pointer-events: none;
+}
+.wab-slot .wab-cd {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: bold; color: #ffd94f; text-shadow: 0 1px 3px #000;
+}
+.wab-slot.wab-dim canvas { filter: brightness(0.45) saturate(0.6); }
+.wab-slot.wab-oom canvas { filter: brightness(0.55) sepia(1) hue-rotate(180deg); }
+.wab-slot.wab-empty { border-style: dashed; opacity: 0.65; }
+.wab-gap { width: 8px; }
+
+/* cursor pickup ghost */
+#wui-cursoritem {
+  position: fixed; z-index: 200; pointer-events: none;
+  width: 40px; height: 40px; opacity: 0.85; display: none;
+}
+#wui-cursoritem canvas { width: 40px; height: 40px; }
+
+/* ---------------- unit frames ---------------- */
+.wui-unit {
+  background: linear-gradient(180deg, rgba(24, 18, 8, 0.92), rgba(10, 7, 4, 0.92));
+  border: 1px solid #4a3a1c; border-radius: 4px;
+  padding: 5px 8px; min-width: 190px;
+}
+.wui-unit .wu-row { display: flex; align-items: center; gap: 7px; }
+.wui-unit .wu-portrait {
+  width: 40px; height: 40px; border: 1px solid #6a5424; border-radius: 3px;
+  background: #0c0906; flex: none; overflow: hidden;
+}
+.wui-unit .wu-portrait canvas { width: 40px; height: 40px; }
+.wui-unit .wu-body { flex: 1; min-width: 110px; }
+.wui-unit .wu-name {
+  font-size: 12px; color: #ffe9a8; letter-spacing: 0.5px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 160px;
+}
+.wui-unit .wu-name .wu-lvl { color: #b8a468; font-size: 10px; }
+.wui-bar {
+  height: 11px; border: 1px solid #000; background: #1a1410;
+  position: relative; margin-top: 2px; border-radius: 2px; overflow: hidden;
+}
+.wui-bar .wb-fill { position: absolute; inset: 0; transform-origin: left; }
+.wui-bar .wb-txt {
+  position: absolute; inset: 0; font-size: 8.5px; text-align: center; line-height: 11px;
+  color: #f4ecd8; text-shadow: 0 1px 1px #000; letter-spacing: 0.5px;
+}
+.wb-hp .wb-fill { background: linear-gradient(180deg, #2e9e40, #1d6a2a); }
+.wb-hp.low .wb-fill { background: linear-gradient(180deg, #c03a2a, #7a1f12); }
+.wb-mp .wb-fill { background: linear-gradient(180deg, #2a52c0, #1a3480); }
+.wb-xp { height: 6px; }
+.wb-xp .wb-fill { background: linear-gradient(180deg, #8a5ac0, #5a3486); }
+.wb-ttl { height: 4px; }
+.wb-ttl .wb-fill { background: #b8a468; }
+.wb-cast .wb-fill { background: linear-gradient(180deg, #c8a03a, #8a6a1c); }
+
+.wu-status { display: flex; gap: 3px; margin-top: 3px; flex-wrap: wrap; }
+.wu-ico {
+  width: 16px; height: 16px; border: 1px solid #000; border-radius: 2px;
+  font-size: 10px; line-height: 15px; text-align: center; color: #fff;
+  text-shadow: 0 1px 1px #000; position: relative;
+}
+.wu-ico .wi-t {
+  position: absolute; bottom: -4px; right: -3px; font-size: 8px;
+  color: #ffd94f; text-shadow: 0 0 2px #000, 0 0 2px #000;
+}
+
+/* target frame rank colorings */
+#wui-target .wu-name.rk-elite { color: #ffd94f; }
+#wui-target .wu-name.rk-champion { color: #7b9bff; }
+#wui-target .wu-name.rk-boss { color: #ff6a3c; }
+
+/* party (minion) frame */
+#wui-party .wui-unit { min-width: 170px; margin-bottom: 4px; padding: 3px 6px; }
+#wui-party .wu-portrait { width: 26px; height: 26px; }
+#wui-party .wu-portrait canvas { width: 26px; height: 26px; }
+#wui-party .wu-name { font-size: 10.5px; }
+#wui-party-title, .wui-mini-title {
+  font-size: 10px; letter-spacing: 2px; color: #8a7444;
+  text-shadow: 0 1px 2px #000; margin-bottom: 3px;
+}
+
+/* ---------------- buff tray (left of minimap) ---------------- */
+#wui-bufftray { display: flex; flex-direction: row-reverse; gap: 5px; flex-wrap: wrap; justify-content: flex-end; max-width: 340px; }
+.wbuff {
+  width: 32px; text-align: center; position: relative;
+}
+.wbuff .wbf-ico {
+  width: 28px; height: 28px; margin: 0 auto; border-radius: 3px;
+  border: 1px solid; font-size: 15px; line-height: 27px; color: #fff;
+  text-shadow: 0 1px 2px #000; background: rgba(8, 6, 3, 0.8);
+}
+.wbuff .wbf-t { font-size: 9px; color: #ffe9a8; text-shadow: 0 1px 2px #000; margin-top: 1px; }
+.wbuff .wbf-name {
+  font-size: 8px; color: #b8a468; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: 34px; margin: 0 auto;
+}
+
+/* ---------------- combat text streams ---------------- */
+.wui-ct { width: 210px; height: 260px; position: relative; overflow: hidden; pointer-events: none; }
+.wui-ct .ct-line {
+  position: absolute; left: 0; right: 0; text-align: center;
+  font-size: 14px; font-weight: bold; text-shadow: 0 1px 2px #000, 0 0 4px rgba(0,0,0,0.7);
+  animation: ct-rise 1.6s ease-out forwards; white-space: nowrap;
+}
+.wui-ct .ct-line.crit { font-size: 20px; animation-duration: 1.9s; }
+@keyframes ct-rise {
+  0%   { transform: translateY(0) scale(1); opacity: 0; }
+  8%   { opacity: 1; transform: translateY(-8px) scale(1.12); }
+  20%  { transform: translateY(-26px) scale(1); }
+  80%  { opacity: 0.9; }
+  100% { transform: translateY(-190px); opacity: 0; }
+}
+body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
+
+/* ---------------- chat frame ---------------- */
+#wui-chat { width: 360px; }
+#wui-chat .wc-tabs { display: flex; gap: 2px; }
+#wui-chat .wc-tab {
+  font-size: 10px; letter-spacing: 1px; padding: 2px 10px; cursor: pointer;
+  background: rgba(20, 14, 6, 0.8); border: 1px solid #3a2c12; border-bottom: none;
+  color: #8a7444; border-radius: 3px 3px 0 0;
+}
+#wui-chat .wc-tab.active { color: #ffe9a8; background: rgba(34, 24, 10, 0.9); }
+#wui-chat .wc-log {
+  height: 148px; overflow-y: auto; padding: 4px 7px;
+  background: rgba(8, 6, 3, 0.72); border: 1px solid #3a2c12;
+  font-size: 11.5px; line-height: 1.45;
+  scrollbar-width: thin; scrollbar-color: #4a3a1c transparent;
+}
+#wui-chat .wc-log div { text-shadow: 0 1px 1px #000; }
+#wui-chat .wc-log .wc-ts { color: #5f5237; font-size: 9.5px; margin-right: 4px; }
+#wui-chat input {
+  width: 100%; box-sizing: border-box; background: rgba(8, 6, 3, 0.85);
+  border: 1px solid #3a2c12; border-top: none; color: #e8dcc0;
+  font-family: inherit; font-size: 12px; padding: 3px 7px; outline: none; display: none;
+}
+#wui-chat input.open { display: block; }
+#wui-chat input:focus { border-color: #6a5424; }
+
+/* ---------------- DPS meter ---------------- */
+#wui-dps { width: 230px; background: rgba(10, 7, 4, 0.82); border: 1px solid #3a2c12; border-radius: 4px; }
+#wui-dps .wd-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 3px 8px; background: linear-gradient(180deg, #2c2010, #180f06);
+  border-bottom: 1px solid #3a2c12; font-size: 11px; letter-spacing: 1px; color: #ffd94f;
+}
+#wui-dps .wd-head span.wd-reset { cursor: pointer; color: #8a7444; font-size: 12px; }
+#wui-dps .wd-head span.wd-reset:hover { color: #ffd94f; }
+#wui-dps .wd-stats { padding: 4px 8px; font-size: 11px; display: grid; grid-template-columns: 1fr 1fr; gap: 1px 8px; }
+#wui-dps .wd-stats b { color: #ffe9a8; font-weight: normal; }
+#wui-dps .wd-rows { padding: 2px 6px 6px; }
+#wui-dps .wd-row { position: relative; height: 15px; margin-top: 2px; font-size: 10px; }
+#wui-dps .wd-row .wd-fill {
+  position: absolute; inset: 0; border-radius: 2px; opacity: 0.55;
+  background: linear-gradient(90deg, #7a4a10, #3c250a);
+}
+#wui-dps .wd-row .wd-txt { position: relative; z-index: 1; display: flex; justify-content: space-between; padding: 0 5px; line-height: 15px; color: #e8dcc0; text-shadow: 0 1px 1px #000; }
+
+/* ---------------- quest tracker + log ---------------- */
+#wui-tracker { width: 240px; font-size: 11.5px; }
+#wui-tracker .qt-title { color: #ffd94f; font-size: 11px; letter-spacing: 2px; text-shadow: 0 1px 2px #000; margin-bottom: 4px; }
+#wui-tracker .qt-q { margin-bottom: 7px; }
+#wui-tracker .qt-name { color: #ffe9a8; text-shadow: 0 1px 2px #000; }
+#wui-tracker .qt-obj { color: #b8a882; text-shadow: 0 1px 2px #000; padding-left: 10px; }
+#wui-tracker .qt-obj.done { color: #6be26b; }
+
+#panel-quests .q-item { border: 1px solid #3a2c12; border-radius: 3px; padding: 7px 10px; margin-bottom: 7px; background: rgba(20, 14, 6, 0.55); }
+#panel-quests .q-item.done { opacity: 0.62; }
+#panel-quests .q-name { color: #ffe9a8; font-size: 13px; }
+#panel-quests .q-name .q-tag { font-size: 10px; color: #6be26b; margin-left: 8px; }
+#panel-quests .q-desc { color: #9a8a62; font-size: 11.5px; margin: 2px 0; }
+#panel-quests .q-prog { font-size: 11px; color: #b8a882; }
+#panel-quests .q-prog .q-bar { display: inline-block; width: 120px; height: 7px; background: #1a1410; border: 1px solid #000; vertical-align: middle; margin: 0 6px; }
+#panel-quests .q-prog .q-bar i { display: block; height: 100%; background: #8a6a1c; }
+#panel-quests .q-gold { color: #ffd94f; font-size: 11px; }
+
+/* ---------------- settings panel ---------------- */
+#panel-settings { width: 620px; max-width: 92vw; }
+.ws-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+.ws-body { max-height: 56vh; overflow-y: auto; padding-right: 6px; scrollbar-width: thin; }
+.ws-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 4px; border-bottom: 1px solid #241a0c; font-size: 13px;
+}
+.ws-row .ws-label { color: #cfc4a8; }
+.ws-row .ws-hint { display: block; font-size: 10.5px; color: #6f6248; }
+.ws-toggle {
+  width: 42px; height: 20px; border: 1px solid #4a3a1c; border-radius: 10px;
+  background: #1a1208; cursor: pointer; position: relative; flex: none;
+}
+.ws-toggle::after {
+  content: ''; position: absolute; top: 2px; left: 3px; width: 14px; height: 14px;
+  border-radius: 50%; background: #6f6248; transition: all 0.15s;
+}
+.ws-toggle.on { background: #3c2f10; border-color: #8a6a2c; }
+.ws-toggle.on::after { left: 23px; background: #ffd94f; }
+.ws-row select, .ws-row input[type=range] { background: #1a1208; color: #e8dcc0; border: 1px solid #4a3a1c; font-family: inherit; }
+.ws-row input[type=range] { width: 140px; }
+.ws-key {
+  min-width: 74px; text-align: center; background: #1a1208; border: 1px solid #4a3a1c;
+  color: #ffe9a8; font-size: 12px; padding: 3px 10px; cursor: pointer; border-radius: 3px;
+}
+.ws-key.listen { border-color: #ffd94f; color: #ffd94f; animation: ws-blink 0.8s infinite; }
+@keyframes ws-blink { 50% { opacity: 0.45; } }
+.ws-btn {
+  background: #2c2010; color: #e8dcc0; border: 1px solid #4a3a1c; padding: 5px 14px;
+  font-family: inherit; font-size: 12px; cursor: pointer; border-radius: 3px;
+}
+.ws-btn:hover { border-color: #8a6a2c; color: #ffe9a8; }
+.ws-btn.danger { border-color: #6a2c1c; color: #d88a72; }
+
+/* macro editor */
+.ws-macro { border: 1px solid #3a2c12; border-radius: 3px; padding: 7px 10px; margin-bottom: 8px; background: rgba(20, 14, 6, 0.55); }
+.ws-macro .wm-head { display: flex; align-items: center; gap: 8px; }
+.ws-macro .wm-ico { width: 26px; height: 26px; border: 1px solid #6a5424; border-radius: 3px; text-align: center; line-height: 25px; font-size: 14px; color: #fff; cursor: grab; }
+.ws-macro .wm-name { color: #ffe9a8; font-size: 13px; flex: 1; }
+.ws-macro .wm-seq { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+.ws-macro .wm-seq canvas { width: 30px; height: 30px; border: 1px solid #4a3a1c; border-radius: 3px; cursor: pointer; }
+.ws-macro .wm-add { font-size: 11px; }
+.ws-skillpick { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; padding: 6px; background: rgba(8,6,3,0.6); border: 1px solid #241a0c; }
+.ws-skillpick canvas { width: 32px; height: 32px; border: 1px solid #4a3a1c; cursor: pointer; }
+.ws-skillpick canvas:hover { border-color: #ffd94f; }
+
+/* fps counter */
+#wui-fps {
+  position: fixed; top: 6px; left: 8px; z-index: 40; font-size: 11px;
+  color: #6be26b; text-shadow: 0 1px 2px #000; font-family: monospace; display: none;
+}
+
+/* hud extra buttons inherit existing style from #hud-buttons */

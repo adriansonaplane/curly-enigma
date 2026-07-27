@@ -95,21 +95,55 @@ sound effects, town hub with 5 NPCs, town portals, waypoints, autosave, and hard
 ![The Weeping Parish](screenshots/crypt.png)
 ![The Burning Throne](screenshots/hell.png)
 
-## 🎮 Controls
+### A full WoW-style interface — every frame movable
+The HUD is a complete MMO-grade interface layer, and **every frame can be dragged anywhere**
+via Edit Mode (layout persists between sessions):
+
+- **Programmable action bar** — LMB/RMB plus ten keybound slots. Pick skills up from the skill
+  tree and drop them on any slot; slots take skills, potions or macros, and show radial cooldown
+  sweeps, out-of-mana tinting and charge counts.
+- **Unit frames** — player frame (portrait, health/mana/XP), **target frame** with rank-colored
+  names, elite affixes and live **status-effect icons with timers**, and a **party frame** for
+  your summoned minions with health and remaining-duration bars.
+- **Enemy nameplates** — health bars, names and debuff icons (stun/slow/burn/curse/weaken) over
+  monsters in the world; "always show nameplates" toggle included.
+- **Incoming & outgoing combat text** — two independent scrolling streams for damage taken and
+  dealt, with crit emphasis and potion heals.
+- **Damage meter** — rolling DPS, per-fight totals, best hit, damage-taken rate, and a
+  per-source breakdown (skills, minions, damage-over-time) with percentage bars.
+- **Chat frame** — timestamped tabs (All / Combat / Loot / System) fed by kills, rare+ drops,
+  pickups, quests and season events, plus slash commands: `/help`, `/played`, `/dps`, `/editui`,
+  `/resetui`, `/macro`, `/dance`.
+- **Quest log & tracker** — 18 quests (act clears, boss hunts, level & Abyss milestones, shrine
+  and treasure goals) with gold/XP rewards, an on-screen objective tracker and a `J` log panel.
+- **Buff tray** — blessings and skill auras beside the minimap with icons, countdown timers,
+  names and stat tooltips.
+- **Settings** — six tabs: Gameplay, Audio (master volume), Video (quality pin/auto + individual
+  toggles for fog, god rays, AO, reflections, grading, FPS counter), Interface (show/hide any
+  frame, Edit Mode, reset layout), **Keybinds** (every action rebindable, click-to-capture) and
+  **Macros** (priority or cast-sequence skill chains, draggable onto the bar).
+
+![Combat with the full interface](screenshots/ui_combat.png)
+![Settings](screenshots/ui_settings.png)
+![Interface edit mode — drag any frame](screenshots/ui_editmode.png)
+
+## 🎮 Controls (defaults — everything rebindable in Settings → Keybinds)
 
 | Input | Action |
 |---|---|
 | **WASD / arrows** | Move |
 | **LMB / RMB** | Cast bound skills (aim with cursor) |
-| **1–4** | Hotbar skills |
+| **1–0** | Action bar slots |
 | **Q / E** | Healing / mana potion |
 | **T** | Town portal |
 | **I · C · K · L** | Inventory · Character · Skills · Ladder |
+| **J · O** | Quest log · Settings |
+| **Enter** | Chat (`/help` for commands) |
 | **N** | Mute · **Esc** — menu |
 | **Click** | Talk, loot, open, smash, activate |
 
-Bind skills from the skill panel: click a learned skill to cycle its binding, right-click to
-bind it to RMB.
+Bind skills WoW-style: click a learned skill in the skill tree to pick it up, then drop it on
+any action bar slot (right-click a slot to lift its contents; right-click a skill to bind RMB).
 
 ## 🗂 Code layout
 
