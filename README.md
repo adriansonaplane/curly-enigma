@@ -225,6 +225,39 @@ in classic to 2.5× (torches win) in spooky**, while the hero still stands in a 
 ![Classic — the old bright look](screenshots/mood_classic.png)
 ![Lighting controls in Settings → Video](screenshots/mood_settings.png)
 
+### Steam vents, doors, and an art pipeline
+**Steam vents** are a real hazard now. The cavern always *declared* a `vent`
+hazard, but the generator had no branch for it, so it silently became ordinary
+poison gas — two entries producing the same thing. `HAZ.VENT` runs on a cycle
+instead: dormant, a telegraphed build-up ring, then a scalding jet that throws
+its own light. Standing on a dormant vent is safe, and every hit is one you
+were warned about.
+
+**Doors and archways** mark the threshold between a room and a corridor —
+previously the two floors just ran together. Stone jambs and a lintel at every
+breach in a room's wall ring, with archways, plank leaves or iron grates
+depending on theme. Leaf doors swing open as you or a monster approach and
+fall shut behind you. They never block movement, so pathing, projectiles and
+connectivity are untouched.
+
+**`js/assets.js`** is a slot registry that sits in front of the procedural
+drawing code: registered art wins, otherwise the existing vector code runs
+unchanged. `Assets.MANIFEST` maps 77 game slots onto a supplied catalogue of
+3,727 models and 400 effects — 73 have a candidate, 4 are honestly recorded as
+having none. `Assets.showPlaceholders = true` paints labelled boxes over every
+mapped-but-empty slot so coverage is visible in-world. See
+[`ASSETS.md`](ASSETS.md) for the full mapping.
+
+**Particles** are textured quads rather than flat discs. Seven baked masks —
+`dot`, `ember`, `spark`, `smoke`, `shard`, `splash`, `rune` — with soft
+falloff, tinted on demand and cached per shape+colour. Sparks are stars, blood
+is teardrops, gibs and ash are spinning shards, embers have hot cores.
+
+![Steam vent mid-jet](screenshots/vent.png)
+![Doors at a room threshold](screenshots/doors.png)
+![Textured particles](screenshots/particles.png)
+![Asset slot coverage](screenshots/asset_slots.png)
+
 ### Effects that fill the whole viewport
 The atmosphere layers used to be seeded in a fixed ring around the hero, which left the screen
 corners bare as soon as you zoomed out or widened the window. All three now derive their extent
@@ -298,10 +331,11 @@ any action bar slot (right-click a slot to lift its contents; right-click a skil
 | File | Purpose |
 |---|---|
 | `js/data.js` | All content: classes, 210 skills, monsters, bosses, acts, affixes, uniques, sets |
-| `js/dungeon.js` | Procedural generation: rooms, caves, hazards, props, spawns, the town |
+| `js/dungeon.js` | Procedural generation: rooms, caves, doors, hazards, props, spawns, the town |
 | `js/sprites.js` | Bakes every sprite sheet, tile and icon to offscreen canvases at load |
 | `js/entities.js` | Combat math, the 15-archetype skill engine, skill ranges, monster/boss AI |
-| `js/render.js` | Isometric renderer, lighting moods, atmosphere, props, particles, minimap |
+| `js/render.js` | Isometric renderer, lighting moods, atmosphere, props, doors, particles, minimap |
+| `js/assets.js` | Art slot registry, catalogue manifest, ingest pipeline, placeholders |
 | `js/camera.js` | Projection matrix, iso/third-person modes, free orbit, zoom and pitch |
 | `js/figure.js` | Skeletal human figure with equipment fixtures and animation |
 | `js/physics.js` | Rigid-body debris, ragdolls, per-material restitution and friction |

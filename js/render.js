@@ -12,7 +12,7 @@ const FX = {
   spark(x, y, color, n = 3) {
     for (let i = 0; i < n; i++) {
       const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 0.5, 3);
-      this.push({ x, y, z: U.rf(U.rand, 4, 16), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 6, 22), life: 0.4, maxLife: 0.4, color, size: U.rf(U.rand, 1.5, 3), add: true, grav: 60 });
+      this.push({ x, y, z: U.rf(U.rand, 4, 16), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 6, 22), life: 0.4, maxLife: 0.4, color, size: U.rf(U.rand, 1.5, 3), add: true, grav: 60, shape: 'spark', rot: U.rand() * 6.28, spin: 9 });
     }
   },
   trail(p) {
@@ -22,13 +22,13 @@ const FX = {
   blood(x, y, color, n) {
     for (let i = 0; i < n; i++) {
       const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 1, 4);
-      this.push({ x, y, z: U.rf(U.rand, 8, 22), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 40), life: 0.55, maxLife: 0.55, color, size: U.rf(U.rand, 1.5, 3), add: false, grav: 130 });
+      this.push({ x, y, z: U.rf(U.rand, 8, 22), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 40), life: 0.55, maxLife: 0.55, color, size: U.rf(U.rand, 1.5, 3), add: false, grav: 130, shape: 'splash', rot: U.rand() * 6.28, spin: 4 });
     }
   },
   deathBurst(x, y, color, size) {
     for (let i = 0; i < 14 * size; i++) {
       const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 1, 5) * size;
-      this.push({ x, y, z: U.rf(U.rand, 4, 20), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 50), life: 0.7, maxLife: 0.7, color: U.rand() < 0.5 ? color : '#6a0f0f', size: U.rf(U.rand, 2, 4), add: false, grav: 120 });
+      this.push({ x, y, z: U.rf(U.rand, 4, 20), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 50), life: 0.7, maxLife: 0.7, color: U.rand() < 0.5 ? color : '#6a0f0f', size: U.rf(U.rand, 2, 4), add: false, grav: 120, shape: 'shard', rot: U.rand() * 6.28, spin: 7 });
     }
   },
   explosion(x, y, r, color) {
@@ -36,7 +36,7 @@ const FX = {
     G.flashes.push({ x, y, r: r * 1.6, color, t: 0.25, maxT: 0.25 });
     for (let i = 0; i < 22; i++) {
       const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 2, 7);
-      this.push({ x, y, z: U.rf(U.rand, 2, 14), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 15, 55), life: 0.6, maxLife: 0.6, color, size: U.rf(U.rand, 2, 4.5), add: true, grav: 80 });
+      this.push({ x, y, z: U.rf(U.rand, 2, 14), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 15, 55), life: 0.6, maxLife: 0.6, color, size: U.rf(U.rand, 2, 4.5), add: true, grav: 80, shape: 'ember' });
     }
   },
   ring(x, y, r, color, alpha) {
@@ -54,10 +54,10 @@ const FX = {
     this.spark(x, y, color, 6);
   },
   ember(x, y) {
-    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 10, 22), life: 1.1, maxLife: 1.1, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffd94f', size: U.rf(U.rand, 1.2, 2.4), add: true, grav: -8 });
+    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 10, 22), life: 1.1, maxLife: 1.1, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffd94f', size: U.rf(U.rand, 1.2, 2.4), add: true, grav: -8, shape: 'ember' });
   },
   gasPuff(x, y) {
-    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.4, 0.4), vy: U.rf(U.rand, -0.4, 0.4), vz: U.rf(U.rand, 4, 9), life: 1.6, maxLife: 1.6, color: '#5a9a2f', size: U.rf(U.rand, 3, 6), add: false, grav: -4 });
+    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.4, 0.4), vy: U.rf(U.rand, -0.4, 0.4), vz: U.rf(U.rand, 4, 9), life: 1.6, maxLife: 1.6, color: '#5a9a2f', size: U.rf(U.rand, 3, 6), add: false, grav: -4, shape: 'smoke' });
   },
   spikeBurst(x, y) {
     for (let i = 0; i < 6; i++)
@@ -362,14 +362,28 @@ const Render = {
     Physics.drawSmall(ctx);
 
     // ---------- particles ----------
+    // Textured quads from the atlas rather than flat discs. Particles carry an
+    // optional `shape`; anything that doesn't name one gets 'dot', which is the
+    // soft-edged descendant of the circle this used to draw.
     for (const p of G.parts) {
       const [sx, sy] = this.worldToScreen(p.x, p.y, p.z);
-      if (sx < -20 || sx > this.W + 20 || sy < -20 || sy > this.H + 20) continue;
+      if (sx < -24 || sx > this.W + 24 || sy < -24 || sy > this.H + 24) continue;
+      const a = Math.min(1, p.life / p.maxLife * 1.5);
+      if (a <= 0) continue;
+      const img = Sprites.getParticle(p.shape || 'dot', p.color);
+      // atlas art has soft falloff out to its edge, so it needs more room than
+      // the old hard disc of the same nominal radius
+      const r = p.size * 1.9 * Cam.zoom;
       ctx.save();
       if (p.add) ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = Math.min(1, p.life / p.maxLife * 1.5);
-      ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(sx, sy, p.size, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = a;
+      if (p.rot !== undefined) {
+        ctx.translate(sx, sy);
+        ctx.rotate(p.rot + (p.spin || 0) * (p.maxLife - p.life));
+        ctx.drawImage(img, -r, -r, r * 2, r * 2);
+      } else {
+        ctx.drawImage(img, sx - r, sy - r, r * 2, r * 2);
+      }
       ctx.restore();
     }
     // lightning bolts
@@ -708,16 +722,16 @@ const Render = {
     if (map.t[ty * map.w + tx] === TILE.WALL && th.amb !== 'ash') return;
     switch (th.amb) {
       case 'dust':
-        FX.push({ x, y, z: U.rf(U.rand, 6, 44), vx: U.rf(U.rand, -0.25, 0.25), vy: U.rf(U.rand, -0.25, 0.25), vz: U.rf(U.rand, -2, 2), life: 4, maxLife: 4, color: '#b8b4a8', size: U.rf(U.rand, 0.7, 1.4), add: true, grav: 0 });
+        FX.push({ x, y, z: U.rf(U.rand, 6, 44), vx: U.rf(U.rand, -0.25, 0.25), vy: U.rf(U.rand, -0.25, 0.25), vz: U.rf(U.rand, -2, 2), life: 4, maxLife: 4, color: '#b8b4a8', size: U.rf(U.rand, 0.7, 1.4), add: true, grav: 0, shape: 'dot' });
         break;
       case 'ember':
-        FX.push({ x, y, z: U.rf(U.rand, 0, 12), vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 5, 13), life: 2.4, maxLife: 2.4, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffc94f', size: U.rf(U.rand, 0.9, 1.8), add: true, grav: -7 });
+        FX.push({ x, y, z: U.rf(U.rand, 0, 12), vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 5, 13), life: 2.4, maxLife: 2.4, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffc94f', size: U.rf(U.rand, 0.9, 1.8), add: true, grav: -7, shape: 'ember' });
         break;
       case 'spore':
-        FX.push({ x, y, z: U.rf(U.rand, 4, 32), vx: U.rf(U.rand, -0.2, 0.2), vy: U.rf(U.rand, -0.2, 0.2), vz: U.rf(U.rand, -1.5, 3), life: 3.6, maxLife: 3.6, color: U.rand() < 0.7 ? '#8ae8a0' : '#c8ffd8', size: U.rf(U.rand, 0.8, 1.7), add: true, grav: 0 });
+        FX.push({ x, y, z: U.rf(U.rand, 4, 32), vx: U.rf(U.rand, -0.2, 0.2), vy: U.rf(U.rand, -0.2, 0.2), vz: U.rf(U.rand, -1.5, 3), life: 3.6, maxLife: 3.6, color: U.rand() < 0.7 ? '#8ae8a0' : '#c8ffd8', size: U.rf(U.rand, 0.8, 1.7), add: true, grav: 0, shape: 'dot' });
         break;
       case 'ash':
-        FX.push({ x, y, z: U.rf(U.rand, 55, 80), vx: U.rf(U.rand, -0.4, 0.1), vy: U.rf(U.rand, -0.1, 0.4), vz: U.rf(U.rand, -11, -7), life: 6, maxLife: 6, color: U.rand() < 0.75 ? '#9a8880' : '#e06840', size: U.rf(U.rand, 0.8, 1.6), add: false, grav: 0 });
+        FX.push({ x, y, z: U.rf(U.rand, 55, 80), vx: U.rf(U.rand, -0.4, 0.1), vy: U.rf(U.rand, -0.1, 0.4), vz: U.rf(U.rand, -11, -7), life: 6, maxLife: 6, color: U.rand() < 0.75 ? '#9a8880' : '#e06840', size: U.rf(U.rand, 0.8, 1.6), add: false, grav: 0, shape: 'shard', rot: U.rand() * 6.28, spin: 1.6 });
         break;
       case 'firefly':
         FX.push({ x, y, z: U.rf(U.rand, 8, 26), vx: U.rf(U.rand, -0.5, 0.5), vy: U.rf(U.rand, -0.5, 0.5), vz: U.rf(U.rand, -2, 2), life: 5, maxLife: 5, color: '#d8f06a', size: 1.4, add: true, grav: 0 });
@@ -1240,6 +1254,10 @@ const Render = {
     ctx.translate(sx, sy);
     ctx.scale(Cam.zoom, Cam.zoom);
     if (pr.ang) ctx.rotate(pr.ang);
+    // Registered art wins over the vector code. Assets.draw returns false when
+    // the slot is empty, which is the normal case today — so this costs one
+    // property lookup and changes nothing until art actually lands.
+    if (Assets.draw(ctx, pr.kind, Cam.zoom)) { ctx.restore(); return; }
     switch (pr.kind) {
       case 'crate': {
         const g = ctx.createLinearGradient(-9, -18, 9, 0);
