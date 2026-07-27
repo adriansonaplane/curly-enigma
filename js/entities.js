@@ -104,6 +104,7 @@ const Ent = {
 
     pl.mp -= cost;
     this._src = sk.name; // damage-meter attribution
+    pl.lastCastArch = sk.arch;
     if (sk.cd) pl.cds[skId] = sk.cd;
     pl.gcd = sk.wd ? 1 / pl.derived.atkRate : 0.38;
     pl.attackT = 0.32;
@@ -346,6 +347,7 @@ const Ent = {
   basicAttack(pl, tx, ty) {
     if (pl.gcd > 0) return false;
     this._src = 'Attack';
+    pl.lastCastArch = 'strike';
     const d = pl.derived;
     pl.gcd = 1 / d.atkRate;
     pl.attackT = 0.3;
@@ -507,6 +509,11 @@ const Ent = {
     m.dead = true; m.deathT = 0.9;
     sfx(m.rank === 'boss' ? 'bigdie' : 'die');
     FX.deathBurst(m.x, m.y, m.def.pal.main, m.size);
+    // corpses topple along the blow that felled them
+    const kx = killer && killer.x !== undefined ? killer.x : m.x - 1;
+    const ky = killer && killer.y !== undefined ? killer.y : m.y;
+    Physics.ragdoll(m, U.angleTo(kx, ky, m.x, m.y), 1 + m.size * 0.6);
+    Physics.burst(m.x, m.y, 'gore', Math.round(3 + m.size * 3), { speed: 2.6, size: 2.4 });
     // elite death nova
     for (const k of m.mods || []) {
       const mod = ELITE_MODS[k];
@@ -553,6 +560,8 @@ const Ent = {
 
   explode(x, y, r, dmgRange, elem, opts = {}) {
     sfx('explode');
+    Physics.impulse(x, y, r * 1.4, 3.2);
+    Physics.burst(x, y, 'stone', 6, { speed: 4.5, size: 2.6 });
     FX.explosion(x, y, r, ELEM[elem].color);
     G.shake += 6;
     const dmg = U.rf(U.rand, dmgRange[0], dmgRange[1]);

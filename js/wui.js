@@ -12,7 +12,7 @@ const WUI = {
     vol: 0.5, mute: false,
     quality: 'auto', fog: true, shafts: true, ao: true, reflections: true, grade: true, fps: false,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
-    ctIn: true, ctOut: true, bubbles: true,
+    ctIn: true, ctOut: true, bubbles: true, physics: true,
     fPlayer: true, fParty: true, fTarget: true, fBuffs: true, fChat: true, fDps: true, fTracker: true,
     fFriends: true, fGuild: true,
   },
@@ -21,6 +21,7 @@ const WUI = {
     potHp: 'q', potMp: 'e', portal: 't', mute: 'n',
     inv: 'i', char: 'c', skills: 'k', ladder: 'l', quests: 'j', settings: 'o', chat: 'enter',
     social: 'u', guildp: 'g',
+    camMode: 'v', camRotL: '[', camRotR: ']', camIn: '+', camOut: '-',
     slot1: '1', slot2: '2', slot3: '3', slot4: '4', slot5: '5',
     slot6: '6', slot7: '7', slot8: '8', slot9: '9', slot10: '0',
   },
@@ -30,6 +31,8 @@ const WUI = {
     ['inv', 'Inventory'], ['char', 'Character'], ['skills', 'Skill trees'], ['ladder', 'Season ladder'],
     ['quests', 'Quest log'], ['settings', 'Settings'], ['chat', 'Focus chat'],
     ['social', 'Social (friends)'], ['guildp', 'Guild panel'],
+    ['camMode', 'Toggle camera mode'], ['camRotL', 'Rotate camera left'], ['camRotR', 'Rotate camera right'],
+    ['camIn', 'Zoom in'], ['camOut', 'Zoom out'],
     ['slot1', 'Action slot 1'], ['slot2', 'Action slot 2'], ['slot3', 'Action slot 3'], ['slot4', 'Action slot 4'],
     ['slot5', 'Action slot 5'], ['slot6', 'Action slot 6'], ['slot7', 'Action slot 7'], ['slot8', 'Action slot 8'],
     ['slot9', 'Action slot 9'], ['slot10', 'Action slot 10'],
@@ -802,7 +805,7 @@ const WUI = {
   },
 
   // ================= SETTINGS =================
-  SETTINGS_TABS: ['GAMEPLAY', 'AUDIO', 'VIDEO', 'INTERFACE', 'KEYBINDS', 'MACROS'],
+  SETTINGS_TABS: ['GAMEPLAY', 'CAMERA', 'AUDIO', 'VIDEO', 'INTERFACE', 'KEYBINDS', 'MACROS'],
   renderSettings() {
     const p = UI.panel('settings');
     UI.head(p, 'SETTINGS');
@@ -819,7 +822,7 @@ const WUI = {
     const body = document.createElement('div');
     body.className = 'ws-body';
     p.appendChild(body);
-    [this.tabGameplay, this.tabAudio, this.tabVideo, this.tabInterface, this.tabKeybinds, this.tabMacros][this.settingsTab].call(this, body);
+    [this.tabGameplay, this.tabCamera, this.tabAudio, this.tabVideo, this.tabInterface, this.tabKeybinds, this.tabMacros][this.settingsTab].call(this, body);
   },
 
   wsToggle(body, label, hint, key, onChange) {
@@ -842,6 +845,67 @@ const WUI = {
     this.wsToggle(body, 'Screen shake', 'Camera kick on hits and explosions', 'shake');
     this.wsToggle(body, 'Incoming combat text', 'Scrolling damage-taken feed', 'ctIn');
     this.wsToggle(body, 'Outgoing combat text', 'Scrolling damage-dealt feed', 'ctOut');
+  },
+
+  tabCamera(body) {
+    const row = (label, hint, build) => {
+      const r = document.createElement('div');
+      r.className = 'ws-row';
+      r.innerHTML = `<span class="ws-label">${label}${hint ? `<span class="ws-hint">${hint}</span>` : ''}</span>`;
+      build(r);
+      body.appendChild(r);
+      return r;
+    };
+    row('Perspective', 'Isometric is the classic view; third person rides behind the hero', r => {
+      const sel = document.createElement('select');
+      sel.innerHTML = '<option value="iso">Isometric</option><option value="third">Third person</option>';
+      sel.value = Cam.mode;
+      sel.addEventListener('change', () => { Cam.setMode(sel.value); this.renderSettings(); });
+      r.appendChild(sel);
+    });
+    row('Zoom', 'Mouse wheel also zooms', r => {
+      const i = document.createElement('input');
+      i.type = 'range'; i.min = Cam.ZOOM_MIN * 100; i.max = Cam.ZOOM_MAX * 100;
+      i.value = Math.round(Cam.prefs[Cam.mode].zoom * 100);
+      i.addEventListener('input', () => Cam.setZoom(i.value / 100));
+      r.appendChild(i);
+    });
+    row('Camera pitch', 'Low pitch shows more of the horizon', r => {
+      const i = document.createElement('input');
+      i.type = 'range'; i.min = Cam.PITCH_MIN * 100; i.max = Cam.PITCH_MAX * 100;
+      i.value = Math.round(Cam.prefs[Cam.mode].pitch * 100);
+      i.addEventListener('input', () => Cam.setPitch(i.value / 100));
+      r.appendChild(i);
+    });
+    row('Follow distance', 'Third person only — how far ahead the camera leads', r => {
+      const i = document.createElement('input');
+      i.type = 'range'; i.min = 0; i.max = 60;
+      i.value = Math.round(Cam.follow * 10);
+      i.addEventListener('input', () => { Cam.follow = i.value / 10; Cam.save(); });
+      r.appendChild(i);
+    });
+    row('Turn speed', 'How quickly the third-person camera swings behind you', r => {
+      const i = document.createElement('input');
+      i.type = 'range'; i.min = 8; i.max = 90;
+      i.value = Math.round(Cam.turnRate * 10);
+      i.addEventListener('input', () => { Cam.turnRate = i.value / 10; });
+      r.appendChild(i);
+    });
+    this.wsToggle(body, 'Physics debris', 'Smashed props throw bouncing, rolling chunks', 'physics',
+      v => { Physics.enabled = v; if (!v) Physics.clear(); });
+    const r2 = document.createElement('div');
+    r2.className = 'ws-row';
+    r2.innerHTML = '<span class="ws-label">Reset camera to defaults</span>';
+    const b = document.createElement('button');
+    b.className = 'ws-btn';
+    b.textContent = 'Reset';
+    b.addEventListener('click', () => {
+      Cam.prefs = { iso: { zoom: 1.0, pitch: 0.50 }, third: { zoom: 1.6, pitch: 0.40 } };
+      Cam.follow = 2.4; Cam.turnRate = 3.2; Cam.applyPrefs(false); Cam.save();
+      this.renderSettings();
+    });
+    r2.appendChild(b);
+    body.appendChild(r2);
   },
 
   tabAudio(body) {
@@ -1031,6 +1095,7 @@ const WUI = {
       bubbles: s.bubbles,
     };
     Render.qualityMode = s.quality;
+    Physics.enabled = s.physics !== false;
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
     // frames
@@ -1182,6 +1247,11 @@ const WUI = {
     if (k === m.settings) { UI.toggle('settings'); return true; }
     if (k === m.social) { UI.toggle('social'); return true; }
     if (k === m.guildp) { UI.toggle('guild'); return true; }
+    if (k === m.camMode) { Cam.cycleMode(); return true; }
+    if (k === m.camRotL) { Cam.rotate(-1); return true; }
+    if (k === m.camRotR) { Cam.rotate(1); return true; }
+    if (k === m.camIn) { Cam.adjustZoom(0.12); return true; }
+    if (k === m.camOut) { Cam.adjustZoom(-0.12); return true; }
     if (k === m.potHp) { Game.drinkPotion('hp'); return true; }
     if (k === m.potMp) { Game.drinkPotion('mp'); return true; }
     if (k === m.portal) { Game.castPortal(); return true; }

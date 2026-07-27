@@ -9,7 +9,7 @@ const Sprites = {
   icons: {},    // skill id -> canvas
   itemIcons: new Map(),
 
-  CELL: 72, DIRS: 8, FRAMES: 6,
+  CELL: 72, DIRS: 8, FRAMES: 10,
 
   // ======================= ACTORS =======================
   getActor(key) {
@@ -35,8 +35,8 @@ const Sprites = {
       for (let f = 0; f < this.FRAMES; f++) {
         ctx.save();
         ctx.translate(f * C + C / 2, d * C + C * 0.62);
-        const walk = f < 4 ? f / 4 : 0;
-        const atk = f >= 4 ? (f === 4 ? 0.35 : 0.85) : -1;
+        const walk = f < 6 ? f / 6 : 0;                  // 6-frame gait cycle
+        const atk = f >= 6 ? (f - 6) / 3 : -1;            // 4-frame attack arc
         this.drawBody(ctx, def, hero, ang, walk, atk);
         ctx.restore();
       }
@@ -57,7 +57,50 @@ const Sprites = {
     }
   },
 
+  // Humanoids bake through the shared jointed Figure so monsters, NPCs and
+  // heroes all move on the same skeleton.
   drawHumanoid(ctx, def, hero, ang, walk, atk, s) {
+    const p = def.pal;
+    const build = def.body === 'skeleton' ? 'thin' : def.body === 'brute' ? 'brute' : 'normal';
+    const dirIdx = ((Math.round(ang / (Math.PI / 4)) % 8) + 8) % 8;
+    const st = atk >= 0
+      ? { anim: 'attack', phase: atk }
+      : { anim: 'walk', phase: walk };
+    const pal = {
+      skin: hero && hero.pal ? hero.pal.skin : (build === 'thin' ? p.main : U.shade(p.main, 1.15)),
+      cloth: hero && hero.pal ? hero.pal.cloth : p.main,
+      armor: hero && hero.pal ? hero.pal.armor : p.main,
+      trim: hero && hero.pal ? hero.pal.trim : null,
+      hair: hero && hero.pal ? hero.pal.hair : null,
+      eye: p.eye,
+    };
+    const wtype = hero && hero.weapon ? hero.weapon : (def.ai === 'ranged' ? 'bow' : def.ai === 'caster' || def.ai === 'summoner' ? 'staff' : 'sword');
+    const eq = {
+      weapon: wtype,
+      wMetal: build === 'thin' ? '#b0aa98' : '#c8ccd4',
+      wOrb: hero && hero.pal ? hero.pal.trim : (p.eye || '#c07bff'),
+      helm: !!(def.helm || build === 'brute'),
+      helmCol: U.shade(p.main, 0.85),
+      helmHorns: build === 'brute',
+      chestPlate: !!hero,
+      glowEyes: !hero,
+    };
+    Figure.draw(ctx, { pose: Figure.pose(st), pal, eq, dir: dirIdx, build });
+    // monsters get glowing eyes on top of the head
+    if (!hero) {
+      const P = Figure.P;
+      const fxc = Math.cos(dirIdx * Math.PI / 4);
+      if (Math.sin(dirIdx * Math.PI / 4) <= 0.35) {
+        ctx.save();
+        ctx.fillStyle = p.eye; ctx.shadowColor = p.eye; ctx.shadowBlur = 5;
+        ctx.fillRect(fxc * 1.6 - 2.4 + fxc * 1.2, P.headY - 1.2, 1.6, 1.6);
+        ctx.fillRect(fxc * 1.6 + 1.0 + fxc * 1.2, P.headY - 1.2, 1.6, 1.6);
+        ctx.restore();
+      }
+    }
+  },
+
+  drawHumanoidLegacy(ctx, def, hero, ang, walk, atk, s) {
     const p = def.pal;
     const thin = def.body === 'skeleton';
     const brute = def.body === 'brute';
@@ -479,6 +522,71 @@ const Sprites = {
       ctx.beginPath(); ctx.moveTo(W, H / 2); ctx.lineTo(W / 2, H); ctx.lineTo(0, H / 2); ctx.stroke();
       out.wall = cv;
       out.wallH = WALL_H;
+    }
+
+    // ---- rectangular side-face + top textures for the rotated camera path ----
+    {
+      const FW = 40, FH = 48;
+      out.faceW = FW; out.faceH = FH;
+      for (const side of ['L', 'R']) {
+        const shade = side === 'L' ? 0.82 : 0.55;
+        const c2 = document.createElement('canvas');
+        c2.width = FW * this.SS; c2.height = FH * this.SS;
+        const fx = c2.getContext('2d');
+        fx.scale(this.SS, this.SS);
+        const fg = fx.createLinearGradient(0, 0, 0, FH);
+        fg.addColorStop(0, U.shade(th.wall, shade * 1.25));
+        fg.addColorStop(1, U.shade(th.wall, shade * 0.72));
+        fx.fillStyle = fg; fx.fillRect(0, 0, FW, FH);
+        const frng = makeRng(hashStr(theme + side));
+        for (let row = 0; row < 4; row++) {          // individually tinted blocks
+          for (let col = 0; col < 2; col++) {
+            fx.fillStyle = U.rgba(U.shade(th.wall, U.rf(frng, 0.88, 1.12) * shade), 0.35);
+            fx.fillRect(col * FW / 2, row * FH / 4, FW / 2, FH / 4);
+          }
+        }
+        fx.strokeStyle = 'rgba(0,0,0,0.35)'; fx.lineWidth = 1;
+        for (let i = 1; i < 4; i++) { fx.beginPath(); fx.moveTo(0, i * FH / 4); fx.lineTo(FW, i * FH / 4); fx.stroke(); }
+        fx.beginPath(); fx.moveTo(FW / 2, 0); fx.lineTo(FW / 2, FH); fx.stroke();
+        if (theme === 'hell') {
+          fx.save(); fx.strokeStyle = 'rgba(255,90,28,0.5)'; fx.lineWidth = 0.9;
+          fx.shadowColor = '#ff5a1c'; fx.shadowBlur = 4;
+          let x = frng() * FW, y = 6;
+          fx.beginPath(); fx.moveTo(x, y);
+          for (let i = 0; i < 4; i++) { x += U.rf(frng, -7, 7); y += U.rf(frng, 4, 11); fx.lineTo(x, y); }
+          fx.stroke(); fx.restore();
+        } else if (theme === 'cavern') {
+          for (let i = 0; i < 6; i++) { fx.fillStyle = U.rgba('#ffcf8f', U.rf(frng, 0.2, 0.5)); fx.fillRect(frng() * FW, frng() * FH, 1, 1); }
+        }
+        if (th.moss) {
+          for (let i = 0; i < 4; i++) {
+            const x = frng() * FW, y = FH - frng() * 14, r = 5 + frng() * 5;
+            const mg = fx.createRadialGradient(x, y, 0.5, x, y, r);
+            mg.addColorStop(0, U.rgba(th.moss, 0.32)); mg.addColorStop(1, U.rgba(th.moss, 0));
+            fx.fillStyle = mg;
+            fx.beginPath(); fx.arc(x, y, r, 0, Math.PI * 2); fx.fill();
+          }
+        }
+        const ag = fx.createLinearGradient(0, FH - 10, 0, FH);
+        ag.addColorStop(0, 'rgba(0,0,0,0)'); ag.addColorStop(1, 'rgba(0,0,0,0.4)');
+        fx.fillStyle = ag; fx.fillRect(0, FH - 10, FW, 10);
+        out['face' + side] = c2;
+      }
+      const [tcv, tctx] = this.mkTile(W, H);
+      const tg = tctx.createLinearGradient(0, 0, W, H);
+      tg.addColorStop(0, U.shade(th.wallTop, 1.15)); tg.addColorStop(1, U.shade(th.wallTop, 0.8));
+      this.diamond(tctx, W, H);
+      tctx.fillStyle = tg; tctx.fill();
+      tctx.save(); this.diamond(tctx, W, H); tctx.clip();
+      this.mottle(tctx, rng, W, H, th.wallTop, 6);
+      tctx.restore();
+      tctx.lineWidth = 1.4;
+      tctx.strokeStyle = 'rgba(255,255,255,0.16)';
+      tctx.beginPath(); tctx.moveTo(0, H / 2); tctx.lineTo(W / 2, 0); tctx.lineTo(W, H / 2); tctx.stroke();
+      tctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      tctx.beginPath(); tctx.moveTo(W, H / 2); tctx.lineTo(W / 2, H); tctx.lineTo(0, H / 2); tctx.stroke();
+      out.wallTop = tcv;
+      out.topFlat = U.shade(th.wallTop, 0.98);
     }
 
     // ---- lava: 4 frames of churning molten rock ----
