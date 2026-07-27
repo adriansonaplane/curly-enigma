@@ -287,9 +287,7 @@ const UI = {
         if (pl.skillPts > 0 && lvl < sk.maxLvl) {
           pl.skills[sk.id] = lvl + 1;
           pl.skillPts--;
-          if (lvl === 0 && sk.arch !== 'passive' && !Object.values(pl.hotbar).includes(sk.id)) {
-            for (const s of ['rmb', 's1', 's2', 's3', 's4']) if (!pl.hotbar[s]) { pl.hotbar[s] = sk.id; break; }
-          }
+          if (lvl === 0 && sk.arch !== 'passive') WUI.ensurePlayer(pl), this.autoBind(sk.id);
           Ent.computeDerived(pl);
           sfx('levelup');
           this.renderSkills();
@@ -298,35 +296,41 @@ const UI = {
       row.appendChild(plus);
       this.hookTip(row, () => this.skillTip(sk, Math.max(1, Ent.skillLvl(pl, sk.id))));
       if (sk.arch !== 'passive') {
-        row.addEventListener('click', () => { if (lvl > 0) this.bindMenu(sk.id); });
-        row.addEventListener('contextmenu', e => { e.preventDefault(); if (lvl > 0) { pl.hotbar.rmb = sk.id; sfx('equip'); this.renderSkills(); } });
+        // pick the skill up onto the cursor, WoW-style, then drop it on an action slot
+        row.addEventListener('mousedown', e => {
+          if (e.button !== 0 || lvl <= 0) return;
+          if (e.target.classList.contains('skill-plus')) return;
+          WUI.pickupEntry({ t: 'skill', id: sk.id });
+          this.closeAll();
+        });
+        row.addEventListener('contextmenu', e => {
+          e.preventDefault();
+          if (lvl > 0) { WUI.setSlot('rmb', { t: 'skill', id: sk.id }); this.renderSkills(); }
+        });
       }
       grid.appendChild(row);
     });
     p.appendChild(grid);
-    p.insertAdjacentHTML('beforeend', '<div style="text-align:center;color:#5f5237;font-size:11px;margin-top:10px">Click a learned skill to bind it · right-click binds to RMB</div>');
+    p.insertAdjacentHTML('beforeend', '<div style="text-align:center;color:#5f5237;font-size:11px;margin-top:10px">Click a learned skill to pick it up, then drop it on an action bar slot · right-click binds to RMB</div>');
+  },
+
+  autoBind(skId) {
+    const pl = G.player;
+    const bound = (pl.bars.lmb && pl.bars.lmb.id === skId) || (pl.bars.rmb && pl.bars.rmb.id === skId) ||
+      pl.bars.slots.some(s => s && s.t === 'skill' && s.id === skId);
+    if (bound) return;
+    if (!pl.bars.rmb) { WUI.setSlot('rmb', { t: 'skill', id: skId }); return; }
+    for (let i = 0; i < 10; i++) if (!pl.bars.slots[i]) { WUI.setSlot(i, { t: 'skill', id: skId }); return; }
   },
 
   bindLabel(skId) {
     const pl = G.player;
+    if (!pl.bars) return '';
     const binds = [];
-    for (const s in pl.hotbar) if (pl.hotbar[s] === skId) binds.push({ lmb: 'LMB', rmb: 'RMB', s1: '1', s2: '2', s3: '3', s4: '4' }[s]);
+    if (pl.bars.lmb && pl.bars.lmb.id === skId) binds.push('LMB');
+    if (pl.bars.rmb && pl.bars.rmb.id === skId) binds.push('RMB');
+    pl.bars.slots.forEach((s, i) => { if (s && s.t === 'skill' && s.id === skId) binds.push(WUI.keyLabel('slot' + (i + 1))); });
     return binds.length ? '⌨ bound to: ' + binds.join(', ') : '';
-  },
-
-  bindMenu(skId) {
-    const pl = G.player;
-    const order = ['lmb', 'rmb', 's1', 's2', 's3', 's4'];
-    let cur = order.findIndex(s => pl.hotbar[s] === skId);
-    // cycle: not bound -> lmb -> rmb -> 1..4 -> not bound
-    for (const s of order) if (pl.hotbar[s] === skId) pl.hotbar[s] = (s === 'lmb' ? 'atk' : null);
-    const next = cur + 1;
-    if (next < order.length) {
-      const slot = order[next];
-      pl.hotbar[slot] = skId;
-    }
-    sfx('equip');
-    this.renderSkills();
   },
 
   skillTip(sk, lvl) {
@@ -637,12 +641,16 @@ const UI = {
     list.className = 'menu-list';
     const add = (label, fn) => { const b = document.createElement('button'); b.textContent = label; b.addEventListener('click', fn); list.appendChild(b); };
     add('Resume', () => this.closeAll());
-    add((AUDIO.muted ? 'Unmute' : 'Mute') + ' sound', () => { AUDIO.toggleMute(); this.renderPauseMenu(); });
+    add('Settings', () => this.open('settings'));
+    add('Quest log', () => this.open('quests'));
+    add('Edit interface layout', () => { this.closeAll(); WUI.setEditMode(true); });
     add('Return to town', () => { this.closeAll(); Game.toTown(); });
     add('Save & quit to menu', () => { Save.saveChar(G.player); location.reload(); });
     p.appendChild(list);
     p.insertAdjacentHTML('beforeend', `<div style="margin-top:12px;text-align:center;color:#5f5237;font-size:11px;line-height:1.7">
-      WASD — move · LMB/RMB — skills · 1-4 — hotbar<br>Q/E — potions · I C K L — panels · T — town portal<br>Click NPCs, shrines, chests &amp; loot to interact</div>`);
+      Move — ${WUI.keyLabel('moveU')}${WUI.keyLabel('moveL')}${WUI.keyLabel('moveD')}${WUI.keyLabel('moveR')} · LMB/RMB + slots 1-0 — action bar<br>
+      ${WUI.keyLabel('potHp')}/${WUI.keyLabel('potMp')} — potions · ${WUI.keyLabel('quests')} — quests · ${WUI.keyLabel('settings')} — settings · ${WUI.keyLabel('chat')} — chat<br>
+      All keys rebindable in Settings → Keybinds</div>`);
   },
 
   // ---------------- main menu (character select) ----------------
