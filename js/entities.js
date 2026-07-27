@@ -1070,6 +1070,33 @@ const Ent = {
     }
 
     this.updateHazards(dt);
+    this.updateDoors(dt);
+  },
+
+  // Doors swing open when anything alive stands near them and fall shut once
+  // the room empties. They never block movement, so this is presentation and
+  // a sound cue — no collision or pathfinding depends on the state.
+  updateDoors(dt) {
+    const map = G.map;
+    if (!map.doors || !map.doors.length) return;
+    const pl = G.player;
+    for (const d of map.doors) {
+      if (d.kind === 'arch') { d.open = 1; continue; }   // archways have no leaf
+      let near = !pl.dead && U.dist2(pl.x, pl.y, d.x, d.y) < 5.6;
+      if (!near) {
+        for (const m of G.monsters) {
+          if (m.dead) continue;
+          if (U.dist2(m.x, m.y, d.x, d.y) < 4) { near = true; break; }
+        }
+      }
+      const target = near ? 1 : 0;
+      if (d.open !== target) {
+        const was = d.open;
+        d.open += (target - d.open) * Math.min(1, dt * 5.5);
+        if (Math.abs(target - d.open) < 0.02) d.open = target;
+        if (was < 0.15 && d.open >= 0.15) sfx('door');
+      }
+    }
   },
 
   // environmental hazards affecting the player
@@ -1101,6 +1128,19 @@ const Ent = {
         this.damagePlayer(pl.derived.maxHp * 0.07 + map.mlvl * 2, 'phys', null);
         FX.spikeBurst(tx + 0.5, ty + 0.5);
       }
+    } else if (isVent(hz)) {
+      // Only the jet burns. Standing on a dormant vent is safe, and the
+      // telegraph gives you time to step off, so a hit is always earned.
+      map.hazCd = map.hazCd || {};
+      if (ventJetting(i, G.time)) {
+        if (!map.hazCd[i] || map.hazCd[i] <= 0) {
+          map.hazCd[i] = VENT_PERIOD * 0.75;
+          sfx('trap');
+          const vk = VENT_KINDS[hz];
+          this.damagePlayer(pl.derived.maxHp * vk.dmg + map.mlvl * vk.mul, vk.elem, null);
+          FX.spark(pl.x, pl.y, vk.hot, 7);
+        }
+      }
     } else if (hz === HAZ.WATER) {
       pl.hazAcc = 0;
       if (pl.moving && U.rand() < dt * 8) { FX.ripple(pl.x, pl.y); }
@@ -1115,6 +1155,7 @@ const Ent = {
         if (rh === HAZ.LAVA) FX.ember(rx, ry);
         else if (rh === HAZ.GAS) FX.gasPuff(rx, ry);
         else if (rh === HAZ.WATER && U.rand() < 0.5) FX.ripple(rx, ry);
+        else if (isVent(rh) && ventJetting(rty * map.w + rtx, G.time)) FX.ember(rx, ry);
       }
     }
   },

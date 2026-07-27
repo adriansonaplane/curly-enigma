@@ -12,7 +12,7 @@ const FX = {
   spark(x, y, color, n = 3) {
     for (let i = 0; i < n; i++) {
       const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 0.5, 3);
-      this.push({ x, y, z: U.rf(U.rand, 4, 16), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 6, 22), life: 0.4, maxLife: 0.4, color, size: U.rf(U.rand, 1.5, 3), add: true, grav: 60 });
+      this.push({ x, y, z: U.rf(U.rand, 4, 16), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 6, 22), life: 0.4, maxLife: 0.4, color, size: U.rf(U.rand, 1.5, 3), add: true, grav: 60, shape: 'spark', rot: U.rand() * 6.28, spin: 9 });
     }
   },
   trail(p) {
@@ -22,13 +22,13 @@ const FX = {
   blood(x, y, color, n) {
     for (let i = 0; i < n; i++) {
       const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 1, 4);
-      this.push({ x, y, z: U.rf(U.rand, 8, 22), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 40), life: 0.55, maxLife: 0.55, color, size: U.rf(U.rand, 1.5, 3), add: false, grav: 130 });
+      this.push({ x, y, z: U.rf(U.rand, 8, 22), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 40), life: 0.55, maxLife: 0.55, color, size: U.rf(U.rand, 1.5, 3), add: false, grav: 130, shape: 'splash', rot: U.rand() * 6.28, spin: 4 });
     }
   },
   deathBurst(x, y, color, size) {
     for (let i = 0; i < 14 * size; i++) {
       const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 1, 5) * size;
-      this.push({ x, y, z: U.rf(U.rand, 4, 20), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 50), life: 0.7, maxLife: 0.7, color: U.rand() < 0.5 ? color : '#6a0f0f', size: U.rf(U.rand, 2, 4), add: false, grav: 120 });
+      this.push({ x, y, z: U.rf(U.rand, 4, 20), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 50), life: 0.7, maxLife: 0.7, color: U.rand() < 0.5 ? color : '#6a0f0f', size: U.rf(U.rand, 2, 4), add: false, grav: 120, shape: 'shard', rot: U.rand() * 6.28, spin: 7 });
     }
   },
   explosion(x, y, r, color) {
@@ -36,7 +36,7 @@ const FX = {
     G.flashes.push({ x, y, r: r * 1.6, color, t: 0.25, maxT: 0.25 });
     for (let i = 0; i < 22; i++) {
       const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 2, 7);
-      this.push({ x, y, z: U.rf(U.rand, 2, 14), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 15, 55), life: 0.6, maxLife: 0.6, color, size: U.rf(U.rand, 2, 4.5), add: true, grav: 80 });
+      this.push({ x, y, z: U.rf(U.rand, 2, 14), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 15, 55), life: 0.6, maxLife: 0.6, color, size: U.rf(U.rand, 2, 4.5), add: true, grav: 80, shape: 'ember' });
     }
   },
   ring(x, y, r, color, alpha) {
@@ -54,10 +54,10 @@ const FX = {
     this.spark(x, y, color, 6);
   },
   ember(x, y) {
-    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 10, 22), life: 1.1, maxLife: 1.1, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffd94f', size: U.rf(U.rand, 1.2, 2.4), add: true, grav: -8 });
+    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 10, 22), life: 1.1, maxLife: 1.1, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffd94f', size: U.rf(U.rand, 1.2, 2.4), add: true, grav: -8, shape: 'ember' });
   },
   gasPuff(x, y) {
-    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.4, 0.4), vy: U.rf(U.rand, -0.4, 0.4), vz: U.rf(U.rand, 4, 9), life: 1.6, maxLife: 1.6, color: '#5a9a2f', size: U.rf(U.rand, 3, 6), add: false, grav: -4 });
+    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.4, 0.4), vy: U.rf(U.rand, -0.4, 0.4), vz: U.rf(U.rand, 4, 9), life: 1.6, maxLife: 1.6, color: '#5a9a2f', size: U.rf(U.rand, 3, 6), add: false, grav: -4, shape: 'smoke' });
   },
   spikeBurst(x, y) {
     for (let i = 0; i < 6; i++)
@@ -234,10 +234,11 @@ const Render = {
         else if (hz === HAZ.WATER) img = tiles.water[waterFrame];
         else if (hz === HAZ.SPIKES) img = tiles.spikes;
         else if (hz === HAZ.GAS) img = tiles.gas;
+        else if (isVent(hz)) img = tiles[VENT_KINDS[hz].tile];
         else img = tiles.floors[map.variant[i] % tiles.floors.length];
         ctx.drawImage(img, px - ISO_X, py - ISO_Y, ISO_X * 2, ISO_Y * 2);
         if (useAO && map.ao[i]) ctx.drawImage(aoTiles[map.ao[i]], px - ISO_X, py - ISO_Y, ISO_X * 2, ISO_Y * 2);
-        if (tile === TILE.EXIT || tile === TILE.ENTRY || (hz === HAZ.WATER && hiQ))
+        if (tile === TILE.EXIT || tile === TILE.ENTRY || isVent(hz) || (hz === HAZ.WATER && hiQ))
           special.push([tx, ty, tile, hz, sx, sy]);
       }
     }
@@ -268,6 +269,7 @@ const Render = {
         ctx.fillStyle = U.rgba(glow, 0.18); ctx.fill();
         ctx.restore();
       }
+      if (isVent(hz)) this.drawVent(ctx, tx, ty, sx, sy, t, VENT_KINDS[hz]);
     }
 
     // ground effect zones
@@ -323,6 +325,7 @@ const Render = {
     const D = (x, y) => Cam.depth(x, y);
     const cull2 = (R + 3) * (R + 3);
     for (const pr of map.props) if (U.dist2(pr.x, pr.y, Cam.fx, Cam.fy) < cull2) list.push({ d: D(pr.x, pr.y), kind: 'prop', pr });
+    for (const dr of map.doors) if (U.dist2(dr.x, dr.y, Cam.fx, Cam.fy) < cull2) list.push({ d: D(dr.x, dr.y), kind: 'door', dr });
     for (const th of map.things) if (U.dist2(th.x, th.y, Cam.fx, Cam.fy) < cull2) list.push({ d: D(th.x, th.y), kind: 'thing', th });
     for (const gi of G.groundItems) list.push({ d: D(gi.x, gi.y), kind: 'gitem', gi });
     for (const m of G.monsters) list.push({ d: D(m.x, m.y), kind: 'mon', m });
@@ -341,6 +344,7 @@ const Render = {
       switch (it.kind) {
         case 'wall': this.drawWall(ctx, it.tx, it.ty, tiles); break;
         case 'prop': this.drawProp(ctx, it.pr, t); break;
+        case 'door': this.drawDoor(ctx, it.dr, t); break;
         case 'thing': this.drawThing(ctx, it.th, t); break;
         case 'gitem': this.drawGroundItem(ctx, it.gi, t); break;
         case 'mon': this.drawActor(ctx, it.m, t); break;
@@ -358,14 +362,28 @@ const Render = {
     Physics.drawSmall(ctx);
 
     // ---------- particles ----------
+    // Textured quads from the atlas rather than flat discs. Particles carry an
+    // optional `shape`; anything that doesn't name one gets 'dot', which is the
+    // soft-edged descendant of the circle this used to draw.
     for (const p of G.parts) {
       const [sx, sy] = this.worldToScreen(p.x, p.y, p.z);
-      if (sx < -20 || sx > this.W + 20 || sy < -20 || sy > this.H + 20) continue;
+      if (sx < -24 || sx > this.W + 24 || sy < -24 || sy > this.H + 24) continue;
+      const a = Math.min(1, p.life / p.maxLife * 1.5);
+      if (a <= 0) continue;
+      const img = Sprites.getParticle(p.shape || 'dot', p.color);
+      // atlas art has soft falloff out to its edge, so it needs more room than
+      // the old hard disc of the same nominal radius
+      const r = p.size * 1.9 * Cam.zoom;
       ctx.save();
       if (p.add) ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = Math.min(1, p.life / p.maxLife * 1.5);
-      ctx.fillStyle = p.color;
-      ctx.beginPath(); ctx.arc(sx, sy, p.size, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = a;
+      if (p.rot !== undefined) {
+        ctx.translate(sx, sy);
+        ctx.rotate(p.rot + (p.spin || 0) * (p.maxLife - p.life));
+        ctx.drawImage(img, -r, -r, r * 2, r * 2);
+      } else {
+        ctx.drawImage(img, sx - r, sy - r, r * 2, r * 2);
+      }
       ctx.restore();
     }
     // lightning bolts
@@ -425,6 +443,147 @@ const Render = {
       vg.addColorStop(0, 'rgba(120,0,0,0)'); vg.addColorStop(1, `rgba(160,10,5,${a})`);
       ctx.fillStyle = vg; ctx.fillRect(0, 0, this.W, this.H);
     }
+  },
+
+  // A door is drawn from its two jambs, both projected through the live
+  // camera, so the frame stays glued to the passage at any orbit angle rather
+  // than being a fixed screen-space rectangle.
+  drawDoor(ctx, dr, t) {
+    const half = 0.46;
+    // jamb offsets run across the passage: 'v' passages are entered along y,
+    // so their posts sit on the x axis, and vice versa
+    const ox = dr.ori === 'v' ? half : 0, oy = dr.ori === 'v' ? 0 : half;
+    const [ax, ay] = this.worldToScreen(dr.x - ox, dr.y - oy);
+    const [bx, by] = this.worldToScreen(dr.x + ox, dr.y + oy);
+    if (Math.max(ax, bx) < -80 || Math.min(ax, bx) > this.W + 80 ||
+        Math.max(ay, by) < -140 || Math.min(ay, by) > this.H + 80) return;
+    const z = Cam.zoom;
+    const H = 34 * z;                       // jamb height in screen px
+    const wood = '#4a3420', iron = '#5a5e66', stone = U.shade(THEMES[G.map.theme].wallTop, 0.9);
+
+    ctx.save();
+    // --- jambs: two stone posts ---
+    ctx.strokeStyle = stone; ctx.lineWidth = 4.5 * z; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax, ay - H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, by - H); ctx.stroke();
+    // --- lintel across the top ---
+    ctx.strokeStyle = U.shade(stone, 1.15); ctx.lineWidth = 4 * z;
+    ctx.beginPath(); ctx.moveTo(ax, ay - H); ctx.lineTo(bx, by - H); ctx.stroke();
+    // a keystone so the arch reads at a glance
+    ctx.fillStyle = U.shade(stone, 1.3);
+    ctx.beginPath();
+    ctx.ellipse((ax + bx) / 2, (ay + by) / 2 - H - 1.5 * z, 3.4 * z, 2.6 * z, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (dr.kind !== 'arch') {
+      // --- the leaf, hinged on jamb A, swinging away as `open` rises ---
+      const k = 1 - dr.open * 0.88;          // visible width of the leaf
+      const lx = ax + (bx - ax) * k, ly = ay + (by - ay) * k;
+      const lean = dr.swing * dr.open * 6 * z;   // slight skew as it swings
+      ctx.globalAlpha = 1;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(lx + lean, ly);
+      ctx.lineTo(lx + lean, ly - H * 0.92);
+      ctx.lineTo(ax, ay - H * 0.92);
+      ctx.closePath();
+      if (dr.kind === 'barred') {
+        ctx.fillStyle = 'rgba(10,10,14,0.55)'; ctx.fill();
+        ctx.strokeStyle = iron; ctx.lineWidth = 1.6 * z;
+        // vertical bars spaced across whatever width is left
+        const n = 4;
+        for (let i = 1; i <= n; i++) {
+          const f = i / (n + 1);
+          const px = ax + (lx + lean - ax) * f, py = ay + (ly - ay) * f;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py - H * 0.92); ctx.stroke();
+        }
+        ctx.strokeStyle = iron; ctx.lineWidth = 1.8 * z; ctx.stroke();
+      } else {
+        const g = ctx.createLinearGradient(ax, ay - H, lx, ly);
+        g.addColorStop(0, U.shade(wood, 1.35)); g.addColorStop(1, U.shade(wood, 0.8));
+        ctx.fillStyle = g; ctx.fill();
+        ctx.strokeStyle = U.shade(wood, 0.6); ctx.lineWidth = 1.4 * z; ctx.stroke();
+        // plank lines + an iron band
+        ctx.strokeStyle = U.shade(wood, 0.62); ctx.lineWidth = 1 * z;
+        for (const f of [0.33, 0.66]) {
+          const px = ax + (lx + lean - ax) * f, py = ay + (ly - ay) * f;
+          ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py - H * 0.92); ctx.stroke();
+        }
+        ctx.strokeStyle = iron; ctx.lineWidth = 1.6 * z;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay - H * 0.62); ctx.lineTo(lx + lean, ly - H * 0.62);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  },
+
+  // Lights tagged with a vent tile only shine while that vent is firing;
+  // everything else burns steadily and returns 1.
+  ventScale(l, t) {
+    if (l.vent === undefined) return 1;
+    if (!ventJetting(l.vent, t)) return ventCharge(l.vent, t) * 0.25;
+    return Math.sin(Math.min(1, ventPhase(l.vent, t) / VENT_JET) * Math.PI);
+  },
+
+  // A vent spends most of its cycle dormant. It telegraphs with a rising
+  // shimmer and a widening ring, then fires a scalding column. Drawing both
+  // phases off the same shared clock keeps what you see and what burns you
+  // in agreement — the warning is honest.
+  drawVent(ctx, tx, ty, sx, sy, t, kind) {
+    const i = ty * G.map.w + tx;
+    const jetting = ventJetting(i, t);
+    const charge = ventCharge(i, t);
+    const z = Cam.zoom;
+    if (!jetting && charge <= 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (jetting) {
+      const p = ventPhase(i, t) / VENT_JET;          // 0..1 through the jet
+      const env = Math.sin(Math.min(1, p) * Math.PI); // fade in and out
+      // Baked jet if we have one for this vent kind. Driven off the vent's own
+      // phase rather than wall-clock, so the sprite plays in step with the
+      // damage window instead of drifting out of sync with it.
+      if (kind.sheet && Assets.hasSheet(kind.sheet)) {
+        const sheet = Assets.tintedSheet(kind.sheet, kind.hot) || Assets.sheets[kind.sheet];
+        const fr = Math.min(sheet.frames - 1, Math.floor(p * sheet.frames));
+        ctx.globalAlpha = env;
+        ctx.drawImage(sheet.img, fr * sheet.cell, 0, sheet.cell, sheet.cell,
+                      sx - 34 * z, sy - 62 * z, 68 * z, 68 * z);
+        ctx.restore();
+        return;
+      }
+      const H = (46 + 26 * env) * z * (kind.mul / 1.8);
+      const g = ctx.createLinearGradient(sx, sy, sx, sy - H);
+      g.addColorStop(0, U.rgba(kind.hot, 0.62 * env));
+      g.addColorStop(0.45, U.rgba(kind.color, 0.34 * env));
+      g.addColorStop(1, U.rgba(kind.color, 0));
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(sx - 7 * z, sy + 2 * z);
+      ctx.quadraticCurveTo(sx - 11 * z, sy - H * 0.6, sx - 3 * z, sy - H);
+      ctx.lineTo(sx + 3 * z, sy - H);
+      ctx.quadraticCurveTo(sx + 11 * z, sy - H * 0.6, sx + 7 * z, sy + 2 * z);
+      ctx.closePath(); ctx.fill();
+      // hot core
+      ctx.fillStyle = U.rgba(kind.hot, 0.5 * env);
+      ctx.beginPath(); ctx.ellipse(sx, sy - 6 * z, 4 * z, 9 * z * env, 0, 0, Math.PI * 2); ctx.fill();
+      // ground flash
+      ctx.fillStyle = U.rgba(kind.color, 0.3 * env);
+      ctx.beginPath(); ctx.ellipse(sx, sy, 15 * z, 7 * z, 0, 0, Math.PI * 2); ctx.fill();
+    } else {
+      // telegraph: a shimmer at the mouth and a ring that closes as it charges
+      ctx.fillStyle = U.rgba(kind.color, 0.16 * charge);
+      ctx.beginPath(); ctx.ellipse(sx, sy - 3 * z, 6 * z, 4 * z, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = U.rgba(kind.hot, 0.3 + 0.45 * charge);
+      ctx.lineWidth = 1.4;
+      const rr = 1 - charge * 0.55;
+      ctx.beginPath();
+      ctx.ellipse(sx, sy, 15 * z * rr, 7 * z * rr, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
   },
 
   // ---------- atmosphere: fog, god rays, grading, ambient particles ----------
@@ -575,16 +734,16 @@ const Render = {
     if (map.t[ty * map.w + tx] === TILE.WALL && th.amb !== 'ash') return;
     switch (th.amb) {
       case 'dust':
-        FX.push({ x, y, z: U.rf(U.rand, 6, 44), vx: U.rf(U.rand, -0.25, 0.25), vy: U.rf(U.rand, -0.25, 0.25), vz: U.rf(U.rand, -2, 2), life: 4, maxLife: 4, color: '#b8b4a8', size: U.rf(U.rand, 0.7, 1.4), add: true, grav: 0 });
+        FX.push({ x, y, z: U.rf(U.rand, 6, 44), vx: U.rf(U.rand, -0.25, 0.25), vy: U.rf(U.rand, -0.25, 0.25), vz: U.rf(U.rand, -2, 2), life: 4, maxLife: 4, color: '#b8b4a8', size: U.rf(U.rand, 0.7, 1.4), add: true, grav: 0, shape: 'dot' });
         break;
       case 'ember':
-        FX.push({ x, y, z: U.rf(U.rand, 0, 12), vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 5, 13), life: 2.4, maxLife: 2.4, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffc94f', size: U.rf(U.rand, 0.9, 1.8), add: true, grav: -7 });
+        FX.push({ x, y, z: U.rf(U.rand, 0, 12), vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 5, 13), life: 2.4, maxLife: 2.4, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffc94f', size: U.rf(U.rand, 0.9, 1.8), add: true, grav: -7, shape: 'ember' });
         break;
       case 'spore':
-        FX.push({ x, y, z: U.rf(U.rand, 4, 32), vx: U.rf(U.rand, -0.2, 0.2), vy: U.rf(U.rand, -0.2, 0.2), vz: U.rf(U.rand, -1.5, 3), life: 3.6, maxLife: 3.6, color: U.rand() < 0.7 ? '#8ae8a0' : '#c8ffd8', size: U.rf(U.rand, 0.8, 1.7), add: true, grav: 0 });
+        FX.push({ x, y, z: U.rf(U.rand, 4, 32), vx: U.rf(U.rand, -0.2, 0.2), vy: U.rf(U.rand, -0.2, 0.2), vz: U.rf(U.rand, -1.5, 3), life: 3.6, maxLife: 3.6, color: U.rand() < 0.7 ? '#8ae8a0' : '#c8ffd8', size: U.rf(U.rand, 0.8, 1.7), add: true, grav: 0, shape: 'dot' });
         break;
       case 'ash':
-        FX.push({ x, y, z: U.rf(U.rand, 55, 80), vx: U.rf(U.rand, -0.4, 0.1), vy: U.rf(U.rand, -0.1, 0.4), vz: U.rf(U.rand, -11, -7), life: 6, maxLife: 6, color: U.rand() < 0.75 ? '#9a8880' : '#e06840', size: U.rf(U.rand, 0.8, 1.6), add: false, grav: 0 });
+        FX.push({ x, y, z: U.rf(U.rand, 55, 80), vx: U.rf(U.rand, -0.4, 0.1), vy: U.rf(U.rand, -0.1, 0.4), vz: U.rf(U.rand, -11, -7), life: 6, maxLife: 6, color: U.rand() < 0.75 ? '#9a8880' : '#e06840', size: U.rf(U.rand, 0.8, 1.6), add: false, grav: 0, shape: 'shard', rot: U.rand() * 6.28, spin: 1.6 });
         break;
       case 'firefly':
         FX.push({ x, y, z: U.rf(U.rand, 8, 26), vx: U.rf(U.rand, -0.5, 0.5), vy: U.rf(U.rand, -0.5, 0.5), vz: U.rf(U.rand, -2, 2), life: 5, maxLife: 5, color: '#d8f06a', size: 1.4, add: true, grav: 0 });
@@ -656,7 +815,8 @@ const Render = {
     const propR = spooky ? 1.18 : 1;
     for (const l of map.lights) {
       const fl = l.flick ? 0.85 + Math.sin(t * 11 + l.x * 7 + l.y * 13) * 0.15 : 1;
-      punch(l.x, l.y, l.r * fl * propR, 0.95);
+      const vs = this.ventScale(l, t);
+      if (vs > 0) punch(l.x, l.y, l.r * fl * propR * vs, 0.95);
     }
     for (const p of G.projs) punch(p.x, p.y, 2.2, 0.8);
     for (const f of G.flashes) punch(f.x, f.y, f.r * 2, f.t / f.maxT);
@@ -682,7 +842,8 @@ const Render = {
     };
     for (const l of map.lights) {
       const fl = l.flick ? 0.8 + Math.sin(t * 11 + l.x * 7 + l.y * 13) * 0.2 : 1;
-      glow(l.x, l.y, l.r * 0.8 * fl, l.color, this.mood === 'spooky' ? 0.15 : 0.10);
+      const vs = this.ventScale(l, t);
+      if (vs > 0) glow(l.x, l.y, l.r * 0.8 * fl * vs, l.color, (this.mood === 'spooky' ? 0.15 : 0.10) * vs);
     }
     for (const p of G.projs) glow(p.x, p.y, 1.6, ELEM[p.elem].color, 0.16);
     for (const f of G.flashes) glow(f.x, f.y, f.r, f.color, 0.25 * f.t / f.maxT);
@@ -1105,6 +1266,10 @@ const Render = {
     ctx.translate(sx, sy);
     ctx.scale(Cam.zoom, Cam.zoom);
     if (pr.ang) ctx.rotate(pr.ang);
+    // Registered art wins over the vector code. Assets.draw returns false when
+    // the slot is empty, which is the normal case today — so this costs one
+    // property lookup and changes nothing until art actually lands.
+    if (Assets.draw(ctx, pr.kind, Cam.zoom)) { ctx.restore(); return; }
     switch (pr.kind) {
       case 'crate': {
         const g = ctx.createLinearGradient(-9, -18, 9, 0);
@@ -1441,6 +1606,11 @@ const Render = {
         ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(0, -34); ctx.stroke();
         ctx.fillStyle = '#55483a';
         ctx.beginPath(); ctx.moveTo(-4, -34); ctx.lineTo(4, -34); ctx.lineTo(2.5, -39); ctx.lineTo(-2.5, -39); ctx.closePath(); ctx.fill();
+        // Baked flame if one is loaded; the bracket above is ours either way.
+        // The phase is derived from the prop seed so a corridor of torches
+        // does not flicker in unison.
+        if (Assets.drawSheet(ctx, 'torch-3d', 0, -46, 40, t,
+              { phase: (pr.seed % 97) / 97, fps: 11, tint: col })) break;
         const fl = 0.85 + Math.sin(t * 11 + pr.x * 7 + pr.y * 13) * 0.15;
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
@@ -1468,6 +1638,9 @@ const Render = {
         ctx.fillRect(-9.5, -16, 19, 4.5);
         ctx.fillStyle = U.rgba('#ff6a20', 0.9);
         ctx.beginPath(); ctx.ellipse(0, -16, 7, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+        // the bowl is ours; the fire in it comes from the baked sheet if loaded
+        if (Assets.drawSheet(ctx, 'torch-3d', 0, -26, 46, t,
+            { phase: (pr.seed % 89) / 89, fps: 10, tint: col })) break;
         const fl = 0.85 + Math.sin(t * 9 + pr.seed) * 0.15;
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
@@ -1603,6 +1776,327 @@ const Render = {
         break;
       }
       case 'tree': break; // drawn after restore — needs its own transform
+
+      // ---- props added alongside the Act asset packs ----
+      // Vector stand-ins, so each act reads as its own place today; every one
+      // has a model reserved in js/assetpacks.js for when art lands.
+
+      // Act I — the parish
+      case 'soul_cage': {          // hanging iron cage with a trapped wisp
+        const gl = 0.5 + Math.sin(t * 2.2 + pr.seed) * 0.4;
+        ctx.strokeStyle = '#3a3a44'; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(0, -26); ctx.stroke();
+        ctx.fillStyle = U.rgba('#8fc8ff', 0.16 + gl * 0.2);
+        ctx.beginPath(); ctx.ellipse(0, -16, 8, 10, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = U.rgba('#dff4ff', 0.5 + gl * 0.4);
+        ctx.beginPath(); ctx.ellipse(0, -16 + Math.sin(t * 1.7) * 2, 2.6, 3.2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#4a4a54'; ctx.lineWidth = 1.2;
+        for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.moveTo(i * 2.4, -26); ctx.lineTo(i * 2.9, -6); ctx.stroke(); }
+        ctx.beginPath(); ctx.ellipse(0, -26, 8, 2.6, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, -6, 9, 3, 0, 0, Math.PI * 2); ctx.stroke();
+        break;
+      }
+      case 'reliquary': {          // little gilded shrine box on a plinth
+        ctx.fillStyle = 'rgba(0,0,0,0.36)'; ctx.beginPath(); ctx.ellipse(0, 2, 10, 4.2, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = U.shade('#5a5a64', 1); ctx.fillRect(-8, -10, 16, 10);
+        const g = ctx.createLinearGradient(-7, -24, 7, -10);
+        g.addColorStop(0, '#c9a44f'); g.addColorStop(1, '#7a6224');
+        ctx.fillStyle = g; ctx.fillRect(-7, -22, 14, 12);
+        ctx.fillStyle = '#e8d089';
+        ctx.beginPath(); ctx.moveTo(-7, -22); ctx.lineTo(0, -28); ctx.lineTo(7, -22); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = '#3a2e12'; ctx.lineWidth = 1; ctx.strokeRect(-7, -22, 14, 12);
+        break;
+      }
+      case 'grave_marker': {       // small leaning slab
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 2, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.rotate(((pr.seed % 11) - 5) * 0.012);
+        ctx.fillStyle = U.shade('#7a7a84', 0.9);
+        ctx.beginPath();
+        ctx.moveTo(-5, 0); ctx.lineTo(-5, -11); ctx.arc(0, -11, 5, Math.PI, 0); ctx.lineTo(5, 0);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(20,20,26,0.6)'; ctx.lineWidth = 0.9; ctx.stroke();
+        break;
+      }
+      case 'corpse_shroud': {      // wrapped body on the floor
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 1, 13, 5, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createLinearGradient(-12, -6, 12, 2);
+        g.addColorStop(0, '#b8b0a0'); g.addColorStop(1, '#6a6558');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(0, -3, 12, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(60,56,48,0.8)'; ctx.lineWidth = 1;
+        for (const f of [-6, 0, 6]) { ctx.beginPath(); ctx.moveTo(f, -7); ctx.lineTo(f, 1); ctx.stroke(); }
+        break;
+      }
+      case 'prison_cell': {        // barred alcove front
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(-13, -30, 26, 30);
+        ctx.strokeStyle = '#4a4e56'; ctx.lineWidth = 2;
+        for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 5.5, -30); ctx.lineTo(i * 5.5, 0); ctx.stroke(); }
+        ctx.beginPath(); ctx.moveTo(-13, -30); ctx.lineTo(13, -30); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(-13, -16); ctx.lineTo(13, -16); ctx.stroke();
+        break;
+      }
+
+      // Act II — the catacombs
+      case 'ritual_circle': {      // glowing sigil painted on the floor
+        const pulse = 0.4 + Math.sin(t * 1.6 + pr.seed) * 0.25;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = U.rgba('#c07bff', pulse); ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.ellipse(0, 0, 17, 8.5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, 0, 11, 5.5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 5; i++) {
+          const a = i * Math.PI * 2 / 5 - Math.PI / 2, b = a + Math.PI * 4 / 5;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * 16, Math.sin(a) * 8);
+          ctx.lineTo(Math.cos(b) * 16, Math.sin(b) * 8);
+          ctx.stroke();
+        }
+        ctx.restore();
+        break;
+      }
+      case 'spider_eggsac': {      // pale sac slung against the wall
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(0, 2, 8, 3.4, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createRadialGradient(-2, -14, 1, 0, -12, 11);
+        g.addColorStop(0, '#e8e4d0'); g.addColorStop(1, '#9a9478');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(0, -12, 8, 11, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = 'rgba(90,86,66,0.55)'; ctx.lineWidth = 0.8;
+        for (let i = 0; i < 4; i++) {
+          ctx.beginPath(); ctx.ellipse(0, -12, 8 - i * 1.6, 11 - i * 2.2, 0, 0, Math.PI * 2); ctx.stroke();
+        }
+        break;
+      }
+      case 'plague_vat': {         // bubbling barrel of something wrong
+        ctx.fillStyle = 'rgba(0,0,0,0.4)'; ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createLinearGradient(-10, -22, 10, 0);
+        g.addColorStop(0, '#5a5a4a'); g.addColorStop(1, '#32321f');
+        ctx.fillStyle = g; ctx.fillRect(-10, -22, 20, 22);
+        ctx.strokeStyle = '#6a6a58'; ctx.lineWidth = 1.4;
+        for (const yy of [-17, -9, -2]) { ctx.beginPath(); ctx.moveTo(-10, yy); ctx.lineTo(10, yy); ctx.stroke(); }
+        const bub = 0.5 + Math.sin(t * 3 + pr.seed) * 0.5;
+        ctx.fillStyle = U.rgba('#8ef04a', 0.55);
+        ctx.beginPath(); ctx.ellipse(0, -22, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = U.rgba('#d8ff9a', 0.5 * bub);
+        ctx.beginPath(); ctx.ellipse(2 - bub * 3, -23, 2, 1.2, 0, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'haunted_doll': {       // small seated figure, faintly wrong
+        ctx.fillStyle = 'rgba(0,0,0,0.26)'; ctx.beginPath(); ctx.ellipse(0, 2, 5, 2.4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#8a6a5a';
+        ctx.beginPath(); ctx.arc(0, -11, 4.2, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#7a3a4a'; ctx.fillRect(-4, -7, 8, 7);
+        ctx.strokeStyle = '#7a3a4a'; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(-4, -5); ctx.lineTo(-7, -1); ctx.moveTo(4, -5); ctx.lineTo(7, -1); ctx.stroke();
+        ctx.fillStyle = U.rgba('#ff4f4f', 0.75 + Math.sin(t * 4 + pr.seed) * 0.25);
+        ctx.fillRect(-2.2, -12, 1.4, 1.4); ctx.fillRect(0.8, -12, 1.4, 1.4);
+        break;
+      }
+
+      // Act III — the undercity
+      case 'stalactite': {         // hanging spike from the unseen roof
+        const g = ctx.createLinearGradient(0, -40, 0, -8);
+        g.addColorStop(0, U.shade('#4a3a2e', 1.2)); g.addColorStop(1, '#241a12');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.moveTo(-6, -40); ctx.lineTo(6, -40); ctx.lineTo(1.2, -8); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.beginPath(); ctx.moveTo(-6, -40); ctx.lineTo(-1, -40); ctx.lineTo(0, -12); ctx.closePath(); ctx.fill();
+        break;
+      }
+      case 'echo_crystal': {       // resonating shard, hums with light
+        const gl = 0.55 + Math.sin(t * 1.8 + pr.seed) * 0.45;
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 2, 8, 3.4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = U.rgba('#8fd8ff', 0.14 * gl);
+        ctx.beginPath(); ctx.arc(0, -13, 15, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        for (const [dx, h, w] of [[-4, 18, 3.4], [0, 26, 4.4], [4.5, 14, 3]]) {
+          const g = ctx.createLinearGradient(dx, -h, dx, 0);
+          g.addColorStop(0, U.rgba('#cfefff', 0.95)); g.addColorStop(1, U.rgba('#3a7aa0', 0.85));
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.moveTo(dx, -h); ctx.lineTo(dx + w, -h * 0.42); ctx.lineTo(dx, 0);
+          ctx.lineTo(dx - w, -h * 0.42); ctx.closePath(); ctx.fill();
+        }
+        break;
+      }
+      case 'mining_beam': {        // timber pit prop
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 2, 12, 4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#5a4228';
+        ctx.fillRect(-13, -34, 4.5, 34); ctx.fillRect(8.5, -34, 4.5, 34);
+        ctx.fillStyle = '#6a5030'; ctx.fillRect(-14, -38, 28, 5);
+        ctx.strokeStyle = '#3a2a16'; ctx.lineWidth = 1;
+        ctx.strokeRect(-14, -38, 28, 5);
+        break;
+      }
+      case 'dynamite': {           // bundled charges, smashable
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 2, 7, 3, 0, 0, Math.PI * 2); ctx.fill();
+        for (let i = -1; i <= 1; i++) {
+          ctx.fillStyle = i === 0 ? '#b8442a' : '#9a3a22';
+          ctx.fillRect(i * 3.4 - 1.5, -12, 3, 12);
+        }
+        ctx.strokeStyle = '#3a2a16'; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(-5, -7); ctx.lineTo(5, -7); ctx.stroke();
+        ctx.strokeStyle = '#c8b070'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, -12); ctx.quadraticCurveTo(4, -18, 1, -21); ctx.stroke();
+        break;
+      }
+      case 'ogre_bonepile': {      // gnawed leavings
+        ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.beginPath(); ctx.ellipse(0, 2, 12, 5, 0, 0, Math.PI * 2); ctx.fill();
+        const br = makeRng(pr.seed + 3);
+        for (let i = 0; i < 9; i++) {
+          const a = br() * Math.PI * 2, r = br() * 9;
+          ctx.save(); ctx.translate(Math.cos(a) * r, Math.sin(a) * r * 0.45 - 2); ctx.rotate(br() * Math.PI);
+          ctx.strokeStyle = U.shade('#d8d2be', 0.8 + br() * 0.4); ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(-3.5, 0); ctx.lineTo(3.5, 0); ctx.stroke();
+          ctx.restore();
+        }
+        break;
+      }
+
+      // Act IV — the drowned fane
+      case 'marsh_grass': {        // reed clump, swaying
+        const sw = Math.sin(t * 1.1 + pr.seed) * 2;
+        const gr = makeRng(pr.seed + 7);
+        for (let i = 0; i < 9; i++) {
+          const dx = (gr() - 0.5) * 13, h = 10 + gr() * 13;
+          ctx.strokeStyle = U.shade('#4a7a3a', 0.7 + gr() * 0.6); ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(dx, 0);
+          ctx.quadraticCurveTo(dx + sw * 0.5, -h * 0.6, dx + sw, -h);
+          ctx.stroke();
+        }
+        break;
+      }
+      case 'poison_vine': {        // creeping vine with fat sacs
+        const gr = makeRng(pr.seed + 11);
+        ctx.strokeStyle = '#3a6a3a'; ctx.lineWidth = 1.8;
+        ctx.beginPath(); ctx.moveTo(-11, 0);
+        ctx.quadraticCurveTo(-3, -14, 4, -6); ctx.quadraticCurveTo(9, -1, 12, -13);
+        ctx.stroke();
+        for (let i = 0; i < 4; i++) {
+          const px = -9 + i * 6, py = -4 - gr() * 8;
+          ctx.fillStyle = U.rgba('#8ef04a', 0.7);
+          ctx.beginPath(); ctx.ellipse(px, py, 2.4, 3, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        break;
+      }
+      case 'bog_skeleton': {       // half-sunk remains
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(0, 1, 12, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#b8b49a'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-8, -1); ctx.lineTo(6, -3); ctx.stroke();
+        for (let i = -2; i <= 2; i++) {
+          ctx.lineWidth = 1.2;
+          ctx.beginPath(); ctx.moveTo(i * 2.6, -2); ctx.lineTo(i * 2.6 - 1, -6); ctx.stroke();
+        }
+        ctx.fillStyle = '#c8c4ac';
+        ctx.beginPath(); ctx.ellipse(8, -5, 4, 3.4, 0.3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#2a3a2a';
+        ctx.beginPath(); ctx.arc(7, -5.5, 1, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'coral_pillar': {       // branching coral column
+        const g = ctx.createLinearGradient(0, -34, 0, 0);
+        g.addColorStop(0, '#c86a8a'); g.addColorStop(1, '#5a2a44');
+        ctx.strokeStyle = g; ctx.lineWidth = 5; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -22); ctx.stroke();
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, -18); ctx.quadraticCurveTo(-8, -26, -7, -33); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, -21); ctx.quadraticCurveTo(8, -28, 7, -35); ctx.stroke();
+        ctx.fillStyle = U.rgba('#ffb0c8', 0.5);
+        for (const [px, py] of [[-7, -33], [7, -35], [0, -23]]) {
+          ctx.beginPath(); ctx.arc(px, py, 2.2, 0, Math.PI * 2); ctx.fill();
+        }
+        break;
+      }
+      case 'giant_clam': {         // shell, ajar, pearl inside
+        ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.4, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createLinearGradient(-10, -8, 10, 2);
+        g.addColorStop(0, '#9ab8c8'); g.addColorStop(1, '#4a6a7a');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.ellipse(0, -2, 11, 6, 0, Math.PI, 0); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(0, -8, 11, 6, 0, Math.PI, 0); ctx.fill();
+        ctx.strokeStyle = 'rgba(30,44,54,0.7)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(0, -8, 11, 6, 0, Math.PI, 0); ctx.stroke();
+        const gl = 0.6 + Math.sin(t * 1.4 + pr.seed) * 0.4;
+        ctx.fillStyle = U.rgba('#f0f8ff', 0.6 + gl * 0.4);
+        ctx.beginPath(); ctx.arc(0, -5, 2.4, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+
+      // Act V — the burning throne
+      case 'demonic_sigil': {      // burning ward branded into the floor
+        const pulse = 0.45 + Math.sin(t * 2.4 + pr.seed) * 0.3;
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = U.rgba('#ff4f2f', pulse); ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.ellipse(0, 0, 15, 7.5, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.lineWidth = 1.3;
+        for (let i = 0; i < 3; i++) {
+          const a = i * Math.PI * 2 / 3 + t * 0.25;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * 14, Math.sin(a) * 7);
+          ctx.lineTo(Math.cos(a + 2.09) * 14, Math.sin(a + 2.09) * 7);
+          ctx.stroke();
+        }
+        ctx.fillStyle = U.rgba('#ff8a2f', 0.16 * pulse);
+        ctx.beginPath(); ctx.ellipse(0, 0, 15, 7.5, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case 'fel_crystal': {        // jagged green shard, lit from within
+        const gl = 0.5 + Math.sin(t * 2 + pr.seed) * 0.4;
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = U.rgba('#8ef04a', 0.13 * gl);
+        ctx.beginPath(); ctx.arc(0, -14, 16, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+        const g = ctx.createLinearGradient(0, -28, 0, 0);
+        g.addColorStop(0, '#d8ff9a'); g.addColorStop(1, '#2a5a1a');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(0, -28); ctx.lineTo(6, -12); ctx.lineTo(2, 0); ctx.lineTo(-5, -2); ctx.lineTo(-6, -14);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = U.rgba('#f0ffd0', 0.5); ctx.lineWidth = 0.9; ctx.stroke();
+        break;
+      }
+      case 'twisted_tree': {       // dead, wrong-angled trunk
+        ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.beginPath(); ctx.ellipse(0, 2, 10, 4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#2c1c18'; ctx.lineCap = 'round';
+        ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(-4, -16, 3, -30); ctx.stroke();
+        ctx.lineWidth = 2.4;
+        ctx.beginPath(); ctx.moveTo(1, -20); ctx.quadraticCurveTo(-9, -25, -12, -34); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(2, -25); ctx.quadraticCurveTo(11, -29, 13, -38); ctx.stroke();
+        ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(-12, -34); ctx.lineTo(-15, -39); ctx.moveTo(13, -38); ctx.lineTo(16, -43); ctx.stroke();
+        break;
+      }
+      case 'charred_bones': {      // burnt ribcage
+        ctx.fillStyle = 'rgba(0,0,0,0.34)'; ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.4, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#3a3230'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-9, -2); ctx.lineTo(9, -4); ctx.stroke();
+        for (let i = -3; i <= 3; i++) {
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(i * 2.8, -3);
+          ctx.quadraticCurveTo(i * 3.4, -10, i * 2.2, -12);
+          ctx.stroke();
+        }
+        ctx.fillStyle = U.rgba('#ff5a2f', 0.25 + Math.sin(t * 3 + pr.seed) * 0.15);
+        ctx.beginPath(); ctx.ellipse(0, -3, 8, 3, 0, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'corrupted_stone': {    // boulder veined with something alive
+        ctx.fillStyle = 'rgba(0,0,0,0.36)'; ctx.beginPath(); ctx.ellipse(0, 2, 11, 4.6, 0, 0, Math.PI * 2); ctx.fill();
+        const g = ctx.createLinearGradient(-9, -16, 9, 0);
+        g.addColorStop(0, '#4a3a4a'); g.addColorStop(1, '#241a26');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(-10, 0); ctx.lineTo(-7, -12); ctx.lineTo(1, -16); ctx.lineTo(9, -10); ctx.lineTo(10, 0);
+        ctx.closePath(); ctx.fill();
+        const pulse = 0.4 + Math.sin(t * 1.9 + pr.seed) * 0.3;
+        ctx.strokeStyle = U.rgba('#c07bff', pulse); ctx.lineWidth = 1.3;
+        ctx.beginPath(); ctx.moveTo(-6, -2); ctx.lineTo(-2, -9); ctx.lineTo(3, -6); ctx.lineTo(7, -12); ctx.stroke();
+        break;
+      }
     }
     ctx.restore();
     if (pr.kind === 'tree') this.drawTree(ctx, pr, t);
@@ -1780,6 +2274,7 @@ const Render = {
         else if (tl === TILE.ENTRY) m.fillStyle = '#8fc8ff';
         else if (map.haz[i] === HAZ.LAVA) m.fillStyle = 'rgba(200,70,10,0.8)';
         else if (map.haz[i] === HAZ.WATER) m.fillStyle = 'rgba(40,90,140,0.8)';
+        else if (isVent(map.haz[i])) m.fillStyle = U.rgba(VENT_KINDS[map.haz[i]].color, 0.8);
         else m.fillStyle = 'rgba(52,48,40,0.8)';
         m.fillRect(x * sc, y * sc, Math.ceil(sc), Math.ceil(sc));
       }

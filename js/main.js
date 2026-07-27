@@ -784,6 +784,10 @@ const Game = {
 
 // ---------------- boot ----------------
 window.addEventListener('DOMContentLoaded', () => {
+  Assets.absorbPacks();   // curated per-act slugs win over generic name matches
+  // Baked effect sheets load in the background. Nothing waits on them: until
+  // they arrive (or if they never do) every effect keeps drawing procedurally.
+  Assets.loadSheets();
   Render.init();
   Cam.init();
   UI.init();

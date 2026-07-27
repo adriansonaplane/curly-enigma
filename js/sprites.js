@@ -394,7 +394,8 @@ const Sprites = {
     const th = THEMES[theme];
     const rng = makeRng(hashStr(theme));
     const W = 64, H = 32, WALL_H = 40;
-    const out = { floors: [], wall: null, lava: [], water: [], gas: null, spikes: null };
+    const out = { floors: [], wall: null, lava: [], water: [], gas: null, spikes: null,
+                  vent: null, spore: null, ember: null };
 
     // ---- floors: 6 hi-res variants with per-theme masonry + moss ----
     for (let v = 0; v < 6; v++) {
@@ -693,7 +694,157 @@ const Sprites = {
       ctx.beginPath(); ctx.ellipse(W / 2, H / 2, 9, 4.5, 0, 0, Math.PI * 2); ctx.stroke();
       out.gas = cv;
     }
+
+    // The three cycling vents share one plate: a cracked fissure with a
+    // scorch halo, tinted per kind. Baked here rather than at draw time so a
+    // level full of vents still costs one blit each.
+    for (const [key, lip, halo] of [['vent', '#ff9a3f', '60,30,10'],
+                                    ['spore', '#8ae8a0', '30,60,34'],
+                                    ['ember', '#ff5a2f', '70,24,8']]) {
+      const [cv, ctx] = this.mkTile(W, H);
+      this.diamond(ctx, W, H);
+      ctx.fillStyle = U.shade(th.floor, 0.72); ctx.fill();
+      ctx.save(); ctx.clip();
+      this.mottle(ctx, rng, W, H, U.shade(th.floor, 0.72), 5);
+      const sg = ctx.createRadialGradient(W / 2, H / 2, 2, W / 2, H / 2, 16);
+      sg.addColorStop(0, 'rgba(' + halo + ',0.55)'); sg.addColorStop(1, 'rgba(' + halo + ',0)');
+      ctx.fillStyle = sg; ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+      this.diamond(ctx, W, H);
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+      const vr = makeRng(717);
+      ctx.strokeStyle = '#0a0604'; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(W / 2 - 9, H / 2 + 2);
+      for (let s2 = 1; s2 <= 3; s2++)
+        ctx.lineTo(W / 2 - 9 + s2 * 6, H / 2 + 2 - 1.5 + (vr() - 0.5) * 3);
+      ctx.stroke();
+      ctx.strokeStyle = U.rgba(lip, 0.42); ctx.lineWidth = 1.1;
+      ctx.stroke();
+      ctx.fillStyle = U.rgba(lip, 0.35);
+      for (let i = 0; i < 7; i++) {
+        const a = vr() * Math.PI * 2, rr = 7 + vr() * 6;
+        ctx.fillRect(W / 2 + Math.cos(a) * rr, H / 2 + Math.sin(a) * rr * 0.5, 1.5, 1);
+      }
+      out[key] = cv;
+    }
     return out;
+  },
+
+  // ---- particle atlas ----
+  // Every particle in the game used to be ctx.arc() — a hard-edged flat disc.
+  // These are proper shapes with soft falloff, baked once as white masks and
+  // tinted on demand. Tinted variants are cached per shape+colour, because the
+  // palette is small (element colours plus a handful of literals) and a cache
+  // hit is just a drawImage.
+  partCache: Object.create(null),
+  PART_SIZE: 32,
+
+  bakePartMask(shape) {
+    const S = this.PART_SIZE, h = S / 2;
+    const cv = document.createElement('canvas');
+    cv.width = S; cv.height = S;
+    const c = cv.getContext('2d');
+    c.fillStyle = '#fff'; c.strokeStyle = '#fff';
+    switch (shape) {
+      case 'dot': {           // soft round mote — the default
+        const g = c.createRadialGradient(h, h, 0, h, h, h);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.45, 'rgba(255,255,255,0.85)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = g; c.fillRect(0, 0, S, S);
+        break;
+      }
+      case 'ember': {         // hot core, rapid falloff, faint halo
+        const g = c.createRadialGradient(h, h, 0, h, h, h);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(0.2, 'rgba(255,255,255,0.9)');
+        g.addColorStop(0.55, 'rgba(255,255,255,0.28)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = g; c.fillRect(0, 0, S, S);
+        break;
+      }
+      case 'spark': {         // four-point star with a bright centre
+        const g = c.createRadialGradient(h, h, 0, h, h, h * 0.5);
+        g.addColorStop(0, 'rgba(255,255,255,1)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        c.fillStyle = g;
+        c.beginPath(); c.arc(h, h, h * 0.5, 0, Math.PI * 2); c.fill();
+        c.strokeStyle = 'rgba(255,255,255,0.9)'; c.lineCap = 'round';
+        for (let i = 0; i < 4; i++) {
+          const a = i * Math.PI / 2 + Math.PI / 4;
+          c.lineWidth = 2.4;
+          c.beginPath();
+          c.moveTo(h, h);
+          c.lineTo(h + Math.cos(a) * h * 0.95, h + Math.sin(a) * h * 0.95);
+          c.stroke();
+        }
+        break;
+      }
+      case 'smoke': {         // lumpy puff, several overlapping soft blobs
+        const r = makeRng(91);
+        for (let i = 0; i < 5; i++) {
+          const bx = h + (r() - 0.5) * h * 0.7, by = h + (r() - 0.5) * h * 0.7;
+          const br = h * (0.4 + r() * 0.42);
+          const g = c.createRadialGradient(bx, by, 0, bx, by, br);
+          g.addColorStop(0, 'rgba(255,255,255,0.42)');
+          g.addColorStop(1, 'rgba(255,255,255,0)');
+          c.fillStyle = g; c.fillRect(0, 0, S, S);
+        }
+        break;
+      }
+      case 'shard': {         // angular sliver — debris, ash, ice
+        c.beginPath();
+        c.moveTo(h, 2); c.lineTo(h + h * 0.42, h * 1.15);
+        c.lineTo(h, S - 3); c.lineTo(h - h * 0.34, h * 1.05);
+        c.closePath();
+        c.fillStyle = 'rgba(255,255,255,0.95)'; c.fill();
+        break;
+      }
+      case 'splash': {        // teardrop, heavier at the base
+        c.beginPath();
+        c.moveTo(h, 3);
+        c.quadraticCurveTo(h + h * 0.62, h, h, S - 3);
+        c.quadraticCurveTo(h - h * 0.62, h, h, 3);
+        c.closePath();
+        c.fillStyle = 'rgba(255,255,255,0.92)'; c.fill();
+        break;
+      }
+      case 'rune': {          // small glyph ring for arcane work
+        c.strokeStyle = 'rgba(255,255,255,0.95)'; c.lineWidth = 2;
+        c.beginPath(); c.arc(h, h, h * 0.6, 0, Math.PI * 2); c.stroke();
+        c.lineWidth = 1.5;
+        for (let i = 0; i < 3; i++) {
+          const a = i * Math.PI * 2 / 3;
+          c.beginPath();
+          c.moveTo(h + Math.cos(a) * h * 0.6, h + Math.sin(a) * h * 0.6);
+          c.lineTo(h + Math.cos(a + 2.1) * h * 0.6, h + Math.sin(a + 2.1) * h * 0.6);
+          c.stroke();
+        }
+        break;
+      }
+      default: {
+        c.beginPath(); c.arc(h, h, h * 0.8, 0, Math.PI * 2); c.fill();
+      }
+    }
+    return cv;
+  },
+
+  getParticle(shape, color) {
+    const key = shape + '|' + color;
+    const hit = this.partCache[key];
+    if (hit) return hit;
+    const mask = this.bakePartMask(shape);
+    const S = this.PART_SIZE;
+    const cv = document.createElement('canvas');
+    cv.width = S; cv.height = S;
+    const c = cv.getContext('2d');
+    c.drawImage(mask, 0, 0);
+    c.globalCompositeOperation = 'source-in';   // keep the mask's alpha, swap the hue
+    c.fillStyle = color;
+    c.fillRect(0, 0, S, S);
+    this.partCache[key] = cv;
+    return cv;
   },
 
   // ---- ambient occlusion overlays: 16 masks of wall-adjacent edge shading ----

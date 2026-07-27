@@ -1,8 +1,42 @@
 // ============ DIABLOID: dungeon.js — procedural dungeon generation ============
 'use strict';
 
-const TILE = { WALL: 0, FLOOR: 1, EXIT: 2, ENTRY: 3 };
-const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3, WATER: 4 };
+const TILE = { WALL: 0, FLOOR: 1, EXIT: 2, ENTRY: 3, DOOR: 4 };
+const HAZ = { NONE: 0, LAVA: 1, SPIKES: 2, GAS: 3, WATER: 4, VENT: 5, SPORE: 6, EMBER: 7 };
+
+// The three cycling vents share all their machinery and differ only in what
+// they spit. Keyed by HAZ value so the renderer and the damage code can look
+// up one record instead of branching three ways in four places.
+const VENT_KINDS = {
+  5: { tile: 'vent',  color: '#ff9a3f', hot: '#ffd9a0', elem: 'fire', dmg: 0.055, mul: 1.8, name: 'steam vent',   sheet: 'geothermalsteam-3d' },
+  6: { tile: 'spore', color: '#8ae8a0', hot: '#d8ffe0', elem: 'pois', dmg: 0.040, mul: 1.2, name: 'spore vent',   sheet: 'swampgas-3d' },
+  7: { tile: 'ember', color: '#ff5a2f', hot: '#ffc060', elem: 'fire', dmg: 0.070, mul: 2.2, name: 'ember geyser', sheet: 'flamejet-3d' },
+};
+function isVent(hz) { return hz === HAZ.VENT || hz === HAZ.SPORE || hz === HAZ.EMBER; }
+
+// Steam vents fire on a cycle instead of burning constantly: a visible
+// build-up, then a scalding jet, then a lull you can walk through. The phase
+// is derived from the tile index and the clock rather than stored per tile,
+// so the renderer and the damage code agree without sharing state.
+const VENT_PERIOD = 3.6;   // seconds for a full charge/erupt/lull cycle
+const VENT_JET = 0.85;     // how long the jet is actually out (and lethal)
+const VENT_TELL = 0.75;    // warning window before the jet
+function ventPhase(i, t) {
+  // cheap integer hash so neighbouring vents don't fire in lockstep
+  const off = (((i * 2654435761) >>> 0) % 997) / 997 * VENT_PERIOD;
+  // JS % keeps the sign of the dividend, so a negative clock would hand back a
+  // negative phase — which reads as "jetting" and drives the jet envelope
+  // negative, down into negative canvas radii. Normalise into [0, PERIOD).
+  const p = (t + off) % VENT_PERIOD;
+  return p < 0 ? p + VENT_PERIOD : p;
+}
+function ventJetting(i, t) { return ventPhase(i, t) < VENT_JET; }
+// 0 while dormant, ramping to 1 the instant before the jet fires
+function ventCharge(i, t) {
+  const p = ventPhase(i, t);
+  const lead = VENT_PERIOD - p;
+  return lead <= VENT_TELL ? 1 - lead / VENT_TELL : 0;
+}
 
 const Dungeon = {
 
@@ -23,7 +57,7 @@ const Dungeon = {
       haz: new Uint8Array(w * h),
       variant: new Uint8Array(w * h),
       explored: new Uint8Array(w * h),
-      lights: [], props: [], packs: [], things: [], rooms: [],
+      lights: [], props: [], packs: [], things: [], rooms: [], doors: [],
       mlvl: isAbyss ? ABYSS.mlvl0 + (opts.abyssFloor - 1) * 2 : act.mlvl + (opts.depth - 1) * 3,
       pool: act.pool,
       name: isAbyss
@@ -35,6 +69,7 @@ const Dungeon = {
     if (cavey) this.carveCaves(map, rng); else this.carveRooms(map, rng, isBoss);
     this.ensureConnectivity(map, rng);
     this.placeEntryExit(map, rng, isBoss);
+    if (!cavey) this.placeDoors(map, rng);   // caves have no masonry to hang a door on
     for (let i = 0; i < w * h; i++) map.variant[i] = Math.floor(rng() * 6);
     this.decorate(map, rng);
     this.placeHazards(map, rng);
@@ -251,7 +286,9 @@ const Dungeon = {
     map.lights.push({ x: map.exit.x, y: map.exit.y, r: 5, color: '#ff8a2f', flick: true });
     // props on floor — denser scatter, plus interactive fixtures
     const props = th.props || [];
-    const SMASHABLE = { crate: 'wood', pot: 'clay', urn: 'clay', sack: 'cloth', barrelprop: 'wood', sarcophagus: 'stone' };
+    const SMASHABLE = { crate: 'wood', pot: 'clay', urn: 'clay', sack: 'cloth', barrelprop: 'wood', sarcophagus: 'stone',
+                        spider_eggsac: 'cloth', plague_vat: 'wood', dynamite: 'wood', soul_cage: 'stone',
+                        haunted_doll: 'cloth', corrupted_stone: 'stone', charred_bones: 'stone', giant_clam: 'stone' };
     const LOOSE = { pot: 1, sack: 1, chair: 1, crate: 1, urn: 1 };
     if (props.length) {
       const n = Math.floor(w * h * 0.022);
@@ -327,6 +364,50 @@ const Dungeon = {
     }
   },
 
+  // ---------- doors ----------
+  // Rooms and corridors were previously indistinguishable: a corridor simply
+  // punched a hole in a room's wall and the two floors ran together. A door
+  // marks that threshold. Every breach in a room's surrounding wall ring gets
+  // one, so "leaving the room" becomes a thing you can see.
+  //
+  // Doors never block movement — they are thresholds, not gates — so
+  // pathfinding, projectiles and connectivity are all untouched. The closed
+  // ones swing open as you approach.
+  placeDoors(map, rng) {
+    const { w, h } = map;
+    const kinds = THEMES[map.theme].doors || ['arch', 'wood'];
+    const seen = new Uint8Array(w * h);
+    for (const r of map.rooms) {
+      // walk the ring of tiles immediately outside the room rectangle
+      for (let y = r.y - 1; y <= r.y + r.h; y++) {
+        for (let x = r.x - 1; x <= r.x + r.w; x++) {
+          const onRing = (x === r.x - 1 || x === r.x + r.w || y === r.y - 1 || y === r.y + r.h);
+          if (!onRing || x < 1 || y < 1 || x >= w - 1 || y >= h - 1) continue;
+          const i = this.idx(map, x, y);
+          if (seen[i] || map.t[i] !== TILE.FLOOR) continue;   // wall, or already a door
+          // must actually touch the room interior — corner diagonals don't count
+          const touches =
+            (x >= r.x && x < r.x + r.w && (y === r.y - 1 || y === r.y + r.h)) ||
+            (y >= r.y && y < r.y + r.h && (x === r.x - 1 || x === r.x + r.w));
+          if (!touches) continue;
+          // orientation from which pair of neighbours is solid
+          const wx = this.isWall(map, x - 1, y) && this.isWall(map, x + 1, y);
+          const wy = this.isWall(map, x, y - 1) && this.isWall(map, x, y + 1);
+          if (!wx && !wy) continue;      // a wide-open breach, not a doorway
+          seen[i] = 1;
+          map.t[i] = TILE.DOOR;
+          map.doors.push({
+            x: x + 0.5, y: y + 0.5, i,
+            ori: wx ? 'v' : 'h',          // 'v' = passage runs north-south
+            kind: U.pick(rng, kinds),
+            open: 0, swing: U.chance(rng, 0.5) ? 1 : -1,
+            seed: U.ri(rng, 0, 9999),
+          });
+        }
+      }
+    }
+  },
+
   // ---------- environmental hazards ----------
   placeHazards(map, rng) {
     const th = THEMES[map.theme];
@@ -353,14 +434,22 @@ const Dungeon = {
           if (kind === 'lava') map.lights.push({ x: cx + 0.5, y: cy + 0.5, r: 4 + r, color: '#ff5a1c', flick: true });
         }
       } else {
-        // spike traps / gas vents: sprinkled singles
-        const n = Math.floor(w * h * (kind === 'spikes' ? 0.004 : 0.0025));
+        // spike traps, gas pockets and steam vents: sprinkled singles
+        const density = { spikes: 0.004, gas: 0.0025, vent: 0.003, spore: 0.003, ember: 0.0028 }[kind];
+        if (density === undefined) continue;   // unknown hazard: place nothing
+        const type = { spikes: HAZ.SPIKES, gas: HAZ.GAS, vent: HAZ.VENT,
+                       spore: HAZ.SPORE, ember: HAZ.EMBER }[kind];
+        const n = Math.floor(w * h * density);
         for (let i = 0; i < n; i++) {
           const x = U.ri(rng, 2, w - 3), y = U.ri(rng, 2, h - 3);
           const ix = this.idx(map, x, y);
           if (map.t[ix] !== TILE.FLOOR || map.haz[ix]) continue;
           if (!clearOf(x, y, map.entry, 4)) continue;
-          map.haz[ix] = kind === 'spikes' ? HAZ.SPIKES : HAZ.GAS;
+          map.haz[ix] = type;
+          // the jet throws its own light when it fires; the renderer scales
+          // this by the live cycle so a dormant vent stays dark
+          if (isVent(type))
+            map.lights.push({ x: x + 0.5, y: y + 0.5, r: 3.4, color: VENT_KINDS[type].color, vent: ix });
         }
       }
     }
@@ -440,7 +529,7 @@ const Dungeon = {
       w, h, theme: 'town', isBoss: false, actIdx: -1, depth: 0, mlvl: 1,
       t: new Uint8Array(w * h), haz: new Uint8Array(w * h), variant: new Uint8Array(w * h),
       explored: new Uint8Array(w * h).fill(1),
-      lights: [], props: [], packs: [], things: [], rooms: [],
+      lights: [], props: [], packs: [], things: [], rooms: [], doors: [],
       name: 'Haven\'s Rest', town: true, pool: [],
     };
     const rng = makeRng(777);

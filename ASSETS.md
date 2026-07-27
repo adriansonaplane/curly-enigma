@@ -1,56 +1,131 @@
 # DIABLOID — Art & VFX Gap List
 
 A survey of every prop, environment feature and effect currently in the game,
-scored by how much a real model / texture / VFX would improve it. Written to
-answer: *which slots would benefit from a dropped-in asset, and which are
-missing art entirely?*
+scored by how much a real model / texture / VFX would improve it, and mapped
+onto the supplied catalogues.
 
 ---
 
-## 0. On the asset library
+## 0. Catalogue status — mapped, but nothing can be fetched yet
 
-**The `fabclaude.com` API is unreachable from this environment.** All seven
-documented endpoints fail at the network gateway, not in our code:
+Two catalogues were supplied: **3,727 models** and **400 effects**.
+
+**They are metadata only.** Every entry is `slug / name / description /
+category / tags` — there is no geometry, no image data, and not a single URL
+or file reference in either file (verified: zero fields matching
+`https?://`, `data:`, `.glb`, `.gltf`, `.png`, `.svg`, `.fbx`, `base64`).
+
+To turn a slug into art you have to fetch it, and **`fabclaude.com` is still
+refused at the network gateway**:
 
 ```
-$ curl -sS https://fabclaude.com/api/models
 curl: (56) CONNECT tunnel failed, response 403
+
+{"kind":"connect_rejected","host":"fabclaude.com:443",
+ "detail":"gateway answered 403 to CONNECT (policy denial or upstream failure)"}
 ```
 
-The agent proxy reports the reason directly:
+`toolScoped: false` means no tool has separate egress. So: **the mapping below
+is real and usable, but no pixels can be imported until someone whitelists the
+host or drops the actual asset files into the repo.**
 
-```json
-{ "kind": "connect_rejected",
-  "detail": "gateway answered 403 to CONNECT (policy denial or upstream failure)",
-  "host": "fabclaude.com:443" }
-```
+That is exactly why `js/assets.js` exists — the mapping is baked in, and
+`Assets.ingest(resolver)` fills every slot the moment a resolver can reach the
+art. Nothing else has to change.
 
-`toolScoped: false` in the proxy status means no tool has separate egress —
-`WebFetch` and every HTTP client hit the same wall. Per `/root/.ccr/README.md`
-this is a policy denial to report, not to work around, so I did not attempt to
-tunnel around it.
+### What's in the catalogues
 
-**What that changes:** I could not read the library's catalogue, so I can't say
-*"use model #4412 for the brazier."* What follows instead is the demand side —
-the exact list of slots, with the shape and pixel budget each one needs — so
-whoever can reach the API can match entries to it in one pass. If someone with
-network access can whitelist `fabclaude.com` or drop a catalogue JSON into the
-repo, mapping this list to real assets is an afternoon's work.
+The models file is dominated by one project — **Ultima Online Classic (2,690
+of 3,727 entries)** — which is the right genre. It carries ~120 `dungeon-*`
+categories (`dungeon-necropolis`, `dungeon-tomb`, `dungeon-crypt`,
+`dungeon-mausoleum`, `dungeon-ossuary`, `dungeon-inferno`…), plus
+`basic-prop`, `door-portal`, `undead`, `bone`, `necromancer` and `mechanism`.
+The remaining ~1,000 are Minecraft, seasonal, aquatic and modern-domestic sets
+that are no use to us.
 
-**Engine constraint that governs every entry below:** DIABLOID has no build step
-and no external files. Every visual in the game today is either drawn with
-Canvas 2D vector calls at runtime (props, the player figure) or baked once into
-an offscreen sprite sheet at load (tiles, monsters). Any imported asset has to
-arrive as one of:
+Effects break down as: energy 72, nature 67, particles 64, games 34, motion 27,
+patterns 24, explosion 15, impact 13, weapon 12, aura 12, telegraph 12,
+environment 12, ui 11, boss 11, emote 7, feedback 7.
+
+### Engine constraint that governs every mapping
+
+DIABLOID has no build step and no external files. Imported art has to arrive
+as one of:
 
 | Format | Where it plugs in | Notes |
 |---|---|---|
-| Sprite sheet (PNG/data-URI) | `Sprites.bake*` | Best fit. Needs 8 facings for anything that turns. |
-| SVG path data | `Render.drawProp` | Drop-in replacement for a `case` block. Keeps zero-dependency. |
+| Sprite sheet (PNG/data-URI) | `Assets.register()` | Best fit. 8 facings for anything that turns. |
+| SVG path data | `Assets.register()` after rasterising | Keeps zero-dependency. |
 | Tiling texture | `Sprites.getTiles` | Must be seamless at 64×32 dimetric. |
-| Particle atlas | `G.parts` | Would need a UV-aware particle draw; currently circles only. |
+| Particle atlas | `Sprites.getParticle` | Now supported — see §4. |
 
-Anything shipped as glTF/FBX is not usable without a 3D pipeline we don't have.
+**glTF/FBX is not usable** without a 3D pipeline we do not have. The catalogue
+descriptions ("fully procedural animation with gaits, blinks, dust and a
+height-tracked shadow") strongly suggest these are live 3D scenes, so the
+realistic ingest path is **rendered sprite sheets, not meshes** — 8 facings
+baked off-line and shipped as PNG.
+
+---
+
+## 0b. The mapping — 77 slots, 73 with a candidate
+
+Baked into `Assets.MANIFEST` (`js/assets.js`). Coverage is queryable at
+runtime with `Assets.coverage()`.
+
+### Structural (highest priority — these were missing features)
+
+| Slot | Catalogue slug | Notes |
+|---|---|---|
+| `door_wood` | `wooden-door-uoc` | shipped as vector art this round |
+| `door_barred` | `barred-dungeon-door-uoc` | shipped as vector art this round |
+| `door_arch` | `pointed-archway` | also `stone-arch`, `archway` |
+| `stairs` | `stone-flight-stairs` | also `spiral-staircase` |
+| `trapdoor` | `trapdoor-uoc` | not yet used by the generator |
+
+### Props
+
+| Slot | Slug | Slot | Slug |
+|---|---|---|---|
+| `statue` | `titan-watcher-statue-uoc` | `pillar` | `runic-pillar-uoc` |
+| `sarcophagus` | `imperial-sarcophagus-uoc` | `idol` | `obsidian-king-statue-uoc` |
+| `fountain` | `blessed-font-uoc` | `bookshelf` | `bookcase` |
+| `grave` | `tombstone` | `urn` | `cinerary-urn-uoc` |
+| `skullpile` | `bone-heap-uoc` | `cobweb` | `cobweb-cluster-uoc` |
+| `rubble` | `rubble-heap-uoc` | `rock` | `mossy-rock-uoc` |
+| `crystal` | `quartz-cluster-uoc` | `stalagmite` | `cave-stalagmite-uoc` |
+| `mushroom` | `glowspore-colony-uoc` | `orevein` | `ore-vein-uoc` |
+| `lever` | `lever-uoc` | `brazier` | `storm-keeper-brazier-uoc` |
+| `torch` | `wall-torch-sconce-uoc` | `candles` | `skull-sconce-uoc` |
+| `lantern` | `patrol-lantern-uoc` | `anvil` | `inferno-anvil-uoc` |
+| `cauldron` | `voodoo-cauldron-uoc` | `banner` | `battle-standard-uoc` |
+| `weaponrack` | `weapon-rack` | `crate` | `crate-stack` |
+| `sack` | `seed-sack-uoc` | `spike` | `spike-trap-floor-uoc` |
+| `tree` | `autumn-spooky_tree` | `waypoint` | `teleporter-pad-uoc` |
+
+**Weak matches** (mapped, but the fit is poor — flagged `fit: 'weak'`):
+`chandelier` → `icicle-chandelier-uoc` (frost-themed), `bones` →
+`bone-wind-chime-uoc`, `chest` → `crystal-chest-uoc`, `shrine` →
+`ancestor-shrine-uoc`, `wellhead` → `water-pump-uoc`.
+
+**No candidate at all** (4 slots — recorded with a reason rather than
+force-fitted): `table` and `chair` (the catalogue's are all modern/domestic),
+`pot` (cookware or planters), `barrel` (nearest is a brewery vat, wrong scale).
+
+### Effects — 33 slots, all mapped
+
+Highlights: `torch-3d`, `flame-3d`, `flamejet-3d`, `geothermalsteam-3d` and
+`steamvent-3d` (the last two match the vent hazard added this round almost
+exactly), `chain-lightning-3d`, `blast-3d`, `groundpound-3d`, `crescent-3d`,
+`bloodsplat-3d`, `bloodpool-3d`, `poison-cloud-3d`, `frost-nova-3d`,
+`falling-meteor-3d`, `meteorwarn-3d`, `aoemarker-3d`, `magic-circle-3d`,
+`runes-3d`, `netherportal-3d`, `spawnportal-3d`, `buff-aura-3d`,
+`regenaura-3d`, `shield-3d`, `lavaflow-3d`, `pondripple-3d`, `dustmotes-3d`,
+`fogbank-3d`, `groundfog-3d`, `embersdrift-3d`, `bossdeath-3d`.
+
+Notably the effects catalogue has a full **telegraph** set
+(`aoemarker-3d`, `meteorwarn-3d`, `electriccharge-3d`, `groundslamwind-3d`,
+`inhale-3d`, `poisonswell-3d`) — the game currently telegraphs almost nothing,
+so this is the highest-value effects group after the core combat hits.
 
 ---
 
@@ -97,9 +172,9 @@ as an untextured tile. Highest-priority gaps in the whole list.
 
 | Feature | Status | Needed |
 |---|---|---|
-| **Doors / archways** | **Do not exist.** `TILE` is only `{WALL, FLOOR, EXIT, ENTRY}` (`js/dungeon.js:4`). Rooms open directly into corridors. | Door frame + door leaf props, open/closed states. Biggest single readability win — corridors currently blend into rooms. |
+| ~~**Doors / archways**~~ | **DONE this round.** `TILE.DOOR` marks every breach in a room's wall ring; stone jambs + lintel, with archway / plank / iron-grate leaves that swing open as you approach. Vector art for now — mapped to `wooden-door-uoc`, `barred-dungeon-door-uoc`, `pointed-archway` for when art lands. | — |
 | **Stairs** | `EXIT`/`ENTRY` are flat floor tiles with a tint. | Descending stairwell model with a dark well; the "you are leaving" beat has no visual weight. |
-| **Gas vent** | Declared in the cavern theme (`hazards: ['lava','vent']`) but `placeHazards` has no `vent` branch — it silently falls through to `HAZ.GAS` (`js/dungeon.js:355`). | Either a real vent prop + jet VFX, or drop `vent` from the theme. **This is a live content bug, not just an art gap.** |
+| ~~**Gas vent**~~ | **FIXED this round.** `HAZ.VENT` is now its own hazard with a cycle — dormant, telegraphed build-up, scalding jet — rather than a silent alias for gas. Vector art + its own cycle-gated light. Maps to `geothermalsteam-3d` / `steamvent-3d` / `flamejet-3d`. | — |
 | **Ceiling** | Nothing above wall-top height. | Vault ribs / beams for the crypt and fane; the spooky lighting pass makes the empty upper frame more noticeable. |
 | **Wall variety** | One wall texture per theme, tinted. | Damaged, mossy, carved and alcove wall variants. |
 | **Waypoint** | Drawn (`case 'waypoint'`) but very plain. | Rune-circle model + persistent portal VFX. Player sees it every run. |
@@ -131,11 +206,17 @@ artifact in the tile layer.
 
 ## 4. VFX gaps
 
-The particle system (`js/render.js:361`) draws **coloured circles only** —
-`ctx.arc()` with an optional `lighter` blend. Every effect in the game is built
-from circles, lines and gradients. That's the single biggest lever here: a
-textured-quad particle path plus a small atlas (smoke, spark, ember, shard,
-rune, splash) would lift every one of the 210 skills at once.
+~~The particle system draws **coloured circles only**.~~ **DONE this round.**
+`Sprites.getParticle(shape, colour)` bakes seven masks — `dot`, `ember`,
+`spark`, `smoke`, `shard`, `splash`, `rune` — with soft falloff, tinted on
+demand and cached per shape+colour. Particles carry an optional `shape` and a
+rotation/spin; anything that doesn't name one gets `dot`, the soft-edged
+descendant of the old circle. Sparks are stars, blood is teardrops, gibs and
+ash are shards, embers have hot cores, gas is a lumpy puff.
+
+Still worth doing: route the remaining per-archetype effects through specific
+shapes (`rune` is baked but unused — it's waiting on the summon/curse work
+below), and drive them from real catalogue art via `Assets`.
 
 **Per-archetype needs** — 15 skill archetypes (`js/sprites.js:780`), all with
 icons, most with thin world VFX:
@@ -205,17 +286,24 @@ icons, most with thin world VFX:
 
 If only a handful of assets can be sourced, in order:
 
-1. **Doors + archways** — a missing feature, not a fidelity problem. Changes how every dungeon reads.
-2. **Textured particle atlas + quad renderer** — one change, improves all 210 skills.
-3. **Animated flame sprite sheets** — the spooky lighting mode makes every light source load-bearing.
-4. **Boss models (5)** — highest per-asset impact on the parts players remember.
-5. **Liquid shoreline transition tiles** — kills the hardest-edged artifact left in the tile layer.
-6. **Prop destruction states** — smashables currently vanish; wrecks would sell the physics work.
+~~1. Doors + archways~~ — **done this round.**
+~~2. Textured particle atlas + quad renderer~~ — **done this round.**
 
-## Known bug found during this survey
+Remaining, in order:
 
-`vent` is listed in the cavern theme's hazard array but has no branch in
-`Dungeon.placeHazards`, so it falls through the `else` and is placed as
-ordinary gas (`js/dungeon.js:355-364`). The cavern therefore has two hazard
-entries that produce identical results. Fix is either a real `vent` hazard or
-removing the entry.
+1. **Network access to `fabclaude.com`** — everything below is blocked on it. The mapping and the pipeline are ready; there are no pixels to put through them.
+2. **Animated flame sprite sheets** (`torch-3d`, `flame-3d`) — the spooky lighting mode makes every light source load-bearing.
+3. **Telegraph set** (`aoemarker-3d`, `meteorwarn-3d`, `electriccharge-3d`, `groundslamwind-3d`) — the game telegraphs almost nothing; this is the biggest fairness/readability gain left.
+4. **Boss models (5)** — highest per-asset impact on the parts players remember. The `Ragdoll Monsters` set (49 entries) is the closest fit.
+5. **Stairs** (`stone-flight-stairs`) — `EXIT`/`ENTRY` are still flat tinted floor tiles; the "you are leaving" beat has no visual weight.
+6. **Liquid shoreline transition tiles** — kills the hardest-edged artifact left in the tile layer. No catalogue candidate; needs authoring.
+7. **Prop destruction states** — smashables vanish at 0 HP; wrecks would sell the physics work. No catalogue candidate.
+
+## Bugs found by this survey
+
+| Bug | Status |
+|---|---|
+| `vent` declared by the cavern theme but silently placed as gas (`Dungeon.placeHazards` had no branch, so it fell through the `else`) | **Fixed.** Now a real `HAZ.VENT`; unrecognised hazard names place nothing instead of aliasing. |
+| `ventPhase` used `%`, which keeps the sign of the dividend — a negative clock produced a negative phase that read as "jetting" and drove the jet envelope into negative canvas radii | **Fixed** (found by the new vent suite). |
+| Rooms and corridors were visually indistinguishable | **Fixed** — see doors above. |
+| The mood suite picked its measurement spot from generated geometry, so any change to the RNG stream silently moved it and starved the probe | **Fixed** — it now carves a controlled arena. |

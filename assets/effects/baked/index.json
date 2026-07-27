@@ -1,0 +1,100 @@
+{
+  "kind": "baked-effects",
+  "frames": 8,
+  "cell": 128,
+  "baked": "2026-07-27T21:32:20.404Z",
+  "entries": [
+    {
+      "slug": "acid-splash-3d",
+      "sheet": "acid-splash-3d.png"
+    },
+    {
+      "slug": "aoemarker-3d",
+      "sheet": "aoemarker-3d.png"
+    },
+    {
+      "slug": "blast-3d",
+      "sheet": "blast-3d.png"
+    },
+    {
+      "slug": "bossdeath-3d",
+      "sheet": "bossdeath-3d.png"
+    },
+    {
+      "slug": "electriccharge-3d",
+      "sheet": "electriccharge-3d.png"
+    },
+    {
+      "slug": "embersdrift-3d",
+      "sheet": "embersdrift-3d.png"
+    },
+    {
+      "slug": "fire-tornado-3d",
+      "sheet": "fire-tornado-3d.png"
+    },
+    {
+      "slug": "flamejet-3d",
+      "sheet": "flamejet-3d.png"
+    },
+    {
+      "slug": "geothermalsteam-3d",
+      "sheet": "geothermalsteam-3d.png"
+    },
+    {
+      "slug": "groundfog-3d",
+      "sheet": "groundfog-3d.png"
+    },
+    {
+      "slug": "lavaflow-3d",
+      "sheet": "lavaflow-3d.png"
+    },
+    {
+      "slug": "magic-circle-3d",
+      "sheet": "magic-circle-3d.png"
+    },
+    {
+      "slug": "meteorwarn-3d",
+      "sheet": "meteorwarn-3d.png"
+    },
+    {
+      "slug": "poison-cloud-3d",
+      "sheet": "poison-cloud-3d.png"
+    },
+    {
+      "slug": "poisonswell-3d",
+      "sheet": "poisonswell-3d.png"
+    },
+    {
+      "slug": "pondripple-3d",
+      "sheet": "pondripple-3d.png"
+    },
+    {
+      "slug": "runes-3d",
+      "sheet": "runes-3d.png"
+    },
+    {
+      "slug": "soulflame-3d",
+      "sheet": "soulflame-3d.png"
+    },
+    {
+      "slug": "spawnportal-3d",
+      "sheet": "spawnportal-3d.png"
+    },
+    {
+      "slug": "steamvent-3d",
+      "sheet": "steamvent-3d.png"
+    },
+    {
+      "slug": "swampgas-3d",
+      "sheet": "swampgas-3d.png"
+    },
+    {
+      "slug": "torch-3d",
+      "sheet": "torch-3d.png"
+    },
+    {
+      "slug": "void-rift-3d",
+      "sheet": "void-rift-3d.png"
+    }
+  ]
+}

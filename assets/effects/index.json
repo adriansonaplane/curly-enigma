@@ -1,0 +1,32 @@
+{
+  "kind": "effects",
+  "base": "https://fabclaude.com/api",
+  "pulled": "2026-07-27T20:39:53Z",
+  "entries": [
+    { "slug": "soulflame-3d", "meta": "soulflame-3d.json", "html": "soulflame-3d.html" },
+    { "slug": "torch-3d", "meta": "torch-3d.json", "html": "torch-3d.html" },
+    { "slug": "dustmotes-3d", "meta": "dustmotes-3d.json", "html": "dustmotes-3d.html" },
+    { "slug": "groundfog-3d", "meta": "groundfog-3d.json", "html": "groundfog-3d.html" },
+    { "slug": "magic-circle-3d", "meta": "magic-circle-3d.json", "html": "magic-circle-3d.html" },
+    { "slug": "spawnportal-3d", "meta": "spawnportal-3d.json", "html": "spawnportal-3d.html" },
+    { "slug": "poison-cloud-3d", "meta": "poison-cloud-3d.json", "html": "poison-cloud-3d.html" },
+    { "slug": "runes-3d", "meta": "runes-3d.json", "html": "runes-3d.html" },
+    { "slug": "geothermalsteam-3d", "meta": "geothermalsteam-3d.json", "html": "geothermalsteam-3d.html" },
+    { "slug": "steamvent-3d", "meta": "steamvent-3d.json", "html": "steamvent-3d.html" },
+    { "slug": "flamejet-3d", "meta": "flamejet-3d.json", "html": "flamejet-3d.html" },
+    { "slug": "lavaflow-3d", "meta": "lavaflow-3d.json", "html": "lavaflow-3d.html" },
+    { "slug": "embersdrift-3d", "meta": "embersdrift-3d.json", "html": "embersdrift-3d.html" },
+    { "slug": "blast-3d", "meta": "blast-3d.json", "html": "blast-3d.html" },
+    { "slug": "swampgas-3d", "meta": "swampgas-3d.json", "html": "swampgas-3d.html" },
+    { "slug": "acid-splash-3d", "meta": "acid-splash-3d.json", "html": "acid-splash-3d.html" },
+    { "slug": "pondripple-3d", "meta": "pondripple-3d.json", "html": "pondripple-3d.html" },
+    { "slug": "poisonswell-3d", "meta": "poisonswell-3d.json", "html": "poisonswell-3d.html" },
+    { "slug": "void-rift-3d", "meta": "void-rift-3d.json", "html": "void-rift-3d.html" },
+    { "slug": "falling-meteor-3d", "meta": "falling-meteor-3d.json", "html": "falling-meteor-3d.html" },
+    { "slug": "meteorwarn-3d", "meta": "meteorwarn-3d.json", "html": "meteorwarn-3d.html" },
+    { "slug": "fire-tornado-3d", "meta": "fire-tornado-3d.json", "html": "fire-tornado-3d.html" },
+    { "slug": "bossdeath-3d", "meta": "bossdeath-3d.json", "html": "bossdeath-3d.html" },
+    { "slug": "electriccharge-3d", "meta": "electriccharge-3d.json", "html": "electriccharge-3d.html" },
+    { "slug": "aoemarker-3d", "meta": "aoemarker-3d.json", "html": "aoemarker-3d.html" }
+  ]
+}
