@@ -16,6 +16,7 @@ const Actors3 = {
   _geo: null,
   _mats: Object.create(null),     // kind -> { main, dark, eye }
   pool: [],                       // live actor rigs
+  crowd: [],                      // town NPCs and townsfolk, same rigs, no combat
 
   geo() {
     if (this._geo) return this._geo;
@@ -226,15 +227,28 @@ const Actors3 = {
   // ---- pooling ----
   // One rig per live monster, kept between frames. Rebuilt only when the map
   // changes, so walking through a level is transforms, not allocations.
+  // How far from the player a monster still gets a body. The camera shows
+  // roughly 26 tiles across at default zoom, so anything past this is off
+  // screen; the 2D renderer culled the same way, it just did it per blit.
+  // Without this a 46-monster map pays ~320 draw calls for bodies nobody sees.
+  VIEW: 30,
+
   sync(monsters, t) {
     const live = new Set();
+    const pl = G.player;
     for (const m of monsters) {
       if (m.dead) continue;
+      if (pl && Math.abs(m.x - pl.x) + Math.abs(m.y - pl.y) > this.VIEW) continue;
       live.add(m);
       if (!m._rig) {
-        const def = MONSTERS[m.kind] || BOSSES[m.kind];
-        if (!def) continue;
-        m._rig = this.build(def.body, m.kind, def.pal, (def.size || 1) * (m.rank === 'boss' ? 1.3 : 1));
+        // A spawned monster carries its own definition and files its species
+        // under `fam`, not `kind` — `kind` is only set for summoned traps.
+        // Reading the def off the monster means the rig cannot disagree with
+        // the stats, and the fallback lookup covers anything spawned by hand.
+        const def = m.def || MONSTERS[m.fam] || BOSSES[m.fam] || MONSTERS[m.kind] || BOSSES[m.kind];
+        const id = m.fam || m.kind;
+        if (!def || !id) continue;
+        m._rig = this.build(def.body, id, def.pal, (def.size || 1) * (m.boss ? 1.3 : 1));
         m._phase = (m.x * 7.3 + m.y * 3.1) % 6.28;
         R3.scene.add(m._rig);
         this.pool.push(m);
@@ -256,9 +270,46 @@ const Actors3 = {
     return this.pool.length;
   },
 
+  // Town NPCs and the walking townsfolk sim are humanoid and never fight, so
+  // they reuse the same rigs with a palette derived from their clothing —
+  // which is exactly what the 2D sprite baker did for them.
+  syncCrowd(t, ...lists) {
+    let n = 0;
+    for (const list of lists) {
+      for (const p of list || []) {
+        if (!p._rig) {
+          const pal = (p.def && p.def.pal) || p.pal || {};
+          const cloth = pal.cloth || pal.main || '#6a5a44';
+          p._rig = this.build('humanoid', 'crowd:' + cloth, {
+            main: cloth, dark: U.shade(cloth, 0.55), eye: pal.skin || '#e8d0b0',
+          }, 1);
+          R3.scene.add(p._rig);
+          this.crowd.push(p);
+        }
+        p._rig.position.set(p.x, 0, p.y);
+        p._rig.rotation.y = Math.PI / 2 - (p.dir || 0);
+        this.animate(p._rig, p, t);
+        n++;
+      }
+    }
+    // Retire rigs whose owner is gone. The town rebuilds G.npcs from scratch on
+    // every entry, so without this the old bodies stay standing in the scene.
+    for (let i = this.crowd.length - 1; i >= 0; i--) {
+      const p = this.crowd[i];
+      let live = false;
+      for (const list of lists) if (list && list.indexOf(p) >= 0) { live = true; break; }
+      if (live) continue;
+      if (p._rig) { R3.scene.remove(p._rig); p._rig = null; }
+      this.crowd.splice(i, 1);
+    }
+    return n;
+  },
+
   clear() {
     for (const m of this.pool) if (m._rig) { R3.scene.remove(m._rig); m._rig = null; }
     this.pool.length = 0;
+    for (const p of this.crowd) if (p._rig) { R3.scene.remove(p._rig); p._rig = null; }
+    this.crowd.length = 0;
   },
 };
 

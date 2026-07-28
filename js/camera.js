@@ -6,6 +6,12 @@
 // Projection: screen = P(pitch,zoom) · R(yaw) · (world - focus)
 'use strict';
 
+// The isometric tile metrics used to live in the 2D renderer. The camera still
+// wants them to report screen-space units for the few overlay callers that ask
+// (Target's range arcs, Physics' debris), so they live here now that the
+// renderer that defined them is gone.
+const ISO_X = 32, ISO_Y = 16;
+
 const Cam = {
   MODES: ['iso', 'third'],
   mode: 'iso',
