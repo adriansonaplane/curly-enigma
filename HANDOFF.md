@@ -6,23 +6,24 @@ Open `index.html` from disk and it runs.
 **Headline state:** the 2D isometric renderer has been replaced with three.js.
 `js/render.js` is deleted. PR #10 carries the migration.
 
-> Sections marked **[OWNER]** are things only the project owner can answer.
-> I have not guessed at them. Fill them in before relying on this document.
+> Owner-supplied decisions and playtest results are recorded explicitly. Values
+> that were not supplied remain marked "not reported" rather than inferred.
 
 ---
 
-## 1. Current intent — **[OWNER]**
+## 1. Current intent
 
-Not established in the work I did. Needed:
+DIABLOID is intended as a **visual demo**, not a portfolio piece, commercial
+prototype, or systems sandbox. Fidelity and atmosphere therefore take priority
+over content volume and balance.
 
-- Which is this: polished portfolio piece, commercial prototype, visual demo, or
-  systems sandbox? It changes every priority call below.
-- What does "done" look like for the next milestone?
-
-What I can say from the direction given: the brief has consistently pushed
-toward *fidelity and atmosphere* (INSANE graphics, real-world physics, "far too
-bright → make it spooky"), and away from placeholder art. Nothing in the recent
-rounds pushed toward content volume or balance.
+The real-hardware smoke-test milestone has now been completed (§2). The next
+concrete milestone is to decide and document the camera direction: retain the
+isometric preset or retire it and make third-person the sole presentation of the
+3D world. The owner's current preference is to move forward with the 3D world
+and possibly remove the remaining isometric path, but this is not yet approval
+to delete it. No camera-removal feature work should begin until that scope and
+its save/settings compatibility requirements are confirmed.
 
 ## 2. Last known-good state
 
@@ -32,17 +33,39 @@ rounds pushed toward content volume or balance.
 | PR | #10 → `main` (open at handoff) |
 | Last commit | `328d551` — torch toggle |
 | Last **automated** verification | `328d551`, headless Chromium + swiftshader |
-| Last **manual** playtest | **[OWNER]** — commit? browser? OS? resolution? GPU? |
-| Save state used | **[OWNER]** — clean profile or existing save? |
+| Last **human** playtested commit | `7ee5312` (documentation HEAD; game code unchanged from `328d551`) |
+| Browser | Firefox 153 |
+| Operating system | Linux |
+| Resolution / device pixel ratio | 2560×1440 / 1.25 |
+| GPU | NVIDIA GeForce RTX 3060 |
+| Profile / save state | Existing pre-migration save (not a clean profile) |
 
-**Important:** every claim I have made about this build is from **headless
-Chromium with software GL (swiftshader)** at 1100×640 or 1440×860. That is not a
-real-hardware playtest. Frame rate in particular has never been measured on a
-GPU. Treat "zero errors, 230 draw calls" as *correctness* evidence, not
-*performance* evidence.
+### Human playtest results
 
-Saves are `localStorage`. I did not test save/load across the 3D migration —
-see §3.
+The owner reported the following average/worst-observed frame rates. The final
+two mode-specific figures were reported as single observations, not separate
+average/worst pairs; do not infer unreported values.
+
+| Scene / mode | Average FPS | Worst-observed FPS |
+|---|---:|---:|
+| Town | 155 | 155 |
+| Normal dungeon | 155 | 107 |
+| Busy room (~40 monsters) | 107 | 96 |
+| Isometric mode (scene not specified) | 155 | not reported |
+| Third-person mode (scene not specified) | 96 | not reported |
+
+- **Visual or input defects:** none reported. No screenshot or video was
+  supplied because no defect was reported.
+- **Save and reload:** behaved correctly with the pre-migration save.
+- **Portal, normal death, and hardcore death:** all behaved correctly.
+
+The older automated verification remains useful supplementary evidence: it ran
+in headless Chromium with software GL (swiftshader) at 1100×640 or 1440×860.
+Treat its "zero errors, 230 draw calls" result as correctness evidence, not
+real-hardware performance evidence.
+
+Saves are `localStorage`. The human test above is the first recorded check of a
+pre-migration save across the 3D migration.
 
 ## 3. Known issues
 
@@ -50,16 +73,16 @@ Ordered by my confidence that they are real.
 
 | # | Issue | Repro | Expected vs actual | Pre/post 3D |
 |---|---|---|---|---|
-| 1 | **Save/load across the migration is untested** | Load a save created before PR #10 | Expected: loads. Actual: unknown | Post — new risk |
-| 2 | **Draw calls 230–380 in a busy room** | Enter any depth-2+ dungeon with ~40 monsters | Expected: <150. Actual: 230 iso / 380 third-person | Post |
-| 3 | **No fog, god rays, or colour grade** | Compare any dungeon to pre-migration screenshots | These layers existed in 2D and were not ported | Post |
-| 4 | **No ambient particles** (dust, embers, fireflies) | Stand still in any act | Air is empty; `map.shafts` is generated and unused | Post |
-| 5 | **Physics debris draws as a 2D overlay** | Smash a crate | Works, but chips don't occlude behind geometry | Post |
-| 6 | **`runic-pillar` effect payload corrupt** | — | Owner said leave it | Pre |
-| 7 | **17 catalogue monster models unwired** | — | All 45 use procedural rigs | Pre (asset gap) |
+| 1 | **Draw calls 230–380 in a busy room** | Enter any depth-2+ dungeon with ~40 monsters | Expected: <150. Actual: 230 iso / 380 third-person | Post |
+| 2 | **No fog, god rays, or colour grade** | Compare any dungeon to pre-migration screenshots | These layers existed in 2D and were not ported | Post |
+| 3 | **No ambient particles** (dust, embers, fireflies) | Stand still in any act | Air is empty; `map.shafts` is generated and unused | Post |
+| 4 | **Physics debris draws as a 2D overlay** | Smash a crate | Works, but chips don't occlude behind geometry | Post |
+| 5 | **`runic-pillar` effect payload corrupt** | — | Owner said leave it | Pre |
+| 6 | **17 catalogue monster models unwired** | — | All 45 use procedural rigs | Pre (asset gap) |
 
-No screenshots attached — the ones I generated are in the session, not the repo.
-**[OWNER]** if any of these need visual evidence, say which.
+No playtest defect screenshots or video are attached because the owner reported
+no visual or input defects. Older generated screenshots are in the session, not
+the repo.
 
 Things I explicitly could **not** check headless: audio, real frame pacing,
 high-DPI scaling, alt-tab / context-loss recovery.
@@ -68,8 +91,9 @@ high-DPI scaling, alt-tab / context-loss recovery.
 
 My recommendation, not a decision:
 
-1. **Save safety** — verify pre-migration saves load, or write a migration.
-2. **Crashes / correctness** — nothing known, but §2 means it is under-tested.
+1. **Camera direction** — decide whether to retire the isometric preset before
+   doing more mode-specific work.
+2. **Crashes / correctness** — nothing known from the first hardware smoke test.
 3. **Performance** — the draw-call merge (§8 of the appendix) is the one
    high-value, well-understood optimisation left.
 4. **Visual regressions** — fog / grade / ambient particles, in that order.
@@ -82,8 +106,9 @@ My recommendation, not a decision:
   burst simultaneously.
 - **`R3.screenBasis()` deriving from `yaw` in closed form.** Reverting it to
   `getWorldDirection()` reintroduces a shipped bug (see appendix §3).
-- **Iso being an orthographic preset.** The whole point of the rewrite is that
-  iso and third-person are one rig.
+- **The isometric preset.** Iso and third-person currently share one rig. The
+  owner is considering removing iso in favour of the 3D-world direction, but
+  deletion requires the explicit scope decision described in §1.
 - **Dungeon sconces generating cold, in hallways.** This is a design decision the
   owner made explicitly, twice.
 - **`vendor/three.min.js`** — pinned r128. The code uses r128-era APIs
@@ -134,8 +159,8 @@ My recommendation, not a decision:
 
 ## 6. Manual smoke-test route
 
-Never run end-to-end by a human on real hardware. Each step states what *should*
-happen.
+Completed once by the owner on the real-hardware environment recorded in §2.
+Keep this route for regression testing; each step states the expected behaviour.
 
 1. **Create a character** — class grid shows 7 classes; picking one and
    confirming lands you in Haven's Rest.
@@ -153,8 +178,8 @@ happen.
 6. **Loot** — kill something, confirm a coloured bead drops with a rarity-tinted
    label. Pick up, equip, confirm the item appears **on the character model**
    (helm, shield, weapon are all visible fixtures).
-7. **Drop / store an item**, then **save and reload** — see §3 issue 1. This is
-   the highest-risk step.
+7. **Drop / store an item**, then **save and reload** — this passed once with the
+   pre-migration save recorded in §2; keep checking it for regressions.
 8. **Boss** — a boss should be larger (1.3×) with a wider health bar.
 9. **Portal (T)**, **death**, and **hardcore death** if that mode is enabled.
 10. **Camera (V)** — iso ↔ third person. Movement keys must stay correct in
@@ -162,15 +187,24 @@ happen.
 11. **Settings** — toggle mood spooky/bright, quality high/low, shadows. Low
     quality drops the light budget 12 → 6.
 
-## 7. Asset provenance
+## 7. Asset provenance and redistribution
 
 - **Catalogue** (`assets/effects/`, `assets/models/`) came from **fabclaude.com**,
   supplied by the project's PD via API endpoints the owner pulled with
   `tools/pull-effects.sh` / `tools/pull-models.sh`. **That host is blocked at the
   network gateway from this environment** (403 on CONNECT) — the scripts are for
   the owner to run locally.
-- **License / redistribution: [OWNER].** I never saw terms. The payloads are
-  committed to the repo; confirm that is permitted before the repo goes public.
+- **Provenance:** files under `assets/effects/` and `assets/models/` were fetched
+  from **fabclaude.com** using the two scripts above. The project's PD supplied
+  the catalogue/API source to the project owner. No further author, upstream
+  source, or chain-of-title information has been documented.
+- **License / redistribution:** unknown. No licence or terms granting the right
+  to copy, modify, commit, or redistribute these payloads have been located.
+  The **project owner** is responsible for obtaining and documenting the
+  applicable licence and provenance. **Do not publicly distribute the repository,
+  or any original or baked/derived file from `assets/effects/` or
+  `assets/models/`, until the project owner confirms those rights.** Committing
+  the payloads here is not evidence of permission.
 - **`vendor/three.min.js`** — three.js r128, **MIT**, from the npm registry.
   License text is included alongside it. This one is unambiguous.
 - **Authoritative artifacts:** the JSON payloads in `assets/*/` are the source of
