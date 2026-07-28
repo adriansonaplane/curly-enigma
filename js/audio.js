@@ -70,6 +70,10 @@ function sfx(name) {
     case 'portal':   AUDIO.tone(300, 0.5, 'sine', 0.13, 500); break;
     case 'shrine':   [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => AUDIO.tone(f, 0.2, 'sine', 0.12), i * 60)); break;
     case 'explode':  AUDIO.noise(0.4, 0.3, 350); break;
+    // a torch catching, and the same torch going out: a rising whoomph
+    // against a falling hiss, so the toggle is audible without looking
+    case 'torchup':  AUDIO.noise(0.2, 0.15, 620); AUDIO.tone(170, 0.28, 'sawtooth', 0.09, 240); break;
+    case 'torchdn':  AUDIO.noise(0.24, 0.11, 1700); AUDIO.tone(260, 0.2, 'sine', 0.07, -190); break;
     case 'nope':     AUDIO.tone(160, 0.14, 'square', 0.1, -40); break;
     case 'trap':     AUDIO.noise(0.1, 0.18, 1800); AUDIO.tone(500, 0.06, 'square', 0.08, -200); break;
     case 'door':     AUDIO.noise(0.3, 0.09, 260); AUDIO.tone(110, 0.28, 'sawtooth', 0.05, 25); break;

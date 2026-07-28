@@ -435,15 +435,28 @@ const Game = {
   },
 
   // Lighting a sconce is a decision, not something that happens to you: the
-  // player walks up and chooses to trade their position away for a landmark.
-  lightNearby() {
-    const l = Dungeon.kindle(G.coldLight);
-    if (!l) return false;
-    G.coldLight = null;
+  // player walks up and chooses to trade their position away for a landmark —
+  // and can take that trade back, because the same key puts it out again.
+  toggleLight() {
+    const l = G.nearLight;
+    const lit = Dungeon.toggleLight(l);
+    if (lit === null) return false;
     if (l.prop && typeof Props3 !== 'undefined') Props3.refresh(l.prop);
-    FX.ring(l.x, l.y, 1.6, l.color, 0.75);
-    FX.spark(l.x, l.y, l.color, 9);
-    sfx('portal');
+    if (lit) {
+      FX.ring(l.x, l.y, 1.6, l.color, 0.75);
+      FX.spark(l.x, l.y, l.color, 9);
+      sfx('torchup');
+    } else {
+      // the flame collapsing: a small dark puff instead of a bloom
+      FX.ring(l.x, l.y, 0.9, l.color, 0.3);
+      for (let i = 0; i < 5; i++) {
+        FX.push({ x: l.x, y: l.y, z: U.rf(U.rand, 30, 44),
+          vx: U.rf(U.rand, -0.4, 0.4), vy: U.rf(U.rand, -0.4, 0.4), vz: U.rf(U.rand, 4, 10),
+          life: 0.9, maxLife: 0.9, color: '#6a5f52', size: U.rf(U.rand, 2, 4),
+          add: false, grav: -3, shape: 'smoke' });
+      }
+      sfx('torchdn');
+    }
     return true;
   },
 
@@ -658,9 +671,9 @@ const Game = {
       if (pl.attackT <= 0) pl.dir = Math.atan2(wy, wx);
     }
 
-    // The cold sconce within reach, if any. Recomputed each frame and parked on
-    // G so the overlay can prompt for exactly the one the key will light.
-    G.coldLight = pl.dead ? null : Dungeon.nearestCold(G.map, pl.x, pl.y);
+    // The sconce within reach, lit or not. Recomputed each frame and parked on
+    // G so the overlay can prompt for exactly the one the key will act on.
+    G.nearLight = pl.dead ? null : Dungeon.nearestSconce(G.map, pl.x, pl.y);
     // mouse world position
     G.mouseWorld = Render.screenToWorld(this.mouse.x, this.mouse.y);
 

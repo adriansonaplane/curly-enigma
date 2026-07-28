@@ -277,16 +277,19 @@ const Dungeon = {
     return false;
   },
 
-  // The nearest cold fire source within reach, or null. Both the prompt the
-  // player sees and the action the key performs go through this, so what the
-  // prompt offers and what the key lights cannot drift apart.
+  // The nearest sconce within reach, lit or not. Both the prompt the player
+  // sees and the action the key performs go through this, so what the prompt
+  // offers and what the key acts on cannot drift apart.
+  //
+  // Deliberately state-blind: a sconce you have lit stays offered so you can
+  // put it out again. Skipping lit ones is what made this one-way.
   REACH: 2.2,
-  nearestCold(map, x, y, rad) {
+  nearestSconce(map, x, y, rad) {
     if (!map || !map.lights || map.town) return null;
     const r2 = (rad || this.REACH) ** 2;
     let best = null, bd = Infinity;
     for (const l of map.lights) {
-      if (!l.kindle || l.lit) continue;
+      if (!l.kindle) continue;
       const dx = l.x - x, dy = l.y - y;
       const d2 = dx * dx + dy * dy;
       if (d2 > r2 || d2 >= bd) continue;
@@ -295,13 +298,13 @@ const Dungeon = {
     return best;
   },
 
-  // Light one cold source. Returns it if it caught, null if it was already
-  // burning — so a held key cannot re-report the same sconce every frame.
-  kindle(l) {
-    if (!l || !l.kindle || l.lit) return null;
-    l.lit = true;
-    if (l.prop) l.prop.lit = true;
-    return l;
+  // Flip one sconce. Returns true if it is now burning, false if it has just
+  // gone out, null if there was nothing to flip.
+  toggleLight(l) {
+    if (!l || !l.kindle) return null;
+    l.lit = !l.lit;
+    if (l.prop) l.prop.lit = l.lit;
+    return l.lit;
   },
 
   // ---------- decoration: torches, props, god rays ----------

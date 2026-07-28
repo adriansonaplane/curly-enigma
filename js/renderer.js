@@ -276,16 +276,17 @@ const Render = {
   },
 
   // A deliberate action nobody is told about is a dead feature, so the sconce
-  // the key would light says so, over itself. G.coldLight is the same object
-  // the key acts on, so the prompt cannot point at a different torch than the
-  // one that catches.
+  // in reach says what the key will do to it, over itself. G.nearLight is the
+  // same object the key acts on, so the prompt cannot point at a different
+  // torch than the one that flips — and it names the direction, because a
+  // toggle whose label never changes is a toggle nobody knows is a toggle.
   drawKindlePrompt(ctx, t) {
-    const l = G.coldLight;
+    const l = G.nearLight;
     if (!l) return;
     const [sx, sy, depth] = R3.worldToScreen(l.x, l.y, 1.5);
     if (depth > 1) return;
     const key = (typeof WUI !== 'undefined' && WUI.keymap && WUI.keymap.interact) || 'f';
-    const label = 'Light  [' + key.toUpperCase() + ']';
+    const label = (l.lit ? 'Snuff  [' : 'Light  [') + key.toUpperCase() + ']';
     ctx.save();
     ctx.textAlign = 'center';
     ctx.font = '12px Palatino Linotype, serif';
@@ -297,9 +298,10 @@ const Render = {
     if (ctx.roundRect) ctx.roundRect(sx - w / 2, sy - 16, w, 19, 5);
     else ctx.rect(sx - w / 2, sy - 16, w, 19);
     ctx.fill();
-    ctx.strokeStyle = U.rgba(l.color || '#ffb04f', 0.75); ctx.lineWidth = 1;
+    const tone = l.lit ? '#9fb4c8' : (l.color || '#ffb04f');
+    ctx.strokeStyle = U.rgba(tone, 0.75); ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.fillStyle = l.color || '#ffb04f';
+    ctx.fillStyle = tone;
     ctx.fillText(label, sx, sy - 3);
     ctx.restore();
   },
