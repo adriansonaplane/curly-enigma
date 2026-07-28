@@ -215,6 +215,7 @@ const Render = {
     if (Target && Target.draw) Target.draw(ctx, t);
     if (Physics && Physics.drawSmall) Physics.drawSmall(ctx);
     this.drawPlates(ctx, t);
+    this.drawKindlePrompt(ctx, t);
     this.drawDamage(ctx);
     this.drawBubbles(ctx, t);
   },
@@ -271,6 +272,35 @@ const Render = {
       ctx.fillStyle = c;
       ctx.fillText(label, sx, sy - 1);
     }
+    ctx.restore();
+  },
+
+  // A deliberate action nobody is told about is a dead feature, so the sconce
+  // the key would light says so, over itself. G.coldLight is the same object
+  // the key acts on, so the prompt cannot point at a different torch than the
+  // one that catches.
+  drawKindlePrompt(ctx, t) {
+    const l = G.coldLight;
+    if (!l) return;
+    const [sx, sy, depth] = R3.worldToScreen(l.x, l.y, 1.5);
+    if (depth > 1) return;
+    const key = (typeof WUI !== 'undefined' && WUI.keymap && WUI.keymap.interact) || 'f';
+    const label = 'Light  [' + key.toUpperCase() + ']';
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.font = '12px Palatino Linotype, serif';
+    const w = ctx.measureText(label).width + 16;
+    const pulse = 0.72 + Math.sin(t * 4) * 0.18;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = 'rgba(10,8,6,0.78)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(sx - w / 2, sy - 16, w, 19, 5);
+    else ctx.rect(sx - w / 2, sy - 16, w, 19);
+    ctx.fill();
+    ctx.strokeStyle = U.rgba(l.color || '#ffb04f', 0.75); ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = l.color || '#ffb04f';
+    ctx.fillText(label, sx, sy - 3);
     ctx.restore();
   },
 

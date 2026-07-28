@@ -434,6 +434,19 @@ const Game = {
     return best;
   },
 
+  // Lighting a sconce is a decision, not something that happens to you: the
+  // player walks up and chooses to trade their position away for a landmark.
+  lightNearby() {
+    const l = Dungeon.kindle(G.coldLight);
+    if (!l) return false;
+    G.coldLight = null;
+    if (l.prop && typeof Props3 !== 'undefined') Props3.refresh(l.prop);
+    FX.ring(l.x, l.y, 1.6, l.color, 0.75);
+    FX.spark(l.x, l.y, l.color, 9);
+    sfx('portal');
+    return true;
+  },
+
   interact(it) {
     const pl = G.player;
     if (U.dist(pl.x, pl.y, it.x, it.y) > 2.6) { UI.announce('Too far away', '#8a7444', 900); return; }
@@ -645,22 +658,9 @@ const Game = {
       if (pl.attackT <= 0) pl.dir = Math.atan2(wy, wx);
     }
 
-    // Carrying a light into a dark hallway lights the sconces you pass. The
-    // dungeon generates cold, so this is the player's own light spreading —
-    // walk a corridor once and it stays walkable, wander off it and you are
-    // back on your lamp alone.
-    if (!pl.dead && !G.map.town) {
-      const caught = Dungeon.kindleNear(G.map, pl.x, pl.y, 1.7);
-      if (caught) {
-        for (const l of caught) {
-          if (l.prop && typeof Props3 !== 'undefined') Props3.refresh(l.prop);
-          FX.ring(l.x, l.y, 1.5, l.color, 0.7);
-          FX.spark(l.x, l.y, l.color, 7);
-        }
-        sfx('portal');
-      }
-    }
-
+    // The cold sconce within reach, if any. Recomputed each frame and parked on
+    // G so the overlay can prompt for exactly the one the key will light.
+    G.coldLight = pl.dead ? null : Dungeon.nearestCold(G.map, pl.x, pl.y);
     // mouse world position
     G.mouseWorld = Render.screenToWorld(this.mouse.x, this.mouse.y);
 

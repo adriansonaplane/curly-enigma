@@ -277,22 +277,31 @@ const Dungeon = {
     return false;
   },
 
-  // Light every cold fire source within `rad` of a point, and report which
-  // ones caught so the caller can spark and sound them. Idempotent: a sconce
-  // already burning is not returned again.
-  kindleNear(map, x, y, rad) {
-    if (!map || !map.lights) return null;
-    let out = null;
-    const r2 = rad * rad;
+  // The nearest cold fire source within reach, or null. Both the prompt the
+  // player sees and the action the key performs go through this, so what the
+  // prompt offers and what the key lights cannot drift apart.
+  REACH: 2.2,
+  nearestCold(map, x, y, rad) {
+    if (!map || !map.lights || map.town) return null;
+    const r2 = (rad || this.REACH) ** 2;
+    let best = null, bd = Infinity;
     for (const l of map.lights) {
       if (!l.kindle || l.lit) continue;
       const dx = l.x - x, dy = l.y - y;
-      if (dx * dx + dy * dy > r2) continue;
-      l.lit = true;
-      if (l.prop) l.prop.lit = true;
-      (out || (out = [])).push(l);
+      const d2 = dx * dx + dy * dy;
+      if (d2 > r2 || d2 >= bd) continue;
+      best = l; bd = d2;
     }
-    return out;
+    return best;
+  },
+
+  // Light one cold source. Returns it if it caught, null if it was already
+  // burning — so a held key cannot re-report the same sconce every frame.
+  kindle(l) {
+    if (!l || !l.kindle || l.lit) return null;
+    l.lit = true;
+    if (l.prop) l.prop.lit = true;
+    return l;
   },
 
   // ---------- decoration: torches, props, god rays ----------
