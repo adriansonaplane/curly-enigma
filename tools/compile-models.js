@@ -65,9 +65,31 @@ function compile(entry) {
   const makeEl = (tag) => (String(tag).toLowerCase() === 'canvas' ? makeCanvas()
     : { style: {}, addEventListener() {}, removeEventListener() {}, appendChild() {},
         setAttribute() {}, getContext: () => null });
+  // Deferred construction has to actually run.
+  //
+  // These were no-ops, which silently lost every payload that waits for the
+  // document before building its model: the scripts completed, nothing threw,
+  // and MODEL.root was simply never assigned. Callbacks are queued here and
+  // flushed once the scripts have been evaluated.
+  //
+  // readyState is 'complete' so a payload that branches on it initialises
+  // immediately; one that registers unconditionally is caught by the flush.
+  const ready = [], frames = [];
+  const onEvent = (type, fn) => {
+    if (typeof fn === 'function' && (type === 'DOMContentLoaded' || type === 'load')) ready.push(fn);
+  };
   const sandbox = { console, Math: seededMath, Date, innerWidth: 800, innerHeight: 600, devicePixelRatio: 1,
-    addEventListener() {}, requestAnimationFrame() {}, document: {
-      body: { appendChild() {} }, getElementById() { return { addEventListener() {} }; },
+    addEventListener: onEvent, removeEventListener() {},
+    requestAnimationFrame(fn) { if (typeof fn === 'function') frames.push(fn); return frames.length; },
+    cancelAnimationFrame() {},
+    setTimeout(fn) { if (typeof fn === 'function') ready.push(fn); return 0; },
+    clearTimeout() {},
+    document: {
+      readyState: 'complete',
+      body: { appendChild() {} },
+      addEventListener: onEvent, removeEventListener() {},
+      getElementById() { return { addEventListener() {}, appendChild() {}, style: {} }; },
+      querySelector() { return null; }, querySelectorAll() { return []; },
       createElement: makeEl, createElementNS: (ns, tag) => makeEl(tag),
     } };
   sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox;
@@ -79,7 +101,22 @@ function compile(entry) {
   const scripts = [...meta.html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]);
   for (const script of scripts) vm.runInContext(script.replace(/window\.parent\.postMessage\s*\(/g, 'void ('), sandbox,
     { timeout: 15000, filename: entry.meta });
-  if (!sandbox.MODEL || !sandbox.MODEL.root) throw new Error('payload did not expose window.MODEL.root');
+  // Flush whatever the payload deferred. A self-scheduling animation loop
+  // re-queues itself, so only the callbacks pending at flush time are run, and
+  // only for a couple of rounds — enough to build a model, not enough to spin.
+  const flush = () => {
+    for (const fn of ready.splice(0)) { try { fn.call(sandbox); } catch (e) { /* payload's own init guard */ } }
+    for (let round = 0; round < 2; round++) {
+      const due = frames.splice(0);
+      if (!due.length) break;
+      for (const fn of due) { try { fn.call(sandbox, round * 16); } catch (e) { /* ditto */ } }
+    }
+  };
+  flush();
+  if (typeof sandbox.onload === 'function') { try { sandbox.onload.call(sandbox); } catch (e) {} flush(); }
+  if (!sandbox.MODEL || !sandbox.MODEL.root)
+    throw new Error(`${entry.slug}: payload did not expose window.MODEL.root`
+      + ' (it may build the model somewhere this offline harness does not reach)');
   sandbox.KEEP_DECALS = KEEP_DECALS;
   const scene = vm.runInContext(`(() => {
     const round = n => Object.is(n, -0) ? 0 : +n.toFixed(6);
@@ -159,8 +196,9 @@ function compile(entry) {
   const wanted = new Set(process.argv.slice(2).filter(a => !a.startsWith('--')));
   const entries = index.entries.filter(e => !wanted.size || wanted.has(e.slug)).sort((a, b) => a.slug.localeCompare(b.slug));
   fs.mkdirSync(OUT, { recursive: true });
-  const manifestEntries = [], texturedModels = [];
+  const manifestEntries = [], texturedModels = [], failures = [];
     for (const entry of entries) {
+      try {
         const result = compile(entry);
         const name = entry.slug + '.scene.json';
         fs.writeFileSync(path.join(OUT, name), JSON.stringify(result) + '\n');
@@ -172,14 +210,27 @@ function compile(entry) {
           + (textured.length ? `  [${textured.length} material(s) lost textures: `
             + textured.map(m => m.droppedMaps.join('+')).join(', ') + ']' : ''));
         if (textured.length) texturedModels.push(entry.slug);
+      } catch (e) {
+        // Compiling ~100 catalogue models, one dud must not cost the other 99.
+        // The run continues, the manifest keeps what succeeded, and the exit
+        // code still reports failure.
+        failures.push({ slug: entry.slug, reason: (e && e.message) || String(e) });
+        console.error(`FAILED  ${entry.slug}: ${(e && e.message) || e}`);
+      }
     }
   // A partial invocation intentionally creates a partial, deterministic manifest.
   const manifest = stable({ kind: 'compiled-models', version: 1, entries: manifestEntries });
   fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+  console.log(`\n  compiled ${manifestEntries.length} of ${entries.length} model(s)`);
+  if (failures.length) {
+    console.error(`\n  ${failures.length} model(s) failed:`);
+    for (const f of failures) console.error(`    ${f.slug} — ${f.reason}`);
+  }
   if (texturedModels.length) {
     console.warn(`\n  ${texturedModels.length} model(s) reference textures the scene contract cannot carry:`);
     console.warn('  ' + texturedModels.join(', '));
     console.warn('  These compiled, but the textured surfaces will not look as the catalogue previewed them.');
     console.warn('  Inspect before shipping: a dropped alpha map turns a soft decal into a solid shape.');
   }
+  if (failures.length) process.exitCode = 1;
 })().catch(e => { console.error(e.stack || e); process.exit(1); });
