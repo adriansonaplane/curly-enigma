@@ -3,75 +3,6 @@
 
 const ISO_X = 32, ISO_Y = 16, WALL_PX = 40;
 
-// ---------------- particle / effect helpers ----------------
-const FX = {
-  push(p) { if (G.parts.length < 1500) G.parts.push(p); },
-  ripple(x, y) {
-    G.rings.push({ x, y, r: 0.08, maxR: U.rf(U.rand, 0.35, 0.65), color: '#9fc8e8', t: 0.5, maxT: 0.5, alpha: 0.35 });
-  },
-  spark(x, y, color, n = 3) {
-    for (let i = 0; i < n; i++) {
-      const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 0.5, 3);
-      this.push({ x, y, z: U.rf(U.rand, 4, 16), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 6, 22), life: 0.4, maxLife: 0.4, color, size: U.rf(U.rand, 1.5, 3), add: true, grav: 60, shape: 'spark', rot: U.rand() * 6.28, spin: 9 });
-    }
-  },
-  trail(p) {
-    if (U.rand() < 0.55) return;
-    this.push({ x: p.x, y: p.y, z: 12, vx: U.rf(U.rand, -0.5, 0.5), vy: U.rf(U.rand, -0.5, 0.5), vz: U.rf(U.rand, -4, 8), life: 0.3, maxLife: 0.3, color: ELEM[p.elem].color, size: U.rf(U.rand, 1.5, 3.2), add: true, grav: 0 });
-  },
-  blood(x, y, color, n) {
-    for (let i = 0; i < n; i++) {
-      const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 1, 4);
-      this.push({ x, y, z: U.rf(U.rand, 8, 22), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 40), life: 0.55, maxLife: 0.55, color, size: U.rf(U.rand, 1.5, 3), add: false, grav: 130, shape: 'splash', rot: U.rand() * 6.28, spin: 4 });
-    }
-  },
-  deathBurst(x, y, color, size) {
-    for (let i = 0; i < 14 * size; i++) {
-      const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 1, 5) * size;
-      this.push({ x, y, z: U.rf(U.rand, 4, 20), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 10, 50), life: 0.7, maxLife: 0.7, color: U.rand() < 0.5 ? color : '#6a0f0f', size: U.rf(U.rand, 2, 4), add: false, grav: 120, shape: 'shard', rot: U.rand() * 6.28, spin: 7 });
-    }
-  },
-  explosion(x, y, r, color) {
-    G.rings.push({ x, y, r: 0.2, maxR: r, color, t: 0.35, maxT: 0.35 });
-    G.flashes.push({ x, y, r: r * 1.6, color, t: 0.25, maxT: 0.25 });
-    for (let i = 0; i < 22; i++) {
-      const a = U.rand() * Math.PI * 2, s = U.rf(U.rand, 2, 7);
-      this.push({ x, y, z: U.rf(U.rand, 2, 14), vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: U.rf(U.rand, 15, 55), life: 0.6, maxLife: 0.6, color, size: U.rf(U.rand, 2, 4.5), add: true, grav: 80, shape: 'ember' });
-    }
-  },
-  ring(x, y, r, color, alpha) {
-    G.rings.push({ x, y, r: 0.2, maxR: r, color, t: 0.3, maxT: 0.3, alpha: alpha || 0.9 });
-  },
-  slash(x, y, ang, range, color) {
-    for (let i = 0; i < 7; i++) {
-      const a = ang + U.rf(U.rand, -0.6, 0.6), rr = U.rf(U.rand, 0.4, range);
-      this.push({ x: x + Math.cos(a) * rr, y: y + Math.sin(a) * rr, z: 16, vx: Math.cos(a) * 3, vy: Math.sin(a) * 3, vz: 4, life: 0.22, maxLife: 0.22, color, size: 2.2, add: true, grav: 0 });
-    }
-  },
-  strike(x, y, color) {
-    G.bolts.push({ x, y, t: 0.22, maxT: 0.22, color });
-    G.flashes.push({ x, y, r: 2.4, color, t: 0.22, maxT: 0.22 });
-    this.spark(x, y, color, 6);
-  },
-  ember(x, y) {
-    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.3, 0.3), vy: U.rf(U.rand, -0.3, 0.3), vz: U.rf(U.rand, 10, 22), life: 1.1, maxLife: 1.1, color: U.rand() < 0.5 ? '#ff8a2f' : '#ffd94f', size: U.rf(U.rand, 1.2, 2.4), add: true, grav: -8, shape: 'ember' });
-  },
-  gasPuff(x, y) {
-    this.push({ x, y, z: 2, vx: U.rf(U.rand, -0.4, 0.4), vy: U.rf(U.rand, -0.4, 0.4), vz: U.rf(U.rand, 4, 9), life: 1.6, maxLife: 1.6, color: '#5a9a2f', size: U.rf(U.rand, 3, 6), add: false, grav: -4, shape: 'smoke' });
-  },
-  spikeBurst(x, y) {
-    for (let i = 0; i < 6; i++)
-      this.push({ x: x + U.rf(U.rand, -0.3, 0.3), y: y + U.rf(U.rand, -0.3, 0.3), z: 0, vx: 0, vy: 0, vz: U.rf(U.rand, 30, 60), life: 0.3, maxLife: 0.3, color: '#b8bcc4', size: 2.5, add: false, grav: 260 });
-  },
-  levelUp(x, y) {
-    for (let i = 0; i < 40; i++) {
-      const a = (i / 40) * Math.PI * 2;
-      this.push({ x: x + Math.cos(a) * 0.8, y: y + Math.sin(a) * 0.8, z: 0, vx: Math.cos(a) * 1.5, vy: Math.sin(a) * 1.5, vz: U.rf(U.rand, 30, 70), life: 1.1, maxLife: 1.1, color: '#ffd94f', size: 2.6, add: true, grav: 20 });
-    }
-    G.flashes.push({ x, y, r: 5, color: '#ffd94f', t: 0.5, maxT: 0.5 });
-  },
-};
-
 // ---------------- renderer ----------------
 const Render = {
   cv: null, ctx: null, lightCv: null, lctx: null,
@@ -138,20 +69,6 @@ const Render = {
     ];
   },
 
-  updateParticles(dt) {
-    for (let i = G.parts.length - 1; i >= 0; i--) {
-      const p = G.parts[i];
-      p.life -= dt;
-      if (p.life <= 0) { G.parts.splice(i, 1); continue; }
-      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-      p.vz -= p.grav * dt;
-      if (p.z < 0) { p.z = 0; p.vz *= -0.4; p.vx *= 0.7; p.vy *= 0.7; }
-    }
-    for (let i = G.rings.length - 1; i >= 0; i--) { const r = G.rings[i]; r.t -= dt; if (r.t <= 0) G.rings.splice(i, 1); }
-    for (let i = G.flashes.length - 1; i >= 0; i--) { const f = G.flashes[i]; f.t -= dt; if (f.t <= 0) G.flashes.splice(i, 1); }
-    for (let i = G.bolts.length - 1; i >= 0; i--) { const b = G.bolts[i]; b.t -= dt; if (b.t <= 0) G.bolts.splice(i, 1); }
-    for (let i = G.dmgNums.length - 1; i >= 0; i--) { const d = G.dmgNums[i]; d.t -= dt; d.z += 34 * dt; if (d.t <= 0) G.dmgNums.splice(i, 1); }
-  },
 
   // Auto quality: if a machine can't hold frame rate with the full effect
   // stack, quietly shed the most fill-hungry layers (fog, god rays, AO,
@@ -171,7 +88,7 @@ const Render = {
     const ctx = this.ctx, map = G.map, pl = G.player;
     if (!map || !pl) return;
     this.trackFps(dt);
-    this.updateParticles(dt);
+    FX3.update(dt);
     this.updateFog(dt);
     this.updateAmbient(dt);
 
