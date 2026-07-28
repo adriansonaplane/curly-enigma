@@ -241,7 +241,9 @@ const Actors3 = {
       }
       const r = m._rig;
       r.position.x = m.x; r.position.z = m.y;
-      r.rotation.y = Math.atan2(m.vx || 0, m.vy || 0) || r.rotation.y;
+      // Monsters already track a heading; deriving one from velocity instead
+      // would snap to zero the moment they stop, which is when they attack.
+      r.rotation.y = Math.PI / 2 - (m.dir || 0);
       this.animate(r, m, t);
     }
     // retire rigs for anything that died or despawned
@@ -257,5 +259,532 @@ const Actors3 = {
   clear() {
     for (const m of this.pool) if (m._rig) { R3.scene.remove(m._rig); m._rig = null; }
     this.pool.length = 0;
+  },
+};
+
+// ============ the hero ============
+// figure.js already owns what the hero looks like: a proper articulated body
+// posed by an animation state machine, with equipment read off the gear the
+// player has actually equipped. None of that was 2D — only the drawing was.
+// So the pose machine and the equipment reader are reused verbatim here and
+// only the rendering changes: canvas strokes become jointed groups.
+//
+// Nothing gets rebuilt per frame. The rig is rebuilt only when the equipment
+// signature changes — i.e. when the player equips something — so swinging a
+// sword is eight rotations, not a scene graph rebuild.
+
+const Hero3 = {
+  // figure.js measures in pixels (head crown at -43); this puts the hero at
+  // ~1.75 m, matching the catalogue's "1 unit = 1 metre" model scale.
+  U2W: 1 / 28,
+
+  rig: null, J: null, sig: '', mats: null, _geo: null, _P: null,
+
+  prop() {
+    if (this._P) return this._P;
+    const k = this.U2W, F = Figure.P;
+    const thigh = F.thigh * k, shin = F.shin * k;
+    const ankle = 0.03;                       // the boot sits under the shin, not through it
+    this._P = {
+      thigh, shin, ankle,
+      hipY: thigh + shin + ankle,             // hips sit a leg plus a foot up, so boots land on 0
+      chestUp: (F.pelvisY - F.chestY) * k,    // pelvis -> chest
+      headUp: (F.chestY - F.headY) * k,       // chest -> head
+      headR: F.headR * k,
+      shoulderX: F.shoulderX * k, hipX: F.hipX * k,
+      // arms hang OUTSIDE the ribcage; the 2D figure could overlap them onto
+      // the torso and let the silhouette sort it out, geometry cannot
+      armX: F.chestW * k * 1.18,
+      upperArm: F.upperArm * k, foreArm: F.foreArm * k,
+      chestW: F.chestW * k, chestH: F.chestH * k, waistW: F.waistW * k,
+    };
+    // How high a hand sits with the arm hanging straight — the lowest it ever
+    // gets, and therefore the budget a held weapon has before it hits the
+    // floor. Derived, not guessed, so changing the proportions above cannot
+    // silently start burying blades in the ground.
+    this._P.handRest = this._P.hipY + this._P.chestUp - this.U2W
+      - this._P.upperArm - this._P.foreArm;
+    return this._P;
+  },
+
+  geo() {
+    if (this._geo) return this._geo;
+    this._geo = {
+      cyl: new THREE.CylinderGeometry(0.5, 0.5, 1, 10),
+      torso: new THREE.CylinderGeometry(0.5, 0.34, 1, 12),   // broad at the shoulders
+      sphere: new THREE.SphereGeometry(0.5, 12, 10),
+      box: new THREE.BoxGeometry(1, 1, 1),
+      cone: new THREE.ConeGeometry(0.5, 1, 10),
+      // an open dome, so a helm sits ON the head instead of swallowing it
+      dome: new THREE.SphereGeometry(0.5, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.62),
+      plane: new THREE.PlaneGeometry(1, 1),
+      ring: new THREE.TorusGeometry(0.5, 0.045, 6, 20),
+    };
+    return this._geo;
+  },
+
+  // ---- materials ----
+  // Rebuilt with the rig, because every colour here comes from equipped gear.
+  mkMats(pal, eq) {
+    const S = (hex, rough, metal, emis, ei) => new THREE.MeshStandardMaterial({
+      color: new THREE.Color(hex),
+      roughness: rough === undefined ? 0.72 : rough,
+      metalness: metal === undefined ? 0.05 : metal,
+      emissive: new THREE.Color(emis || 0x000000),
+      emissiveIntensity: ei || 0,
+    });
+    const cloth = pal.cloth || '#5a4a3a';
+    const armorC = eq.chestCol || pal.armor || cloth;
+    const trim = pal.trim || '#c9a44f';
+    return {
+      skin: S(pal.skin || '#c99a6a', 0.86, 0),
+      cloth: S(cloth, 0.92, 0),
+      clothDark: S(U.shade(cloth, 0.78), 0.92, 0),
+      armor: S(armorC, 0.42, 0.55),
+      armorLit: S(U.shade(armorC, 1.22), 0.36, 0.6),
+      armorDark: S(U.shade(armorC, 0.68), 0.5, 0.5),
+      trim: S(trim, 0.32, 0.85),
+      hair: S(pal.hair || '#3a2414', 0.95, 0),
+      eye: S(pal.eye || '#2a1a10', 0.5, 0),
+      boot: S(eq.bootCol || U.shade(cloth, 0.65), 0.8, 0.1),
+      glove: S(eq.gloveCol || U.shade(cloth, 0.8), 0.8, 0.1),
+      belt: S(eq.beltCol || U.shade(cloth, 0.5), 0.8, 0.1),
+      helm: S(eq.helmCol || U.shade(armorC, 1.05), 0.34, 0.75),
+      crest: S(eq.crestCol || trim, 0.6, 0.2),
+      horn: S('#d8d0bc', 0.7, 0.05),
+      shield: S(eq.shieldCol || '#8a8f98', 0.4, 0.6),
+      shieldTrim: S(eq.shieldTrim || trim, 0.32, 0.85),
+      metal: S(eq.wMetal || '#c8ccd4', 0.24, 0.92, eq.wGlow, eq.wGlow ? 0.55 : 0),
+      guard: S(eq.wGuard || '#8a6b31', 0.35, 0.8),
+      wood: S(eq.wWood || '#7a5a34', 0.92, 0),
+      orb: S(eq.wOrb || '#c07bff', 0.2, 0, eq.wOrb || '#c07bff', 1.9),
+      cape: new THREE.MeshStandardMaterial({
+        color: new THREE.Color(eq.capeCol || '#6a1420'),
+        roughness: 0.95, metalness: 0, side: THREE.DoubleSide,
+      }),
+      aura: new THREE.MeshBasicMaterial({
+        color: new THREE.Color('#ffd94f'), transparent: true, opacity: 0.35,
+      }),
+    };
+  },
+
+  disposeMats() {
+    if (!this.mats) return;
+    for (const k in this.mats) this.mats[k].dispose();
+    this.mats = null;
+  },
+
+  // Rebuild only when the *appearance* changes. Comparing the fixture values
+  // rather than the item objects means picking up an identical-looking sword
+  // does not churn the scene graph.
+  sigOf(pl, eq) {
+    return [pl.cls, eq.weapon, eq.wLen, eq.wMetal, eq.wOrb, eq.wGuard, eq.wGlow,
+      eq.shield, eq.shieldCol, eq.shieldTrim, eq.helm, eq.helmCol, eq.helmFull,
+      eq.helmCrest, eq.helmHorns, eq.crestCol, eq.chestCol, eq.chestPlate,
+      eq.gloveCol, eq.bootCol, eq.bootTrim, eq.beltCol, eq.beltBuckle,
+      eq.cape, eq.capeCol].join('|');
+  },
+
+  _put(parent, geo, mat, x, y, z, sx, sy, sz) {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.scale.set(sx, sy === undefined ? sx : sy, sz === undefined ? sx : sz);
+    m.castShadow = true; m.receiveShadow = false;
+    parent.add(m);
+    return m;
+  },
+
+  // A two-bone limb. Pivot groups sit AT the joints and the meshes hang below
+  // them, so posing is `pivot.rotation.x = angle` and nothing has to be
+  // recomputed by hand — which is exactly the arithmetic the 2D limb() did
+  // every frame for every segment.
+  _limb(parent, ox, oy, oz, len1, len2, r1, r2, mUp, mLo, mJoint) {
+    const g = this.geo();
+    const up = new THREE.Group();
+    up.position.set(ox, oy, oz);
+    parent.add(up);
+    this._put(up, g.cyl, mUp, 0, -len1 / 2, 0, r1 * 2, len1, r1 * 2);
+    this._put(up, g.sphere, mJoint || mUp, 0, 0, 0, r1 * 2.1);
+
+    const lo = new THREE.Group();
+    lo.position.y = -len1;
+    up.add(lo);
+    this._put(lo, g.cyl, mLo, 0, -len2 / 2, 0, r2 * 2, len2, r2 * 2);
+    this._put(lo, g.sphere, mJoint || mLo, 0, 0, 0, r2 * 2.1);
+
+    const end = new THREE.Group();
+    end.position.y = -len2;
+    lo.add(end);
+    return { up, lo, end };
+  },
+
+  // ---- build ----
+  make(pal, eq) {
+    this.destroy();
+    const P = this.prop(), g = this.geo(), M = this.mkMats(pal, eq);
+    this.mats = M;
+
+    const root = new THREE.Group();
+    const body = new THREE.Group();  root.add(body);                       // bob + death tip
+    const pelvis = new THREE.Group(); pelvis.position.y = P.hipY; body.add(pelvis);
+    const chest = new THREE.Group();  chest.position.y = P.chestUp; pelvis.add(chest);
+    const neck = new THREE.Group();   neck.position.y = P.headUp; chest.add(neck);
+
+    // torso: wide at the shoulders, narrow at the waist
+    const torsoH = P.chestUp + P.chestH * 0.72;
+    this._put(chest, g.torso, M.armor, 0, -P.chestUp + torsoH / 2, 0,
+      P.chestW * 1.92, torsoH, P.chestW * 1.3);
+    // hips, so the waist does not end in a flat disc
+    this._put(pelvis, g.sphere, M.clothDark, 0, 0.02, 0, P.waistW * 2, P.waistW * 1.5, P.waistW * 1.6);
+
+    // legs
+    const legL = this._limb(pelvis, -P.hipX, 0, 0, P.thigh, P.shin,
+      0.064, 0.053, M.clothDark, M.cloth, M.clothDark);
+    const legR = this._limb(pelvis, P.hipX, 0, 0, P.thigh, P.shin,
+      0.064, 0.053, M.clothDark, M.cloth, M.clothDark);
+    for (const L of [legL, legR]) {
+      // boot fixture — the foot itself, always present; gear only recolours it
+      this._put(L.end, g.box, M.boot, 0, 0, 0.035, 0.105, P.ankle * 2, 0.2);
+      if (eq.bootTrim) this._put(L.end, g.box, M.trim, 0, P.ankle, 0.01, 0.115, 0.02, 0.155);
+    }
+
+    // arms
+    const armY = -1 * this.U2W;
+    const armL = this._limb(chest, -P.armX, armY, 0, P.upperArm, P.foreArm,
+      0.052, 0.042, M.armorDark, M.skin, M.armorDark);
+    const armR = this._limb(chest, P.armX, armY, 0, P.upperArm, P.foreArm,
+      0.052, 0.042, M.armorDark, M.skin, M.armorDark);
+    armL.up.rotation.z = 0.13; armR.up.rotation.z = -0.13;   // splay, so arms clear the torso
+    for (const A of [armL, armR]) this._put(A.end, g.sphere, M.glove, 0, -0.01, 0.01, 0.078);
+    this._put(chest, g.sphere, M.armor, -P.armX, armY + 0.01, 0, 0.15, 0.12, 0.14);
+    this._put(chest, g.sphere, M.armor, P.armX, armY + 0.01, 0, 0.15, 0.12, 0.14);
+
+    // head
+    this._put(chest, g.cyl, M.skin, 0, P.headUp * 0.45, 0, 0.075, P.headUp * 0.5, 0.075);  // neck
+    this._put(neck, g.sphere, M.skin, 0, 0, 0, P.headR * 1.76, P.headR * 2.0, P.headR * 1.8);
+    if (pal.hair && !eq.helm) {
+      this._put(neck, g.dome, M.hair, 0, 0.012, -0.008, P.headR * 1.92, P.headR * 1.72, P.headR * 1.96);
+    }
+    if (!eq.helmFull) {
+      this._put(neck, g.sphere, M.eye, -0.05, 0.01, P.headR * 0.82, 0.03, 0.024, 0.02);
+      this._put(neck, g.sphere, M.eye, 0.05, 0.01, P.headR * 0.82, 0.03, 0.024, 0.02);
+    }
+
+    // ---- equipment fixtures ----
+    if (eq.chestPlate) {
+      // a breastplate that follows the ribcage, plus pauldrons over the joints
+      this._put(chest, g.torso, M.armorLit, 0, -P.chestUp + torsoH / 2, 0,
+        P.chestW * 1.98, torsoH * 0.78, P.chestW * 1.36);
+      this._put(chest, g.box, M.trim, 0, -P.chestUp * 0.4, P.chestW * 0.66, 0.03, torsoH * 0.6, 0.02);
+      this._put(chest, g.sphere, M.armorDark, -P.armX, armY + 0.02, 0, 0.2, 0.15, 0.19);
+      this._put(chest, g.sphere, M.armorDark, P.armX, armY + 0.02, 0, 0.2, 0.15, 0.19);
+    }
+    this._put(pelvis, g.cyl, M.belt, 0, 0.03, 0, P.waistW * 2.15, 0.06, P.waistW * 1.75);
+    if (eq.beltBuckle) this._put(pelvis, g.box, M.trim, 0, 0.03, P.waistW * 0.9, 0.07, 0.055, 0.02);
+
+    let cape = null;
+    if (eq.cape) {
+      cape = new THREE.Group();
+      cape.position.set(0, armY, -P.chestW * 0.6);
+      chest.add(cape);
+      const cl = this._put(cape, g.plane, M.cape, 0, -0.34, 0, 0.44, 0.72, 1);
+      cl.castShadow = true;
+      cl.rotation.y = Math.PI;   // face the plane outward
+    }
+
+    if (eq.helm) {
+      this._put(neck, g.dome, M.helm, 0, 0.01, 0, P.headR * 2.02, P.headR * 2.24, P.headR * 2.06);
+      if (eq.helmFull) {
+        // a faceplate that follows the skull; a flat slab across the front
+        // reads as a signboard bolted to the head
+        this._put(neck, g.sphere, M.helm, 0, -0.03, P.headR * 0.26,
+          P.headR * 1.66, P.headR * 1.62, P.headR * 1.5);
+        this._put(neck, g.box, M.eye, 0, 0.012, P.headR * 0.84, P.headR * 1.05, 0.024, 0.02);  // visor slit
+      }
+      if (eq.helmCrest) {
+        const cr = this._put(neck, g.box, M.crest, 0, P.headR * 1.25, -0.01, 0.022, 0.1, 0.24);
+        cr.rotation.x = 0.22;
+      }
+      if (eq.helmHorns) for (const s of [-1, 1]) {
+        const hn = this._put(neck, g.cone, M.horn, s * P.headR * 0.95, P.headR * 0.75, 0, 0.045, 0.17, 0.045);
+        hn.rotation.z = -s * 0.85;
+      }
+    }
+
+    // shield rides the off-hand; weapon the main hand
+    if (eq.shield) {
+      const sh = new THREE.Group();
+      sh.position.set(-0.05, -0.02, 0.04);
+      sh.rotation.x = Math.PI / 2;
+      armL.end.add(sh);
+      this._put(sh, g.cyl, M.shield, 0, 0, 0, 0.38, 0.045, 0.34);
+      this._put(sh, g.ring, M.shieldTrim, 0, 0.03, 0, 0.38, 0.38, 0.34).rotation.x = Math.PI / 2;
+      this._put(sh, g.sphere, M.shieldTrim, 0, 0.05, 0, 0.09, 0.06, 0.09);   // boss
+    }
+    const weapon = this.makeWeapon(armR.end, eq, M, g);
+
+    // buff aura, hidden until a buff is up
+    const aura = this._put(root, g.ring, M.aura, 0, 0.03, 0, 1.0, 1.0, 1.0);
+    aura.rotation.x = Math.PI / 2;
+    aura.castShadow = false;
+    aura.visible = false;
+
+    this.rig = root;
+    this.J = { body, pelvis, chest, neck, legL, legR, armL, armR, cape, weapon, aura };
+    R3.scene.add(root);
+    return root;
+  },
+
+  // ---- weapon fixtures ----
+  // Built in the hand's own frame, where -Y continues the forearm. Blades hang
+  // down that axis; hafted things are carried upright instead, because a
+  // caster resting an orb on the floor looks like a broken rig.
+  //
+  // Every builder declares `drop`: how far the weapon reaches below the grip.
+  // The carry angle is then derived from that against the resting hand height,
+  // so a tier-10 greatsword tilts further than a shortsword instead of being
+  // driven through the floor. The 2D renderer never had to care — a sprite
+  // has no floor to clip through — which is exactly why this is derived
+  // rather than a per-weapon constant somebody has to remember to retune.
+  makeWeapon(hand, eq, M, g) {
+    const w = eq.weapon || 'sword';
+    // tier lengthens a weapon, but only so far; past this it stops reading as
+    // the same weapon and starts reading as a pike
+    const L = Math.min(eq.wLen || 1, 1.5);
+    const grip = new THREE.Group();
+    hand.add(grip);
+    const P = (geo, mat, ...a) => this._put(grip, geo, mat, ...a);
+    // how far the fixture reaches below and above the grip, along its own axis
+    let drop = 0, rise = 0.04, rest = -0.34;
+
+    switch (w) {
+      case 'sword': {
+        const bl = 0.62 * L;
+        P(g.cyl, M.wood, 0, -0.06, 0, 0.036, 0.13, 0.036);
+        P(g.box, M.guard, 0, -0.135, 0, 0.2, 0.028, 0.05);
+        P(g.box, M.metal, 0, -0.15 - bl / 2, 0, 0.078, bl, 0.024);
+        P(g.cone, M.metal, 0, -0.15 - bl - 0.035, 0, 0.078, 0.09, 0.024).rotation.x = Math.PI;
+        P(g.sphere, M.guard, 0, 0.01, 0, 0.055);          // pommel
+        drop = 0.15 + bl + 0.08; rise = 0.05;
+        break;
+      }
+      case 'axe': {
+        const hl = 0.5 * L;
+        P(g.cyl, M.wood, 0, -hl / 2, 0, 0.042, hl, 0.042);
+        P(g.box, M.metal, 0.005, -hl + 0.06, 0, 0.09, 0.2, 0.03);
+        P(g.cone, M.metal, 0.12, -hl + 0.06, 0, 0.24, 0.2, 0.03).rotation.z = -Math.PI / 2;
+        drop = hl + 0.06;
+        break;
+      }
+      case 'mace': {
+        const hl = 0.44 * L;
+        P(g.cyl, M.wood, 0, -hl / 2, 0, 0.04, hl, 0.04);
+        P(g.sphere, M.metal, 0, -hl - 0.06, 0, 0.15);
+        for (let i = 0; i < 6; i++) {
+          const a = i * Math.PI / 3;
+          const sp = P(g.cone, M.guard, Math.cos(a) * 0.085, -hl - 0.06, Math.sin(a) * 0.085, 0.05, 0.09, 0.05);
+          sp.rotation.z = -Math.cos(a) * 1.4; sp.rotation.x = Math.sin(a) * 1.4;
+        }
+        drop = hl + 0.06 + 0.13;
+        break;
+      }
+      case 'dagger': case 'claw': {
+        P(g.cyl, M.wood, 0, -0.05, 0, 0.03, 0.1, 0.03);
+        P(g.box, M.guard, 0, -0.105, 0, 0.11, 0.02, 0.04);
+        P(g.box, M.metal, 0, -0.105 - 0.13 * L, 0, 0.05, 0.26 * L, 0.018);
+        P(g.cone, M.metal, 0, -0.115 - 0.26 * L, 0, 0.05, 0.06, 0.018).rotation.x = Math.PI;
+        drop = 0.115 + 0.26 * L + 0.05;
+        break;
+      }
+      case 'spear': {
+        const sl = 1.5 * L;
+        P(g.cyl, M.wood, 0, sl * 0.22, 0, 0.032, sl, 0.032);
+        P(g.cone, M.metal, 0, sl * 0.72 + 0.09, 0, 0.075, 0.2, 0.03);
+        P(g.box, M.guard, 0, sl * 0.72 - 0.03, 0, 0.05, 0.02, 0.05);
+        drop = sl * 0.28; rise = sl * 0.72 + 0.19; rest = 0.14;
+        break;
+      }
+      case 'staff': case 'wand': {
+        const staff = w === 'staff';
+        const sl = (staff ? 1.55 : 0.6) * L;
+        P(g.cyl, M.wood, 0, sl * 0.22, 0, staff ? 0.036 : 0.026, sl, staff ? 0.036 : 0.026);
+        const orbY = sl * 0.72 + (staff ? 0.07 : 0.05);
+        P(g.sphere, M.orb, 0, orbY, 0, staff ? 0.14 : 0.1);
+        if (staff) for (let i = 0; i < 3; i++) {
+          const a = i * Math.PI * 2 / 3;
+          const cl = P(g.cone, M.wood, Math.cos(a) * 0.07, orbY - 0.09, Math.sin(a) * 0.07, 0.03, 0.14, 0.03);
+          cl.rotation.z = -Math.cos(a) * 0.5; cl.rotation.x = Math.sin(a) * 0.5;
+        }
+        drop = sl * 0.28; rise = orbY + (staff ? 0.14 : 0.1); rest = 0.14;
+        break;
+      }
+      case 'bow': {
+        const r = 0.42 * L;
+        for (const s of [-1, 1]) {
+          const arm = P(g.cyl, M.wood, 0, s * r * 0.5, s * 0.03, 0.026, r, 0.026);
+          arm.rotation.x = -s * 0.22;
+        }
+        P(g.cyl, M.metal, 0, 0, 0.005, 0.032, 0.16, 0.032);              // riser
+        P(g.cyl, M.guard, 0, 0, -r * 0.24, 0.008, r * 1.92, 0.008);      // string
+        drop = r + 0.03; rise = r + 0.03; rest = 0.14;
+        break;
+      }
+      case 'crossbow': {
+        grip.rotation.x = -Math.PI / 2;            // levelled, pointing forward
+        P(g.box, M.wood, 0, -0.24 * L, 0, 0.05, 0.5 * L, 0.06);
+        P(g.box, M.metal, 0, -0.4 * L, 0, 0.5, 0.05, 0.03);
+        P(g.cyl, M.guard, 0, -0.34 * L, 0, 0.008, 0.46, 0.008).rotation.z = Math.PI / 2;
+        drop = 0.5 * L; rest = -Math.PI / 2;      // levelled, pointing forward
+        break;
+      }
+      case 'orb': {
+        P(g.sphere, M.orb, 0, -0.09, 0.04, 0.17);
+        drop = 0.18; rise = 0.09;
+        break;
+      }
+      default: {
+        P(g.cyl, M.metal, 0, -0.22 * L, 0, 0.035, 0.44 * L, 0.035);
+        drop = 0.44 * L + 0.02;
+      }
+    }
+
+    // The carry angle cannot be baked in here: the grip hangs off the hand, and
+    // the hand's own angle changes every frame, so a constant that clears the
+    // floor at rest drives the blade straight through it mid-stride. What the
+    // fixture records is its reach and its preferred carry; apply() resolves
+    // the actual angle against the pose.
+    grip.userData = { drop, rise, rest };
+    grip.rotation.x = rest;
+    return grip;
+  },
+
+  // Angle the held weapon so it stays above the floor in whatever pose the
+  // animation has put the arm in. Angles here are measured from straight-down
+  // about the X axis, positive leaning forward, and the weapon inherits the
+  // arm's accumulated rotation before its own.
+  //
+  // BOTH ends matter. Clearing only the far end is what let a caster swing a
+  // two-metre staff overhead and drive its head through the floor behind them.
+  carryAngle(bodyY) {
+    const J = this.J, W = J.weapon;
+    if (!W || !W.userData) return;
+    const { drop, rise, rest } = W.userData;
+
+    // Walk the chain off the rig rather than re-deriving it from the pose.
+    // Deriving it separately is how the spine's own lean went missing from
+    // the sum, which quietly cost a quarter of a metre of clearance.
+    const P = this.prop();
+    const c = J.chest.rotation.x;
+    const t1 = c + J.armR.up.rotation.x;
+    const t2 = t1 + J.armR.lo.rotation.x;
+    const handY = bodyY + P.hipY + P.chestUp - this.U2W * Math.cos(c)
+      - P.upperArm * Math.cos(t1) - P.foreArm * Math.cos(t2);
+    const arm = t2;                               // the hand frame's own tilt
+    const h = handY - 0.035;
+
+    // With the weapon at world angle T: the low end sits at handY - drop*cos T
+    // and the high end at handY + rise*cos T, so cos T is fenced on both sides
+    // and |T| has to land inside [lo, hi].
+    const lo = drop > 0 ? Math.acos(U.clamp(h / drop, -1, 1)) : 0;
+    const hi = rise > 0 ? Math.acos(U.clamp(-h / rise, -1, 1)) : Math.PI;
+    let T = arm + rest;
+    T = Math.atan2(Math.sin(T), Math.cos(T));     // into [-pi, pi]
+    if (lo > hi) T = T < 0 ? -Math.PI / 2 : Math.PI / 2;   // longer than the hand is high: lie it flat
+    else {
+      const s = T < 0 ? -1 : 1;
+      T = s * U.clamp(Math.abs(T), lo, hi);
+    }
+    W.rotation.x = T - arm;
+  },
+
+  // ---- animation ----
+  // Straight port of the 2D selector; it reads player state the game already
+  // keeps, so the 3D hero and the 2D hero were never going to disagree.
+  anim(pl, t) {
+    if (pl.dead) return { anim: 'dead', phase: U.clamp(1 - (pl.deathT === undefined ? 0 : pl.deathT), 0, 1) };
+    if (pl.danceT > 0) return { anim: 'dance', phase: (t * 1.6) % 1 };
+    if (pl.attackT > 0) {
+      const casting = pl.lastCastArch && !['strike', 'slam', 'dash'].includes(pl.lastCastArch);
+      return { anim: casting ? 'cast' : 'attack', phase: U.clamp(1 - pl.attackT / 0.32, 0, 1) };
+    }
+    if (pl.hurtT > 0.14) return { anim: 'hurt', phase: 0 };
+    if (pl.moving) {
+      const fast = pl.derived && pl.derived.moveSpd > 4.6;
+      return { anim: fast ? 'run' : 'walk', phase: (pl.gait || 0) % 1 };
+    }
+    return { anim: 'idle', phase: (t * 0.42) % 1 };
+  },
+
+  // Pose angles are measured from straight-down with positive swinging
+  // forward. A limb hanging along -Y swings toward -Z under a positive
+  // rotation about X, and forward is +Z, so every joint takes the negated
+  // angle. That single sign is the whole of the 2D-to-3D translation.
+  apply(pose, st, pl, t) {
+    const J = this.J, k = this.U2W;
+    // The 2D bob was free to sink the sprite below its own feet; here that
+    // would push the boots through the floor, so a downward bob is capped.
+    J.body.position.y = Math.max(-pose.bob * k, st.anim === 'dead' ? -1 : -0.02);
+    J.chest.rotation.x = -pose.spine * 0.5;
+    J.chest.rotation.y = pose.twist;
+    J.neck.rotation.x = -pose.head * 0.5;
+
+    J.legL.up.rotation.x = -pose.legL;  J.legL.lo.rotation.x = -pose.legLF;
+    J.legR.up.rotation.x = -pose.legR;  J.legR.lo.rotation.x = -pose.legRF;
+    J.armL.up.rotation.x = -pose.armL;  J.armL.lo.rotation.x = -pose.armLF;
+    J.armR.up.rotation.x = -pose.armR;  J.armR.lo.rotation.x = -pose.armRF;
+
+    // The 2D death pose only slumped, because a flat sprite cannot fall over.
+    // With a real rig it can, so it does.
+    const dying = st.anim === 'dead' ? U.clamp(st.phase, 0, 1) : 0;
+    J.body.rotation.x = -dying * Math.PI * 0.46;
+    J.body.position.y -= dying * 0.12;
+    if (!dying) this.carryAngle(J.body.position.y);
+
+    if (J.cape) {
+      const drag = pl.moving ? 0.55 : 0.12;
+      J.cape.rotation.x = drag + Math.sin(t * 3.1) * 0.07 + pose.spine * 0.3;
+      J.cape.rotation.z = pose.twist * 0.6;
+    }
+
+    // hit flash and buff aura, both carried over from the 2D renderer
+    const flash = pl.hurtT > 0 ? U.clamp(pl.hurtT / 0.25, 0, 1) : 0;
+    for (const key of ['skin', 'armor', 'cloth', 'clothDark', 'armorDark']) {
+      const m = this.mats[key];
+      m.emissive.setRGB(flash, flash * 0.35, flash * 0.3);
+      m.emissiveIntensity = flash * 1.6;
+    }
+    const buff = pl.buffs && pl.buffs.length ? pl.buffs[0] : null;
+    J.aura.visible = !!buff;
+    if (buff) {
+      this.mats.aura.color.set(buff.color || '#ffd94f');
+      this.mats.aura.opacity = 0.28 + Math.sin(t * 6) * 0.12;
+      const s = 0.9 + Math.sin(t * 2.4) * 0.06;
+      J.aura.scale.set(s, s, 1);
+    }
+  },
+
+  sync(pl, t) {
+    if (!pl) return null;
+    const cls = (typeof CLASSES !== 'undefined' && CLASSES.find(c => c.id === pl.cls)) || { pal: {} };
+    const eq = Figure.equipOf(pl);
+    const sig = this.sigOf(pl, eq);
+    if (!this.rig || sig !== this.sig) { this.make(cls.pal, eq); this.sig = sig; }
+
+    const st = this.anim(pl, t);
+    this.apply(Figure.pose(st), st, pl, t);
+
+    const r = this.rig;
+    r.position.set(pl.x, 0, pl.y);
+    // game angles are atan2(dy, dx) on the ground plane; the rig faces +Z
+    r.rotation.y = Math.PI / 2 - (pl.dir || 0);
+    return r;
+  },
+
+  destroy() {
+    // Geometry is shared across every rig this session, so only the materials
+    // — which carry the gear colours — are per-rig and need disposing.
+    if (this.rig && R3.scene) R3.scene.remove(this.rig);
+    this.disposeMats();
+    this.rig = null; this.J = null; this.sig = '';
   },
 };
