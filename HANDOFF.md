@@ -344,3 +344,113 @@ three.js r128 was vendored. Do not disable TLS verification or unset
 *Written by Claude at handoff. Codex's scan notes were not received in time to be
 merged — add them as a new section rather than editing this one, so the two views
 stay distinguishable.*
+
+---
+
+# Codex + owner update — 2026-07-28
+
+This section is append-only follow-up context. It supersedes only the facts called
+out below; the original Claude handoff above remains the historical record of the
+state at PR #10.
+
+## U1. Current hardware baseline
+
+The owner completed a real-hardware pass in Firefox 153 on Linux, using an NVIDIA
+GeForce RTX 3060 at 2560×1440 and 1.25× device scaling. The profile contained a
+pre-migration save. Save/reload, portals, normal death and hardcore death appeared
+to behave correctly.
+
+After the camera work, the owner reported these average / worst-observed frame
+rates:
+
+| Camera preset | Average FPS | Worst-observed FPS |
+|---|---:|---:|
+| Isometric (historical baseline) | 155 | 96 |
+| Third person | 155 | 112 |
+| Elevated perspective | 145 | 112 |
+
+These results replace the ambiguous mode-specific interpretation in §2 lines
+46–59. They are the first real-GPU performance evidence, but remain a single
+machine and should not be treated as a minimum hardware specification. The older
+SwiftShader probes remain correctness evidence rather than performance evidence.
+
+## U2. Direction confirmed
+
+Development is proceeding with the current Three.js world. Orthographic isometric
+has been replaced by elevated perspective; elevated and third-person remain
+presets on the same perspective renderer. Intentional screen-space UI and overlays
+remain 2D.
+
+The agreed development order is:
+
+1. Restore the missing atmosphere.
+2. Establish a safe authored-model pipeline and replace procedural models where
+   the authored result is a genuine improvement.
+3. Reduce actor draw calls by merging each archetype's static primitive geometry;
+   keep animated joints separate.
+4. Re-measure on real hardware, then continue through the remaining priorities.
+
+SDF blending was discussed as a possible interpretation of the optimisation, but
+it is not the selected production approach. Static `BufferGeometry` merging is
+the direct solution to the existing per-mesh draw calls. SDF actors may be tested
+later as an isolated visual experiment only if they offer a measurable advantage.
+
+## U3. Work completed since the original handoff
+
+The following work is now merged and supersedes the corresponding open items in
+§3, §4, §5 and Appendix A8:
+
+- **Browser probes:** PR #13 added reproducible Playwright smoke probes for the
+  Three.js migration.
+- **Rendering cleanup:** PR #15 audited dependencies and removed dead 2D world
+  rendering paths while retaining intentional screen-space overlays.
+- **Camera:** PR #16 replaced orthographic isometric with the fixed elevated
+  perspective preset on the shared perspective rig.
+- **Atmosphere:** PR #17 restored theme-aware fog, colour grading/vignette, god
+  rays and ambient particle fields. Existing settings and quality controls drive
+  these effects.
+- **Model format:** PR #18 added a deterministic compiler for catalogue model
+  payloads and documented the compiled runtime contract.
+- **Monster models:** PR #19 added an authored monster-model provider with the
+  procedural rigs retained as fallbacks.
+- **Prop models:** PR #20 added authored prop templates through the existing
+  instanced prop path.
+- **Actor draw calls:** PR #21 merged static actor-archetype parts by material
+  while leaving animation-driven parts separate. This is the optimisation that
+  Appendix A8 previously described as not begun.
+
+The next pass should validate the combined result visually and capture updated
+draw-call and FPS measurements before broadening model coverage or attempting a
+new rendering technique.
+
+## U4. Improving future handoffs
+
+Do not repeatedly rewrite the original narrative as the project advances. That
+makes old measurements look current and loses the reasoning attached to earlier
+decisions. Use this structure instead:
+
+1. Keep the original handoff as a dated baseline.
+2. Append short, dated update sections containing only changed facts, decisions,
+   completed work, new risks and the next verification target.
+3. Link every completed item to its PR or commit and record the exact revision
+   used for manual measurements.
+4. Keep correctness evidence, software-rendered measurements and real-GPU
+   performance evidence explicitly separate.
+5. Mark superseded statements rather than silently deleting them.
+6. Record measured before/after values; do not describe an optimisation as
+   successful from implementation alone.
+
+If updates become frequent, add a separate `TASK_LOG.md` rather than allowing this
+document to become a chronological dump. Use one entry per task with:
+
+- date, task title, PR and merge commit;
+- intent and non-goals;
+- files or subsystems changed;
+- verification commands and environment;
+- before/after measurements;
+- known regressions or unverified behavior;
+- the next concrete task.
+
+Periodically summarize stable conclusions from that log into a new dated handoff
+section. Keep detailed execution history in the task log and reserve this file for
+the information a successor needs to make the next correct decision.
