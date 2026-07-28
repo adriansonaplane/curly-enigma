@@ -20,7 +20,32 @@ const Props3 = {
   slot: new WeakMap(),      // prop object -> { set, i, base }
   _geo: null,
   _mats: new Map(),         // "geo|colour|emissive" -> material
+  _authored: new Map(),     // slug -> compiled instancing template or rejection
+  _requests: new Map(),     // slug -> in-flight fetch
+  diagnostics: [],
+  _buildToken: 0,
   built: false,
+
+  // Authored replacements are intentionally a short, quality-reviewed list.
+  // `parts` indices refer to the source scene before compatible meshes are
+  // bucketed. ATTACHMENTS provides the same contract to procedural fallbacks.
+  MODEL_MAP: {
+    wood: { slot: 'door_wood', height: 1.6, maxDraws: 8, parts: { doorLeaves: '*', destructible: '*', collision: [0.8, 0.12], promptHeight: 1.15 } },
+    pillar: { slot: 'pillar', height: 2.3, maxDraws: 14, parts: { destructible: '*', collision: [0.8, 0.8], promptHeight: 1.5 } },
+    soul_cage: { slot: 'soul_cage', height: 1.25, maxDraws: 12, parts: { emissive: 'auto', destructible: '*', lightOrigin: [0, 0.8, 0], promptHeight: 1.05 } },
+  },
+  ATTACHMENTS: {
+    wood: { doorLeaves: '*', collision: [0.8, 0.12], promptHeight: 1.15 },
+    barred: { doorLeaves: [0], collision: [0.8, 0.12], promptHeight: 1.15 },
+    arch: { collision: [1, 0.3], promptHeight: 1.3 },
+    torch: { flame: [2], emissive: [2], lightOrigin: [0, 1.35, 0.1], promptHeight: 1.1 },
+    brazier: { flame: [3], emissive: [3], lightOrigin: [0, 0.95, 0], promptHeight: 0.8 },
+    candles: { flame: [2, 3], emissive: [2, 3], lightOrigin: [0, 0.4, 0], promptHeight: 0.35 },
+    crate: { destructible: '*', collision: [0.65, 0.65], promptHeight: 0.65 },
+    barrel: { destructible: '*', collision: [0.55, 0.55], promptHeight: 0.7 },
+    barrelprop: { destructible: '*', collision: [0.55, 0.55], promptHeight: 0.7 },
+    chest: { doorLeaves: [1], destructible: '*', emissive: [2], collision: [0.8, 0.56], promptHeight: 0.7 },
+  },
 
   geo() {
     if (this._geo) return this._geo;
@@ -349,6 +374,16 @@ const Props3 = {
       b('sphere', sh(c, 1.2), [0, 0.5, 0], [0.8, 0.34, 0.56]),
       b('box', gl, [0, 0.3, 0.29], [0.14, 0.16, 0.04], null, 0.9),
     ],
+    door: (c) => [
+      b('box', c, [0, 0.8, 0], [0.8, 1.6, 0.1], null, 0, 1, 'doorLeaf'),
+      b('box', '#2d2924', [-0.43, 0.82, 0], [0.07, 1.72, 0.16]),
+      b('box', '#2d2924', [0.43, 0.82, 0], [0.07, 1.72, 0.16]),
+    ],
+    archway: (c) => [
+      b('box', c, [-0.48, 0.9, 0], [0.18, 1.8, 0.3]),
+      b('box', c, [0.48, 0.9, 0], [0.18, 1.8, 0.3]),
+      b('box', sh(c, 1.08), [0, 1.76, 0], [1.12, 0.18, 0.3]),
+    ],
   },
 
   // kind -> { arch, c: base colour, g: glow colour }
@@ -411,14 +446,107 @@ const Props3 = {
     chest: { a: 'chest', c: '#5a3a20', g: '#ffd94f' },
     goldpile: { a: 'goldpile', c: '#ffd94f', g: '#ffd94f' },
     shrine: { a: 'shrinebox', c: '#6a6458', g: '#8fd8ff' },
+    // Doors also pass through this pipeline. These remain the guaranteed
+    // fallback when an authored door is absent or rejected by the budget.
+    wood: { a: 'door', c: '#6a4f30' },
+    barred: { a: 'door', c: '#454038' },
+    arch: { a: 'archway', c: '#686258' },
   },
 
   // ---- build ----
+  _material(d) {
+    d = d || {};
+    const Ctor = THREE[d.type] || THREE.MeshStandardMaterial;
+    const o = { color: d.color === undefined ? 0xffffff : d.color, transparent: !!d.transparent,
+      opacity: d.opacity === undefined ? 1 : d.opacity, side: d.side === undefined ? THREE.FrontSide : d.side };
+    if (Ctor === THREE.MeshStandardMaterial) Object.assign(o, { roughness: d.roughness === undefined ? 0.8 : d.roughness,
+      metalness: d.metalness || 0, emissive: d.emissive || 0,
+      emissiveIntensity: (d.emissiveIntensity === undefined ? 1 : d.emissiveIntensity) * this.EMIT,
+      flatShading: !!d.flatShading });
+    return new Ctor(o);
+  },
+
+  _geometry(d) {
+    const Ctor = d && THREE[d.type], a = d && d.parameters;
+    const order = {
+      BoxGeometry: ['width', 'height', 'depth', 'widthSegments', 'heightSegments', 'depthSegments'],
+      SphereGeometry: ['radius', 'widthSegments', 'heightSegments', 'phiStart', 'phiLength', 'thetaStart', 'thetaLength'],
+      CylinderGeometry: ['radiusTop', 'radiusBottom', 'height', 'radialSegments', 'heightSegments', 'openEnded', 'thetaStart', 'thetaLength'],
+      ConeGeometry: ['radius', 'height', 'radialSegments', 'heightSegments', 'openEnded', 'thetaStart', 'thetaLength'],
+      PlaneGeometry: ['width', 'height', 'widthSegments', 'heightSegments'],
+      TorusGeometry: ['radius', 'tube', 'radialSegments', 'tubularSegments', 'arc'],
+      IcosahedronGeometry: ['radius', 'detail'], CircleGeometry: ['radius', 'segments', 'thetaStart', 'thetaLength'],
+    }[d && d.type];
+    if (typeof Ctor !== 'function' || !a || !order) throw new Error('unsupported geometry ' + (d && d.type));
+    return new Ctor(...order.map(k => a[k]));
+  },
+
+  _compileAuthored(doc, slug, spec, fallbackDraws) {
+    if (!doc || doc.format !== 'diabloid-primitive-scene' || doc.version !== 1 ||
+        doc.coordinateSystem !== 'right-handed-y-up' || !Array.isArray(doc.meshes) || !doc.meshes.length)
+      throw new Error('malformed compiled template');
+    const mats = (doc.materials || []).map(d => this._material(d));
+    const groups = new Map(); let triangles = 0;
+    doc.meshes.forEach((m, sourceIndex) => {
+      const geometry = this._geometry(m.geometry), pos = geometry.getAttribute('position');
+      triangles += geometry.index ? geometry.index.count / 3 : (pos ? pos.count / 3 : 0);
+      const key = JSON.stringify(m.geometry) + '|' + m.material;
+      if (!groups.has(key)) groups.set(key, { geometry, material: mats[m.material] || mats[0], locals: [] });
+      else geometry.dispose();
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...(m.rotation || [0, 0, 0])));
+      const matrix = new THREE.Matrix4().compose(new THREE.Vector3(...(m.position || [0, 0, 0])), q,
+        new THREE.Vector3(...(m.scale || [1, 1, 1])));
+      const md = doc.materials[m.material] || {};
+      groups.get(key).locals.push({ matrix, sourceIndex, emissive: !!md.emissive });
+    });
+    const draws = groups.size, allowed = spec.maxDraws === undefined ? fallbackDraws + 4 : spec.maxDraws;
+    if (draws > allowed) {
+      const error = new Error('draw budget ' + draws + '/' + allowed);
+      error.meshCount = doc.meshes.length; error.triangles = Math.round(triangles);
+      throw error;
+    }
+    return { slug, groups: [...groups.values()], meshCount: doc.meshes.length, triangles: Math.round(triangles),
+      sourceHeight: spec.height || 1, unitsPerMetre: doc.unitsPerMetre || 1, metadata: spec.parts || {} };
+  },
+
+  _modelSpec(kind) {
+    const own = this.MODEL_MAP[kind];
+    if (!own) return null;
+    const manifest = typeof Assets !== 'undefined' && Assets.MANIFEST[own.slot];
+    const slug = manifest && manifest.slug;
+    return slug && (!manifest.fit || manifest.fit === 'good') ? Object.assign({}, own, { slug }) : null;
+  },
+
+  _requestAuthored(kind, spec, fallbackDraws, token) {
+    if (this._authored.has(spec.slug) || this._requests.has(spec.slug)) return;
+    const url = 'assets/models/baked/' + encodeURIComponent(spec.slug) + '.scene.json';
+    const p = fetch(url).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(doc => this._compileAuthored(doc, spec.slug, spec, fallbackDraws))
+      .then(t => this._authored.set(spec.slug, { template: t }))
+      .catch(e => this._authored.set(spec.slug, { reason: e.message || String(e),
+        meshCount: e.meshCount || 0, triangles: e.triangles || 0 }))
+      .finally(() => {
+        this._requests.delete(spec.slug);
+        if (this.map && this._buildToken === token) this.build(this.map);
+      });
+    this._requests.set(spec.slug, p);
+  },
+
+  _diagnose(kind, slug, reason, meshCount, triangles, count) {
+    const d = { kind, slug: slug || null, fallbackReason: reason || null, meshCount: meshCount || 0,
+      triangleCount: triangles || 0, instantiatedCount: count };
+    this.diagnostics.push(d);
+    if (typeof location !== 'undefined' && (location.hostname === 'localhost' || /[?&]props3diag\b/.test(location.search)))
+      console.info('[Props3]', d);
+  },
+
   // One pass to bucket by kind, one to size the instance buffers, one to fill
   // them. Props never move, so this happens once per map and then nothing
   // touches it until something is smashed.
   build(map) {
     this.dispose();
+    const token = ++this._buildToken;
+    this.diagnostics = [];
     this.map = map;
     const g = new THREE.Group();
     this.group = g;
@@ -427,6 +555,7 @@ const Props3 = {
     const all = [];
     for (const pr of map.props || []) all.push(pr);
     for (const th of map.things || []) all.push(th);
+    for (const door of map.doors || []) all.push(door);
 
     const byKind = new Map();
     for (const pr of all) {
@@ -442,11 +571,20 @@ const Props3 = {
     for (const [kind, list] of byKind) {
       const def = this.KIND[kind] || { a: 'rubble', c: wallCol };
       const make = this.ARCH[def.a] || this.ARCH.rubble;
-      const tmpl = make(def.c, def.g || def.c);
+      let tmpl = make(def.c, def.g || def.c);
+      const spec = this._modelSpec(kind), cached = spec && this._authored.get(spec.slug);
+      let authored = cached && cached.template;
+      if (spec && !cached) this._requestAuthored(kind, spec, tmpl.length, token);
       const meshes = [];
+      if (authored) {
+        tmpl = authored.groups.map(group => ({ authored: true, group, locals: group.locals,
+          e: group.locals.some(p => p.emissive) ? 1 : 0 }));
+      }
       for (const part of tmpl) {
         const im = new THREE.InstancedMesh(
-          geo[part.g], this.mat(part.g, part.c, part.e, part.alpha), list.length);
+          authored ? part.group.geometry : geo[part.g],
+          authored ? part.group.material : this.mat(part.g, part.c, part.e, part.alpha),
+          list.length * (part.locals ? part.locals.length : 1));
         im.castShadow = !part.e;         // a light source casting its own shadow reads as a hole
         im.receiveShadow = !part.e;
         im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -454,7 +592,8 @@ const Props3 = {
         meshes.push(im);
         parts++;
       }
-      const set = { kind, meshes, tmpl, list, def };
+      const set = { kind, meshes, tmpl, list, def, authored,
+        metadata: authored ? authored.metadata : (this.ATTACHMENTS[kind] || {}) };
       set.face = list.map(pr => this._facing(map, pr, def));
       this.sets.push(set);
 
@@ -463,6 +602,10 @@ const Props3 = {
         this._place(set, i, pr);
       });
       for (const im of meshes) im.instanceMatrix.needsUpdate = true;
+      this._diagnose(kind, spec && spec.slug,
+        authored ? null : (cached && cached.reason || (spec ? 'loading authored template' : 'no suitable authored mapping')),
+        authored ? authored.meshCount : cached && cached.meshCount,
+        authored ? authored.triangles : cached && cached.triangles, list.length);
     }
 
     this.built = true;
@@ -503,7 +646,7 @@ const Props3 = {
   _place(set, i, pr) {
     const s = (pr.seed || 0);
     const f = set.face && set.face[i];
-    const yaw = f ? f.yaw : ((s * 37) % 628) / 100;
+    const yaw = f ? f.yaw : (pr.ori ? 0 : ((s * 37) % 628) / 100);
     const ox = f ? f.ox : 0, oz = f ? f.oz : 0;
     const sc = pr.smashed || pr.taken || pr.destroyed ? 0 : 0.9 + ((s * 13) % 25) / 100;
     // An unlit fire source keeps its bracket and bowl and loses its flame.
@@ -516,11 +659,32 @@ const Props3 = {
     });
     for (let p = 0; p < set.tmpl.length; p++) {
       const part = set.tmpl[p];
+      if (part.authored) {
+        const hideEmissive = cold && part.e > 0;
+        for (let j = 0; j < part.locals.length; j++) {
+          const local = part.locals[j], hidden = hideEmissive || pr.smashed || pr.taken || pr.destroyed;
+          S.e.set(0, yaw + (pr.ori === 'h' ? Math.PI / 2 : 0), 0); S.q.setFromEuler(S.e);
+          const visibleScale = hidden ? 0 : sc;
+          S.m4.compose(S.v3.set(pr.x + ox, 0, pr.y + oz), S.q, S.v.set(visibleScale, visibleScale, visibleScale));
+          if (pr.open && set.metadata && set.metadata.doorLeaves) {
+            S.e.set(0, (pr.swing || 1) * pr.open * Math.PI * 0.48, 0);
+            S.pm.makeRotationFromEuler(S.e).multiply(local.matrix);
+            S.m4.multiply(S.pm);
+          } else S.m4.multiply(local.matrix);
+          set.meshes[p].setMatrixAt(i * part.locals.length + j, S.m4);
+        }
+        continue;
+      }
       if (part.r) { S.e.set(part.r[0], part.r[1], part.r[2]); S.q.setFromEuler(S.e); }
       else S.q.identity();
       S.pm.compose(S.v.set(part.p[0], part.p[1], part.p[2]), S.q,
         S.v2.set(part.s[0], part.s[1], part.s[2]));
-      S.e.set(0, yaw, 0); S.q.setFromEuler(S.e);
+      if (part.role === 'doorLeaf' && pr.open) {
+        S.e.set(part.r ? part.r[0] : 0, (part.r ? part.r[1] : 0) + (pr.swing || 1) * pr.open * Math.PI * 0.48,
+          part.r ? part.r[2] : 0); S.q.setFromEuler(S.e);
+        S.pm.compose(S.v.set(part.p[0], part.p[1], part.p[2]), S.q, S.v2.set(part.s[0], part.s[1], part.s[2]));
+      }
+      S.e.set(0, yaw + (pr.ori === 'h' ? Math.PI / 2 : 0), 0); S.q.setFromEuler(S.e);
       const ps = (cold && part.e > 0) ? 0 : sc;
       S.m4.compose(S.v3.set(pr.x + ox, 0, pr.y + oz), S.q, S.v.set(ps, ps, ps));
       S.m4.multiply(S.pm);
@@ -548,7 +712,7 @@ const Props3 = {
 };
 
 // template helpers, kept out of the object so the tables above stay readable
-function b(g, c, p, s, r, e, alpha) {
-  return { g, c, p, s: s || [1, 1, 1], r: r || null, e: e || 0, alpha };
+function b(g, c, p, s, r, e, alpha, role) {
+  return { g, c, p, s: s || [1, 1, 1], r: r || null, e: e || 0, alpha, role };
 }
 function sh(c, f) { return U.shade(c, f); }

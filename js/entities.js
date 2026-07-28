@@ -1094,6 +1094,7 @@ const Ent = {
         const was = d.open;
         d.open += (target - d.open) * Math.min(1, dt * 5.5);
         if (Math.abs(target - d.open) < 0.02) d.open = target;
+        if (typeof Props3 !== 'undefined') Props3.refresh(d);
         if (was < 0.15 && d.open >= 0.15) sfx('door');
       }
     }
