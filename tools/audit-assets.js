@@ -128,7 +128,7 @@ if (!files.length) { console.error(`no payloads in ${dir}`); process.exit(2); }
 
 console.log(`Auditing ${files.length} payloads in ${dir}\n`);
 
-let blocked = 0, warned = 0;
+let blocked = 0, warned = 0, warnedAny = 0;
 const allHosts = new Set(), threeTally = {};
 const offenders = [];
 
@@ -138,8 +138,11 @@ for (const f of files) {
   for (const t of r.three) threeTally[t] = (threeTally[t] || 0) + 1;
   const block = r.hits.filter(h => h.sev === 'block');
   const warn = r.hits.filter(h => h.sev === 'warn');
+  // A file can be both blocking and warning; counting it in each bucket and
+  // subtracting both from the total drove `clean` negative on the model pull.
   if (block.length) { blocked++; offenders.push(r); }
-  if (warn.length) warned++;
+  else if (warn.length) warned++;
+  if (warn.length) warnedAny++;
   const tag = block.length ? 'BLOCK' : warn.length ? ' warn' : '   ok';
   console.log(`  ${tag}  ${path.basename(r.file).padEnd(26)} ${String(r.bytes).padStart(7)} B  ${r.three.join(',') || '-'}`);
   for (const h of block) console.log(`         !! ${h.id} x${h.n} — ${h.why}\n            ${h.sample}`);
@@ -149,7 +152,7 @@ for (const f of files) {
 console.log('\n' + '-'.repeat(60));
 console.log(`  files          : ${files.length}`);
 console.log(`  clean          : ${files.length - blocked - warned}`);
-console.log(`  warnings       : ${warned}`);
+console.log(`  warnings       : ${warnedAny}${warned !== warnedAny ? ' (' + warned + ' warn-only)' : ''}`);
 console.log(`  BLOCKING       : ${blocked}`);
 console.log(`\n  external hosts referenced: ${allHosts.size ? [...allHosts].join(', ') : 'NONE (good)'}`);
 console.log(`  three.js / render hints  : ${Object.keys(threeTally).length ? JSON.stringify(threeTally) : 'none found'}`);

@@ -70,11 +70,24 @@ for (const f of files) {
   let next = raw, notes = [];
 
   if (f.endsWith('.json')) {
+    // Scrub EVERY string field that looks like markup, not just one named
+    // preview_html. The effects JSON used that key; the models JSON does not,
+    // so keying off the name silently left the models' embedded HTML intact —
+    // the file still changed, because stringify reformats it, which made it
+    // look handled when nothing had been touched. Shape, not name.
     const j = JSON.parse(raw);
-    if (typeof j.preview_html === 'string') {
-      const r = scrub(j.preview_html, depth);
-      j.preview_html = r.out; notes = r.notes;
-    }
+    const looksLikeHtml = (v) =>
+      typeof v === 'string' && v.length > 40 &&
+      /<script|<html|<!doctype|<body|<canvas/i.test(v);
+    const walk = (o) => {
+      if (Array.isArray(o)) { o.forEach((v, i) => { if (typeof v === 'object' && v) walk(v); else if (looksLikeHtml(v)) { const r = scrub(v, depth); o[i] = r.out; notes.push(...r.notes); } }); return; }
+      for (const k in o) {
+        const v = o[k];
+        if (v && typeof v === 'object') walk(v);
+        else if (looksLikeHtml(v)) { const r = scrub(v, depth); o[k] = r.out; notes.push(...r.notes.map(n => k + ':' + n)); }
+      }
+    };
+    walk(j);
     next = JSON.stringify(j, null, 2) + '\n';
   } else {
     const r = scrub(raw, depth);
