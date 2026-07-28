@@ -70,8 +70,18 @@ const RULES = [
     re: /\bon(?:load|error|click|mouseover)\s*=\s*["']/gi },
 
   // 4. escape attempts
+  // Explicit window.parent / window.top / window.opener is unambiguous.
   { id: 'parent-access', sev: 'block', why: 'reaches for the parent frame',
-    re: /\b(?:window\s*\.\s*)?(?:parent|top|opener)\s*\./g },
+    re: /\bwindow\s*\.\s*(?:parent|top|opener)\s*\./g },
+  // postMessage out of the frame, however it is spelled.
+  { id: 'frame-postmessage', sev: 'block', why: 'posts a message out of the frame',
+    re: /(?:window\s*\.\s*)?\b(?:parent|top|opener)\s*\.\s*postMessage\s*\(/g },
+  // A BARE `top.` / `parent.` is usually a local variable — these payloads use
+  // `const top = ...` heavily — so it is a warning for a human to judge, not a
+  // block. Treating it as a frame reference is what led to the code being
+  // rewritten and broken.
+  { id: 'bare-frame-word', sev: 'warn', why: 'bare top/parent/opener — check it is a local, not a frame',
+    re: /(?<!window\s*\.\s*)(?<![.\w$])(?:parent|top|opener)\s*\.\s*(?!postMessage)/g },
   { id: 'postmessage-wildcard', sev: 'warn', why: 'postMessage to *',
     re: /postMessage\s*\([^)]*,\s*["']\*["']/g },
   { id: 'nav', sev: 'block', why: 'navigates the browser',
@@ -94,10 +104,29 @@ function stripComments(s) {
   return s.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
 }
 
+// Syntax-check every inline script. The audit called a batch of payloads
+// "clean" while they were full of code the sanitiser had mangled — clean of
+// *security* problems, but broken. Valid-JS is cheap to check and would have
+// caught that immediately, so it is part of the gate now.
+function scriptsParse(html) {
+  const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    try { new Function(m[1]); }
+    catch (e) { return e.message.split('\n')[0]; }
+  }
+  return null;
+}
+
 function auditFile(file) {
   const raw = fs.readFileSync(file, 'utf8');
   const body = stripComments(raw);
   const hits = [];
+  if (/\.html?$/i.test(file)) {
+    const err = scriptsParse(raw);
+    if (err) hits.push({ id: 'broken-js', sev: 'block', why: 'inline script does not parse — payload is corrupt',
+                         n: 1, sample: err.slice(0, 70) });
+  }
   for (const r of RULES) {
     r.re.lastIndex = 0;
     const found = body.match(r.re);
@@ -128,7 +157,7 @@ if (!files.length) { console.error(`no payloads in ${dir}`); process.exit(2); }
 
 console.log(`Auditing ${files.length} payloads in ${dir}\n`);
 
-let blocked = 0, warned = 0;
+let blocked = 0, warned = 0, warnedAny = 0;
 const allHosts = new Set(), threeTally = {};
 const offenders = [];
 
@@ -138,8 +167,11 @@ for (const f of files) {
   for (const t of r.three) threeTally[t] = (threeTally[t] || 0) + 1;
   const block = r.hits.filter(h => h.sev === 'block');
   const warn = r.hits.filter(h => h.sev === 'warn');
+  // A file can be both blocking and warning; counting it in each bucket and
+  // subtracting both from the total drove `clean` negative on the model pull.
   if (block.length) { blocked++; offenders.push(r); }
-  if (warn.length) warned++;
+  else if (warn.length) warned++;
+  if (warn.length) warnedAny++;
   const tag = block.length ? 'BLOCK' : warn.length ? ' warn' : '   ok';
   console.log(`  ${tag}  ${path.basename(r.file).padEnd(26)} ${String(r.bytes).padStart(7)} B  ${r.three.join(',') || '-'}`);
   for (const h of block) console.log(`         !! ${h.id} x${h.n} — ${h.why}\n            ${h.sample}`);
@@ -149,7 +181,7 @@ for (const f of files) {
 console.log('\n' + '-'.repeat(60));
 console.log(`  files          : ${files.length}`);
 console.log(`  clean          : ${files.length - blocked - warned}`);
-console.log(`  warnings       : ${warned}`);
+console.log(`  warnings       : ${warnedAny}${warned !== warnedAny ? ' (' + warned + ' warn-only)' : ''}`);
 console.log(`  BLOCKING       : ${blocked}`);
 console.log(`\n  external hosts referenced: ${allHosts.size ? [...allHosts].join(', ') : 'NONE (good)'}`);
 console.log(`  three.js / render hints  : ${Object.keys(threeTally).length ? JSON.stringify(threeTally) : 'none found'}`);

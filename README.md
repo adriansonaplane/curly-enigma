@@ -334,6 +334,7 @@ ladder) walk the town, chatter, and react to what you do.
 | **1–0** | Action bar slots |
 | **Q / E** | Healing / mana potion |
 | **T** | Town portal |
+| **F** | Light / snuff the torch in reach (dungeon sconces start cold) |
 | **I · C · K · L** | Inventory · Character · Skills · Ladder |
 | **J · O** | Quest log · Settings |
 | **U · G** | Social (friends) · Guild |

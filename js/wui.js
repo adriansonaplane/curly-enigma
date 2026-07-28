@@ -19,7 +19,7 @@ const WUI = {
   },
   DEF_KEYS: {
     moveU: 'w', moveL: 'a', moveD: 's', moveR: 'd',
-    potHp: 'q', potMp: 'e', portal: 't', mute: 'n',
+    potHp: 'q', potMp: 'e', portal: 't', mute: 'n', interact: 'f',
     inv: 'i', char: 'c', skills: 'k', ladder: 'l', quests: 'j', settings: 'o', chat: 'enter',
     social: 'u', guildp: 'g',
     camMode: 'v', camRotL: '[', camRotR: ']', camIn: '+', camOut: '-',
@@ -30,6 +30,7 @@ const WUI = {
   KEYACTIONS: [
     ['moveU', 'Move up'], ['moveL', 'Move left'], ['moveD', 'Move down'], ['moveR', 'Move right'],
     ['potHp', 'Healing potion'], ['potMp', 'Mana potion'], ['portal', 'Town portal'], ['mute', 'Toggle sound'],
+    ['interact', 'Light / snuff torch'],
     ['inv', 'Inventory'], ['char', 'Character'], ['skills', 'Skill trees'], ['ladder', 'Season ladder'],
     ['quests', 'Quest log'], ['settings', 'Settings'], ['chat', 'Focus chat'],
     ['social', 'Social (friends)'], ['guildp', 'Guild panel'],
@@ -1269,6 +1270,7 @@ const WUI = {
     if (k === m.settings) { UI.toggle('settings'); return true; }
     if (k === m.social) { UI.toggle('social'); return true; }
     if (k === m.guildp) { UI.toggle('guild'); return true; }
+    if (k === m.interact) { Game.toggleLight(); return true; }
     if (k === m.targetNext) { Target.tabNext(); return true; }
     if (k === m.targetClear) { Target.clear(); return true; }
     if (k === m.camMode) { Cam.cycleMode(); return true; }

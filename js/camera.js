@@ -6,6 +6,12 @@
 // Projection: screen = P(pitch,zoom) · R(yaw) · (world - focus)
 'use strict';
 
+// The isometric tile metrics used to live in the 2D renderer. The camera still
+// wants them to report screen-space units for the few overlay callers that ask
+// (Target's range arcs, Physics' debris), so they live here now that the
+// renderer that defined them is gone.
+const ISO_X = 32, ISO_Y = 16;
+
 const Cam = {
   MODES: ['iso', 'third'],
   mode: 'iso',
@@ -129,10 +135,26 @@ const Cam = {
 
   // Screen-relative input -> world direction. Undoes the camera yaw so "up
   // the screen" is always away from the viewer, whatever the orbit angle.
+  // Turn screen-space input (mx = right, my = down) into a world direction.
+  //
+  // This used to invert the 2D renderer's BAKED isometric projection and then
+  // rotate it by Cam.yaw. That was correct exactly as long as the picture was
+  // also drawn from a matrix built out of Cam.yaw. It is not any more: the
+  // scene is drawn by a real camera, and in the isometric preset that camera
+  // is pinned to 45 degrees no matter what Cam.yaw says. Input and picture
+  // disagreed, so pressing left walked the character south.
+  //
+  // Asking the live camera which way is right and which way is forward cannot
+  // drift, because it is the same camera that drew the frame.
   screenToWorldDir(mx, my) {
-    const wx = mx + my, wy = my - mx;          // classic iso basis (yaw 0)
+    if (typeof R3 !== 'undefined' && R3.ready) {
+      const b = R3.screenBasis();
+      // screen-down is toward the viewer, i.e. away from where the camera looks
+      return [mx * b.rx - my * b.fx, mx * b.rz - my * b.fz];
+    }
+    const wx = mx + my, wy = my - mx;          // pre-3D fallback: classic iso basis
     const c = this.cos, s = this.sin;
-    return [wx * c + wy * s, -wx * s + wy * c]; // R(-yaw)
+    return [wx * c + wy * s, -wx * s + wy * c];
   },
 
   // world -> rotated frame (relative to focus)

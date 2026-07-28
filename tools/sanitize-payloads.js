@@ -46,14 +46,28 @@ function scrub(html, depth) {
     return '<!-- removed: remote link -->';
   });
 
-  // Keep the expression shape — `void (...)` still evaluates the argument list,
-  // so a scene that builds its debug object inline cannot throw.
-  out = out.replace(/window\.parent\.postMessage\s*\(/g, () => {
+  // The actual escape vector: postMessage out of the frame. `void (...)` keeps
+  // the expression shape, so a scene building its debug object inline still
+  // evaluates its arguments and cannot throw.
+  out = out.replace(/(?:window\s*\.\s*)?\b(?:parent|top|opener)\s*\.\s*postMessage\s*\(/g, () => {
     notes.push('parent-postMessage->void');
     return 'void (';
   });
-  out = out.replace(/\b(?:window\.)?(?:parent|top|opener)\s*\.\s*(?!postMessage)/g, () => {
-    notes.push('other-parent-access->window');
+
+  // Only EXPLICIT window.parent / window.top / window.opener are neutralised.
+  //
+  // This used to also rewrite bare `parent.` / `top.` / `opener.`, which was a
+  // serious mistake: `top` is an ordinary local variable name, and these
+  // payloads use it constantly (`const top = box(...); top.position.y = ...`).
+  // That rule turned thousands of lines of model-building code into
+  // `window.position.y = ...`, which throws at runtime. It even corrupted
+  // property access — `rays[i].top.scale` became `rays[i].window.scale` inside
+  // an animation loop, killing the render call after it.
+  //
+  // A bare identifier cannot be told from a frame reference by regex, so it is
+  // left alone here and reported by the audit instead, for a human to judge.
+  out = out.replace(/\bwindow\s*\.\s*(?:parent|top|opener)\s*\.\s*/g, () => {
+    notes.push('explicit-window-frame-access->window');
     return 'window.';
   });
   return { out, notes };
@@ -70,11 +84,24 @@ for (const f of files) {
   let next = raw, notes = [];
 
   if (f.endsWith('.json')) {
+    // Scrub EVERY string field that looks like markup, not just one named
+    // preview_html. The effects JSON used that key; the models JSON does not,
+    // so keying off the name silently left the models' embedded HTML intact —
+    // the file still changed, because stringify reformats it, which made it
+    // look handled when nothing had been touched. Shape, not name.
     const j = JSON.parse(raw);
-    if (typeof j.preview_html === 'string') {
-      const r = scrub(j.preview_html, depth);
-      j.preview_html = r.out; notes = r.notes;
-    }
+    const looksLikeHtml = (v) =>
+      typeof v === 'string' && v.length > 40 &&
+      /<script|<html|<!doctype|<body|<canvas/i.test(v);
+    const walk = (o) => {
+      if (Array.isArray(o)) { o.forEach((v, i) => { if (typeof v === 'object' && v) walk(v); else if (looksLikeHtml(v)) { const r = scrub(v, depth); o[i] = r.out; notes.push(...r.notes); } }); return; }
+      for (const k in o) {
+        const v = o[k];
+        if (v && typeof v === 'object') walk(v);
+        else if (looksLikeHtml(v)) { const r = scrub(v, depth); o[k] = r.out; notes.push(...r.notes.map(n => k + ':' + n)); }
+      }
+    };
+    walk(j);
     next = JSON.stringify(j, null, 2) + '\n';
   } else {
     const r = scrub(raw, depth);

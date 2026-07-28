@@ -1,0 +1,16 @@
+{
+  "kind": "baked-models",
+  "facings": 8,
+  "cell": 128,
+  "baked": "2026-07-28T03:36:43.830Z",
+  "entries": [
+    {
+      "slug": "soul-cage-uoc",
+      "sheet": "soul-cage-uoc.png"
+    },
+    {
+      "slug": "wooden-door-uoc",
+      "sheet": "wooden-door-uoc.png"
+    }
+  ]
+}
