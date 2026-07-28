@@ -81,11 +81,31 @@ function sanitise(html, threeUrl) {
   function sceneOf(o) { while (o && o.parent) o = o.parent; return o; }
   window.__bake = {
     ready: function () { return !!(window.MODEL && window.MODEL.root); },
+    // Nulling the background is not enough. These scenes stand the model on a
+    // ground plane, and that plane is opaque — the first door bake came out
+    // with a grey slab across the bottom of every cell, which the clear-pixel
+    // metric happily counted as "36% transparent" because it was measuring the
+    // empty sky above it.
+    //
+    // So: hide every mesh that is not part of MODEL.root. Lights are left
+    // alone (hiding them yields a black silhouette) and so is anything the
+    // model itself owns.
     clearBg: function () {
       if (!window.MODEL || !window.MODEL.root) return false;
-      var s = sceneOf(window.MODEL.root);
-      if (s && 'background' in s) { s.background = null; return true; }
-      return false;
+      var root = window.MODEL.root;
+      var s = sceneOf(root);
+      if (!s) return false;
+      if ('background' in s) s.background = null;
+      if ('fog' in s) s.fog = null;
+      var owned = new Set();
+      root.traverse(function (o) { owned.add(o); });
+      var hidden = 0;
+      s.traverse(function (o) {
+        if (owned.has(o)) return;
+        if (o.isLight || o.isCamera || o.isScene) return;
+        if (o.isMesh || o.isPoints || o.isLine || o.isSprite) { o.visible = false; hidden++; }
+      });
+      return { bg: true, hidden: hidden };
     },
     face: function (a) {
       if (!window.MODEL || !window.MODEL.root) return false;
@@ -149,7 +169,7 @@ function sanitise(html, threeUrl) {
       api = await page.evaluate(() => ({
         hook: !!window.__bake,
         model: !!(window.MODEL && window.MODEL.root),
-        bgCleared: window.__bake ? window.__bake.clearBg() : false,
+        bgCleared: window.__bake ? JSON.stringify(window.__bake.clearBg()) : false,
       }));
       if (api.model) {
         for (let i = 0; i < FACINGS; i++) {
@@ -222,7 +242,7 @@ function sanitise(html, threeUrl) {
 
     console.log(`  ${good ? ' ok ' : 'FAIL'}  ${e.slug.padEnd(26)} ${String(frames.length).padStart(2)}/${FACINGS}` +
       (px ? `  clear:${(px.clearFrac * 100).toFixed(0)}% lit:${(px.litFrac * 100).toFixed(1)}% col:${px.colors} turn:${px.turn}` : '  —') +
-      (api && !api.bgCleared ? '  bg-not-cleared' : '') +
+      (api && api.bgCleared ? '  ' + api.bgCleared : '  bg-not-cleared') +
       (netHits.length ? `  NET:${netHits.length}` : '') +
       (errs.length ? `  ${errs[0].slice(0, 40)}` : ''));
   }
