@@ -10,6 +10,7 @@ const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.resolve(__dirname, '..');
+const KEEP_DECALS = process.argv.includes('--keep-decals');
 const SRC = path.join(ROOT, 'assets/models');
 const OUT = path.join(SRC, 'baked');
 const THREE = path.join(ROOT, 'vendor/three.min.js');
@@ -32,9 +33,42 @@ function compile(entry) {
   for (const c of entry.slug) seed = Math.imul(seed ^ c.charCodeAt(0), 16777619) >>> 0;
   const seededMath = Object.create(Math);
   seededMath.random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+  // Catalogue payloads generate their own textures from a 2D canvas — blob
+  // shadows, gradient ramps and the like. Without document.createElement the
+  // payload throws before it ever builds MODEL.root, so the model is lost for
+  // a reason that has nothing to do with its geometry. The canvas is inert:
+  // nothing is drawn, it exists so THREE.CanvasTexture has something to hold.
+  const gradient = () => ({ addColorStop() {} });
+  const ctx2d = () => new Proxy({
+    canvas: null, fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, font: '10px sans-serif',
+    globalAlpha: 1, globalCompositeOperation: 'source-over', lineCap: 'butt', lineJoin: 'miter',
+    shadowBlur: 0, shadowColor: 'rgba(0,0,0,0)',
+    createRadialGradient: gradient, createLinearGradient: gradient, createConicGradient: gradient,
+    createPattern: () => null,
+    measureText: () => ({ width: 0 }),
+    getImageData: (x, y, w, h) => ({ width: w | 0, height: h | 0,
+      data: new Uint8ClampedArray(Math.max(0, (w | 0) * (h | 0) * 4)) }),
+    createImageData: (w, h) => ({ width: w | 0, height: h | 0,
+      data: new Uint8ClampedArray(Math.max(0, (w | 0) * (h | 0) * 4)) }),
+  }, {
+    // Any drawing call a payload reaches for is a no-op rather than a crash.
+    get: (t, k) => (k in t ? t[k] : () => undefined),
+    set: (t, k, v) => { t[k] = v; return true; },
+  });
+  const makeCanvas = () => {
+    const c = { width: 300, height: 150, style: {},
+      getContext: () => c._ctx || (c._ctx = ctx2d()),
+      toDataURL: () => 'data:,', addEventListener() {}, removeEventListener() {},
+      appendChild() {}, setAttribute() {}, getBoundingClientRect: () => ({ width: 300, height: 150, top: 0, left: 0 }) };
+    return c;
+  };
+  const makeEl = (tag) => (String(tag).toLowerCase() === 'canvas' ? makeCanvas()
+    : { style: {}, addEventListener() {}, removeEventListener() {}, appendChild() {},
+        setAttribute() {}, getContext: () => null });
   const sandbox = { console, Math: seededMath, Date, innerWidth: 800, innerHeight: 600, devicePixelRatio: 1,
     addEventListener() {}, requestAnimationFrame() {}, document: {
-      body: { appendChild() {} }, getElementById() { return { addEventListener() {} }; }
+      body: { appendChild() {} }, getElementById() { return { addEventListener() {} }; },
+      createElement: makeEl, createElementNS: (ns, tag) => makeEl(tag),
     } };
   sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox;
   vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
@@ -46,6 +80,7 @@ function compile(entry) {
   for (const script of scripts) vm.runInContext(script.replace(/window\.parent\.postMessage\s*\(/g, 'void ('), sandbox,
     { timeout: 15000, filename: entry.meta });
   if (!sandbox.MODEL || !sandbox.MODEL.root) throw new Error('payload did not expose window.MODEL.root');
+  sandbox.KEEP_DECALS = KEEP_DECALS;
   const scene = vm.runInContext(`(() => {
     const round = n => Object.is(n, -0) ? 0 : +n.toFixed(6);
     const vec = v => [round(v.x), round(v.y), round(v.z)];
@@ -62,13 +97,35 @@ function compile(entry) {
           opacity: round(m.opacity == null ? 1 : m.opacity), transparent: !!m.transparent,
           side: m.side, flatShading: !!m.flatShading
         });
+        // The scene contract carries no textures. A material that HAD one is
+        // recorded so the loss is reported instead of silently changing how
+        // the model looks — a transparent blob-shadow plane, for instance,
+        // becomes an opaque slab once its alpha map is gone.
+        const maps = ['map', 'alphaMap', 'emissiveMap', 'normalMap', 'roughnessMap',
+          'metalnessMap', 'aoMap', 'bumpMap', 'displacementMap', 'envMap']
+          .filter(k => m[k]);
+        if (maps.length) materials[id].droppedMaps = maps.slice().sort();
       }
       return materialIds.get(m);
     }
-    const meshes = [], animations = [];
+    const meshes = [], animations = [], dropped = [];
+    // A flat, transparent, texture-only plane is a painted decal — the
+    // catalogue's fake blob shadow. The scene contract carries no textures, so
+    // emitting it produces a solid dark quad under the model instead of a soft
+    // shadow. The game casts real shadows, so the decal is unwanted anyway.
+    // This is the ONLY mesh the compiler removes, the rule is narrow on
+    // purpose, and every removal is reported. --keep-decals disables it.
+    const isDecal = (o) => {
+      if (KEEP_DECALS) return false;
+      const m = o.material;
+      if (!m || Array.isArray(m) || !m.transparent) return false;
+      if (!(m.map || m.alphaMap)) return false;
+      return o.geometry.type === 'PlaneGeometry' || o.geometry.type === 'CircleGeometry';
+    };
     MODEL.root.updateMatrixWorld(true);
     MODEL.root.traverse(o => {
       if (!o.isMesh) return;
+      if (isDecal(o)) { dropped.push(o.geometry.type); return; }
       const p = o.geometry.parameters || {};
       const params = {};
       Object.keys(p).sort().forEach(k => {
@@ -87,29 +144,42 @@ function compile(entry) {
       if (o.userData && ['pulse', 'float', 'spin', 'flame'].includes(o.userData.fx))
         animations.push({ mesh: index, type: o.userData.fx });
     });
-    return { meshes, materials, animations };
+    return { meshes, materials, animations, dropped };
   })()`, sandbox, { timeout: 5000 });
   for (const m of scene.meshes) if (!GEOMETRIES.has(m.geometry.type))
     throw new Error(`unsupported geometry ${m.geometry.type}`);
   return stable({ format: 'diabloid-primitive-scene', version: 1, slug: entry.slug,
     coordinateSystem: 'right-handed-y-up', unitsPerMetre: 1, pivot: meta.spec.pivot,
-    meshes: scene.meshes, materials: scene.materials, animations: scene.animations });
+    meshes: scene.meshes, materials: scene.materials, animations: scene.animations,
+    droppedDecals: scene.dropped.length || undefined });
 }
 
 (async () => {
   const index = JSON.parse(fs.readFileSync(path.join(SRC, 'index.json'), 'utf8'));
-  const wanted = new Set(process.argv.slice(2));
+  const wanted = new Set(process.argv.slice(2).filter(a => !a.startsWith('--')));
   const entries = index.entries.filter(e => !wanted.size || wanted.has(e.slug)).sort((a, b) => a.slug.localeCompare(b.slug));
   fs.mkdirSync(OUT, { recursive: true });
-  const manifestEntries = [];
+  const manifestEntries = [], texturedModels = [];
     for (const entry of entries) {
         const result = compile(entry);
         const name = entry.slug + '.scene.json';
         fs.writeFileSync(path.join(OUT, name), JSON.stringify(result) + '\n');
         manifestEntries.push({ slug: entry.slug, file: name });
-        console.log(`compiled ${entry.slug}: ${result.meshes.length} meshes`);
+        const decals = result.droppedDecals || 0;
+        const textured = result.materials.filter(m => m.droppedMaps);
+        console.log(`compiled ${entry.slug}: ${result.meshes.length} meshes`
+          + (decals ? `  [dropped ${decals} shadow decal(s)]` : '')
+          + (textured.length ? `  [${textured.length} material(s) lost textures: `
+            + textured.map(m => m.droppedMaps.join('+')).join(', ') + ']' : ''));
+        if (textured.length) texturedModels.push(entry.slug);
     }
   // A partial invocation intentionally creates a partial, deterministic manifest.
   const manifest = stable({ kind: 'compiled-models', version: 1, entries: manifestEntries });
   fs.writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+  if (texturedModels.length) {
+    console.warn(`\n  ${texturedModels.length} model(s) reference textures the scene contract cannot carry:`);
+    console.warn('  ' + texturedModels.join(', '));
+    console.warn('  These compiled, but the textured surfaces will not look as the catalogue previewed them.');
+    console.warn('  Inspect before shipping: a dropped alpha map turns a soft decal into a solid shape.');
+  }
 })().catch(e => { console.error(e.stack || e); process.exit(1); });
