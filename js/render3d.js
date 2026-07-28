@@ -21,9 +21,41 @@ const R3 = {
   MODE_ELEVATED: 'elevated', MODE_FREE: 'free',
   mode: 'elevated',
   yaw: Math.PI * 0.25,      // classic 45° — the D2 look
-  pitch: 0.72,
+  pitch: 0.615,
   dist: 24,
   zoom: 1,
+  fov: 48,
+
+  // ---- the two presets ----
+  //
+  // There is ONE camera. A preset is nothing but a set of values written into
+  // it — yaw, pitch, distance, zoom and lens. `locked` means the player's orbit
+  // and zoom inputs are refused while it is active, so the view cannot drift
+  // off the preset and does not have to be dragged back to it every frame.
+  //
+  // ELEVATED mocks isometric with a LONG LENS. A perspective projection
+  // converges toward a parallel one as the field of view narrows and the camera
+  // pulls back; holding 2·dist·tan(fov/2) constant keeps the framing identical
+  // while the divergence collapses. At 48° from 30 units a near object images
+  // three times the size of an equally sized far one across the visible depth;
+  // at 14° from 109 that ratio falls to about 1.3, which reads as isometric
+  // without a second projection, a second camera, or a second render path.
+  //
+  // True isometric elevation is atan(1/sqrt(2)) — 35.26° — which is what the
+  // pitch below is, rather than a number picked by eye.
+  PRESETS: {
+    elevated: {
+      yaw: Math.PI * 0.25,
+      pitch: Math.atan(1 / Math.SQRT2),
+      dist: 108.8,
+      zoom: 1,
+      fov: 14,
+      locked: true,
+    },
+    free: { dist: 24, fov: 48, locked: false },
+  },
+
+  locked() { return !!(this.PRESETS[this.mode] || {}).locked; },
   ZOOM_MIN: 0.4, ZOOM_MAX: 3.2,
   PITCH_MIN: 0.12, PITCH_MAX: 1.45,
   focus: { x: 0, y: 0, z: 0 },
@@ -97,25 +129,49 @@ const R3 = {
     this.perspCam.updateProjectionMatrix();
   },
 
+  // Apply a preset to the one camera. The lens is a camera property, not a
+  // second camera: swapping it is exactly what changing lenses is.
   setMode(m) {
     this.mode = m;
     this.cam = this.perspCam;
-    if (m === this.MODE_ELEVATED) { this.yaw = Math.PI * 0.25; this.pitch = 0.72; }
+    const p = this.PRESETS[m] || this.PRESETS.free;
+    this.dist = p.dist;
+    this.fov = p.fov;
+    if (this.perspCam.fov !== p.fov) {
+      this.perspCam.fov = p.fov;
+      this.perspCam.updateProjectionMatrix();
+    }
+    if (p.locked) { this.yaw = p.yaw; this.pitch = p.pitch; this.zoom = p.zoom; }
   },
   cycleMode() { this.setMode(this.mode === this.MODE_ELEVATED ? this.MODE_FREE : this.MODE_ELEVATED); },
 
-  // Free orbit belongs to third person; elevated cannot be knocked askew.
+  // Every way the rig can be moved refuses while a preset is locked. Refusing
+  // at the input boundary is the point: the previous arrangement let input
+  // through and re-pinned the yaw once a frame, so a drag visibly shoved the
+  // camera and it sprang back.
   orbit(dYaw, dPitch) {
-    if (this.mode === this.MODE_ELEVATED) return false;
+    if (this.locked()) return false;
     this.yaw += dYaw;
     this.pitch = U.clamp(this.pitch + dPitch, this.PITCH_MIN, this.PITCH_MAX);
     return true;
   },
   adjustZoom(delta) {
+    if (this.locked()) return false;
     this.zoom = U.clamp(this.zoom * (1 + delta), this.ZOOM_MIN, this.ZOOM_MAX);
+    return true;
   },
   setZoom(z) {
+    if (this.locked()) return false;
     this.zoom = U.clamp(z, this.ZOOM_MIN, this.ZOOM_MAX);
+    return true;
+  },
+  // The frame loop pushes the player's camera intent in here each tick; a
+  // locked preset owns the rig and ignores it.
+  setOrientation(yaw, pitch) {
+    if (this.locked()) return false;
+    this.yaw = yaw;
+    this.pitch = U.clamp(pitch, this.PITCH_MIN, this.PITCH_MAX);
+    return true;
   },
 
   // Point the rig at a world position (game x/y -> world x/z).
@@ -128,7 +184,8 @@ const R3 = {
   },
 
   updateCamera() {
-    const d = this.mode === this.MODE_ELEVATED ? 30 / this.zoom : this.dist / this.zoom;
+    // No mode branch: both presets are the same rig reading the same fields.
+    const d = this.dist / this.zoom;
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
     const c = this.cam;
