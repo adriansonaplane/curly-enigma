@@ -175,6 +175,9 @@ const Render = {
     R3.heroLightMul = this.heroLightMul;
     R3.shadows = this.quality === 'high' && this.fx.shadows !== false;
     R3.maxLights = this.quality === 'high' ? 12 : 6;
+    World3.updateAtmosphere(this.fx.fog !== false);
+    // Expensive atmosphere yields before lights/readability under the governor.
+    R3.gradeEnabled = this.quality === 'high' && this.fx.grade !== false;
 
     // camera: the old rig's zoom/mode/shake, aimed at the same focus point
     G.shake = Math.max(0, G.shake - dt * 30);
@@ -203,6 +206,7 @@ const Render = {
 
     // ---------- 3D pass ----------
     World3.updateLights(t, pl.x, pl.y);
+    World3.updateShafts(t, this.quality === 'high' && this.fx.shafts !== false);
     Actors3.sync(G.monsters, t);
     Actors3.syncCrowd(t, G.npcs, typeof Social !== 'undefined' ? Social.townSims : null);
     Hero3.sync(pl, t);
