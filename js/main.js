@@ -645,6 +645,22 @@ const Game = {
       if (pl.attackT <= 0) pl.dir = Math.atan2(wy, wx);
     }
 
+    // Carrying a light into a dark hallway lights the sconces you pass. The
+    // dungeon generates cold, so this is the player's own light spreading —
+    // walk a corridor once and it stays walkable, wander off it and you are
+    // back on your lamp alone.
+    if (!pl.dead && !G.map.town) {
+      const caught = Dungeon.kindleNear(G.map, pl.x, pl.y, 1.7);
+      if (caught) {
+        for (const l of caught) {
+          if (l.prop && typeof Props3 !== 'undefined') Props3.refresh(l.prop);
+          FX.ring(l.x, l.y, 1.5, l.color, 0.7);
+          FX.spark(l.x, l.y, l.color, 7);
+        }
+        sfx('portal');
+      }
+    }
+
     // mouse world position
     G.mouseWorld = Render.screenToWorld(this.mouse.x, this.mouse.y);
 

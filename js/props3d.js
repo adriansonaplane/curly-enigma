@@ -506,6 +506,10 @@ const Props3 = {
     const yaw = f ? f.yaw : ((s * 37) % 628) / 100;
     const ox = f ? f.ox : 0, oz = f ? f.oz : 0;
     const sc = pr.smashed || pr.taken || pr.destroyed ? 0 : 0.9 + ((s * 13) % 25) / 100;
+    // An unlit fire source keeps its bracket and bowl and loses its flame.
+    // Instancing means a part cannot be hidden on its own, but it can be
+    // scaled to nothing, which is the same thing to the rasteriser.
+    const cold = pr.lit === false;
     const S = this._scratch || (this._scratch = {
       m4: new THREE.Matrix4(), pm: new THREE.Matrix4(), q: new THREE.Quaternion(),
       e: new THREE.Euler(), v: new THREE.Vector3(), v2: new THREE.Vector3(), v3: new THREE.Vector3(),
@@ -517,7 +521,8 @@ const Props3 = {
       S.pm.compose(S.v.set(part.p[0], part.p[1], part.p[2]), S.q,
         S.v2.set(part.s[0], part.s[1], part.s[2]));
       S.e.set(0, yaw, 0); S.q.setFromEuler(S.e);
-      S.m4.compose(S.v3.set(pr.x + ox, 0, pr.y + oz), S.q, S.v.set(sc, sc, sc));
+      const ps = (cold && part.e > 0) ? 0 : sc;
+      S.m4.compose(S.v3.set(pr.x + ox, 0, pr.y + oz), S.q, S.v.set(ps, ps, ps));
       S.m4.multiply(S.pm);
       set.meshes[p].setMatrixAt(i, S.m4);
     }

@@ -268,17 +268,60 @@ const Dungeon = {
     if (bossRoom) map.bossSpot = { x: bossRoom.cx + 0.5, y: bossRoom.cy - 2 + 0.5 };
   },
 
+  // Is this tile inside one of the generated rooms? Anything else that is
+  // walkable is corridor, which is what the sconce placement keys off.
+  inRoom(map, x, y) {
+    for (const r of map.rooms || []) {
+      if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return true;
+    }
+    return false;
+  },
+
+  // Light every cold fire source within `rad` of a point, and report which
+  // ones caught so the caller can spark and sound them. Idempotent: a sconce
+  // already burning is not returned again.
+  kindleNear(map, x, y, rad) {
+    if (!map || !map.lights) return null;
+    let out = null;
+    const r2 = rad * rad;
+    for (const l of map.lights) {
+      if (!l.kindle || l.lit) continue;
+      const dx = l.x - x, dy = l.y - y;
+      if (dx * dx + dy * dy > r2) continue;
+      l.lit = true;
+      if (l.prop) l.prop.lit = true;
+      (out || (out = [])).push(l);
+    }
+    return out;
+  },
+
   // ---------- decoration: torches, props, god rays ----------
   decorate(map, rng) {
     const { w, h } = map;
     const th = THEMES[map.theme];
-    // torch sconces on wall tiles that border floor (light + visible prop)
+    // Torch sconces go in the HALLWAYS, and they start out cold.
+    //
+    // Sconces used to scatter over every wall that touched a floor, which lit
+    // the rooms you were about to fight in and left nothing for the player's
+    // own lamp to do. Corridors are the opposite: lighting one is a small
+    // decision that buys you a landmark and a safe line of retreat, and the
+    // rooms stay dark until you bring your own light into them.
+    //
+    // A corridor tile is simply a floor tile inside none of the rooms.
     for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
       if (map.t[this.idx(map, x, y)] !== TILE.WALL) continue;
-      const openBelow = map.t[this.idx(map, x, y + 1)] !== TILE.WALL || map.t[this.idx(map, x + 1, y)] !== TILE.WALL;
-      if (openBelow && U.chance(rng, 0.058)) {
-        map.lights.push({ x: x + 0.5, y: y + 0.5, r: 4.5, color: th.torch, flick: true, torch: true });
-        map.props.push({ kind: 'torch', x: x + 0.5, y: y + 0.5, seed: x * 31 + y, color: th.torch });
+      let hall = false;
+      for (const [dx, dy] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
+        const nx = x + dx, ny = y + dy;
+        if (map.t[this.idx(map, nx, ny)] === TILE.WALL) continue;
+        if (!this.inRoom(map, nx, ny)) { hall = true; break; }
+      }
+      // corridors are a far smaller set of walls than "anything facing floor",
+      // so the rate goes up to keep roughly the same number of sconces
+      if (hall && U.chance(rng, 0.16)) {
+        const pr = { kind: 'torch', x: x + 0.5, y: y + 0.5, seed: x * 31 + y, color: th.torch, lit: false };
+        map.props.push(pr);
+        map.lights.push({ x: x + 0.5, y: y + 0.5, r: 4.5, color: th.torch, flick: true, torch: true, lit: false, kindle: true, prop: pr });
       }
     }
     // guarantee lights at entry/exit
@@ -305,12 +348,19 @@ const Dungeon = {
         if (LOOSE[kind]) pr.loose = true;
         map.props.push(pr);
         // emissive props bring their own dim light
+        // Fire starts cold and is the player's to light. Crystals, fungus and
+        // ore are not things you strike a flint on, so they keep their faint
+        // glow — the dungeon is meant to be dark, not featureless.
+        const fire = (col, rad) => {
+          pr.lit = false;
+          map.lights.push({ x: pr.x, y: pr.y, r: rad, color: col, flick: true, lit: false, kindle: true, prop: pr });
+        };
         if (kind === 'crystal') map.lights.push({ x: pr.x, y: pr.y, r: 2.6, color: '#7bdcff', flick: false });
         else if (kind === 'mushroom') map.lights.push({ x: pr.x, y: pr.y, r: 2.2, color: '#6ae8a0', flick: false });
-        else if (kind === 'candles') map.lights.push({ x: pr.x, y: pr.y, r: 2.4, color: '#ffcf6f', flick: true });
-        else if (kind === 'lantern') map.lights.push({ x: pr.x, y: pr.y, r: 3.2, color: '#ffcf8f', flick: true });
-        else if (kind === 'chandelier') map.lights.push({ x: pr.x, y: pr.y, r: 4.2, color: '#ffc98f', flick: true });
         else if (kind === 'orevein') map.lights.push({ x: pr.x, y: pr.y, r: 1.8, color: '#ffd94f', flick: false });
+        else if (kind === 'candles') fire('#ffcf6f', 2.4);
+        else if (kind === 'lantern') fire('#ffcf8f', 3.2);
+        else if (kind === 'chandelier') fire('#ffc98f', 4.2);
       }
     }
 

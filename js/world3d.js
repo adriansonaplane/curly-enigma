@@ -181,13 +181,16 @@ const World3 = {
     const arr = this.lights;
     for (const e of arr) {
       const dx = e.src.x - px, dz = e.src.y - pz;
-      e.d2 = dx * dx + dz * dz;
+      // A cold sconce is sorted to the back, not just set to zero intensity:
+      // otherwise standing next to an unlit torch spends one of the twelve
+      // light slots on darkness and dims the room you are actually in.
+      e.d2 = e.src.lit === false ? Infinity : dx * dx + dz * dz;
     }
     arr.sort((a, b) => a.d2 - b.d2);
     let on = 0;
     for (let i = 0; i < arr.length; i++) {
       const e = arr[i];
-      if (i >= budget) { e.light.intensity = 0; continue; }
+      if (i >= budget || e.src.lit === false) { e.light.intensity = 0; continue; }
       const s = e.src;
       let k = 1;
       if (s.flick) k = 0.82 + Math.sin(t * 11 + s.x * 7 + s.y * 13) * 0.18;

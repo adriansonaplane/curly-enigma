@@ -152,16 +152,20 @@ const R3 = {
     return [(v.x * 0.5 + 0.5) * this.W, (-v.y * 0.5 + 0.5) * this.H, v.z];
   },
 
-  // Movement basis: which way is "up the screen" given the current yaw. The
-  // 2D renderer got this wrong once and inverted the controls; deriving it
-  // from the live camera instead of a constant means it cannot drift again.
+  // Movement basis: which way is "up the screen", and which way is right.
+  //
+  // Derived from `yaw` rather than read off the camera's world matrix. That
+  // matrix is only refreshed inside render(), and input is sampled before the
+  // frame is drawn — so reading it gave a basis that was either a frame stale
+  // or, on the very first update, the identity, which is a movement direction
+  // of nothing at all.
+  //
+  // updateCamera() places the camera at focus + (cos·cosYaw, sin, cos·sinYaw)·d
+  // looking back at focus, so its horizontal forward is exactly -(cosYaw, sinYaw)
+  // and right is forward × up. No matrix, nothing to fall behind.
   screenBasis() {
-    const f = new THREE.Vector3();
-    this.cam.getWorldDirection(f);
-    f.y = 0;
-    if (f.lengthSq() < 1e-6) return { fx: 0, fz: 1, rx: 1, rz: 0 };
-    f.normalize();
-    return { fx: f.x, fz: f.z, rx: -f.z, rz: f.x };
+    const fx = -Math.cos(this.yaw), fz = -Math.sin(this.yaw);
+    return { fx, fz, rx: -fz, rz: fx };
   },
 
   render() {
