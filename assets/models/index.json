@@ -1,0 +1,10 @@
+{
+  "kind": "models",
+  "base": "https://fabclaude.com/api",
+  "pulled": "2026-07-28T02:29:20Z",
+  "entries": [
+    { "slug": "soul-cage-uoc", "meta": "soul-cage-uoc.json", "html": "soul-cage-uoc.html" },
+    { "slug": "wooden-door-uoc", "meta": "wooden-door-uoc.json", "html": "wooden-door-uoc.html" },
+    { "slug": "runic-pillar-uoc", "meta": "runic-pillar-uoc.json", "html": "runic-pillar-uoc.html" }
+  ]
+}
