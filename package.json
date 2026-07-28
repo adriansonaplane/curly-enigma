@@ -1,6 +1,7 @@
 {
   "private": true,
   "scripts": {
+    "compile:models": "node tools/compile-models.js && node tools/validate-models.js",
     "test:browser": "playwright test -c tests/browser/playwright.config.js"
   },
   "devDependencies": {

@@ -307,3 +307,68 @@ Remaining, in order:
 | `ventPhase` used `%`, which keeps the sign of the dividend — a negative clock produced a negative phase that read as "jetting" and drove the jet envelope into negative canvas radii | **Fixed** (found by the new vent suite). |
 | Rooms and corridors were visually indistinguishable | **Fixed** — see doors above. |
 | The mood suite picked its measurement spot from generated geometry, so any change to the RNG stream silently moved it and starved the probe | **Fixed** — it now carves a controlled arena. |
+
+---
+
+## Catalogue primitive-model compiler
+
+The model metadata JSON is authoritative. In accordance with `HANDOFF.md` §7,
+files in `assets/models/baked/` are committed only so an offline/file-protocol
+build can consume them and may always be deleted and rebuilt. Rebuild all
+catalogue models with:
+
+```sh
+npm ci
+node tools/compile-models.js
+node tools/validate-models.js
+```
+
+Pass one or more catalogue slugs to compile a deliberately partial manifest,
+for example `node tools/compile-models.js wooden-door-uoc`. The compiler uses
+the pinned `vendor/three.min.js` (Three.js r128) in a Node VM with string/wasm
+code generation disabled. It supplies inert renderer and browser facades, so
+the catalogue builder can construct its `window.MODEL.root` without WebGL,
+network access, an iframe, or catalogue code in the game runtime. Output is
+stable-key, rounded JSON; no build date or machine path enters the result.
+
+### Minimum runtime scene contract
+
+`assets/models/baked/manifest.json` maps each slug to a versioned
+`*.scene.json`. A loader only needs the following data:
+
+* `meshes[]`: primitive `geometry.type` plus numeric constructor `parameters`,
+  and world-space `position`, XYZ-Euler `rotation` (radians), and `scale`.
+* `materials[]`: Three r128 `MeshStandardMaterial`/`MeshBasicMaterial` scalar
+  properties: RGB integer `color`, `roughness`, `metalness`, `opacity`,
+  `transparent`, `side`, and `flatShading`. `emissive` and
+  `emissiveIntensity` preserve glow without requiring a light or texture.
+  Meshes reference these records by integer index.
+* `animations[]`: optional `{mesh,type}` metadata copied from `userData.fx`.
+  Supported types are `pulse`, `float`, `spin`, and `flame`; timing is owned by
+  the game. An empty list means static geometry. Camera, lights, floor,
+  environment, shadows, catalogue render loops, and preview controls are not
+  runtime scene data.
+
+The coordinate system is Three.js's right-handed, **Y-up** convention. Values
+are metres (`unitsPerMetre: 1`), angles are radians, positive Y is height, and
+the catalogue's bottom-centre pivot is retained. Transforms are flattened to
+world space so a runtime loader does not need the source group hierarchy.
+
+Supported primitives are box, cylinder, sphere, cone, plane, circle, ring,
+torus, icosahedron, octahedron, dodecahedron, tetrahedron, and lathe geometry.
+Only numeric primitive parameters (and numeric 2D lathe points) survive.
+Textures, shaders, material arrays, skinning, morph targets, arbitrary buffer
+geometry, lines, points, and catalogue callbacks are intentionally unsupported.
+There is no silent geometry substitution: compilation fails for unsupported
+geometry or material arrays. At game load, a missing/invalid manifest entry
+must fall back to the existing procedural prop or sprite; unknown animation
+types are treated as static. Missing optional material values use the emitted
+r128-compatible defaults.
+
+`tools/validate-models.js` is the shipping gate. It rejects external-resource
+or dynamic-code strings, unknown formats or geometry, non-finite transforms or
+parameters, more than 512 meshes, and an estimated total above 250,000
+vertices. The current inspected payloads compile to 58 meshes for Runic
+Pillar, 36 for Soul Cage, and 28 for Wooden Door; this demonstrates that only
+the selected model root—not the thousands of unused catalogue constructors—is
+retained.
