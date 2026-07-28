@@ -15,6 +15,17 @@
 const Actors3 = {
   _geo: null,
   _mats: Object.create(null),     // kind -> { main, dark, eye }
+  // Authored actors are deliberately opt-in. These four are the comparison
+  // set (humanoid, brute, non-humanoid and boss); animated silhouettes such as
+  // spiders, bats, skeletons and serpents stay procedural until their compiled
+  // scenes contain a skeleton we can actually drive.
+  MODEL_MAP: {
+    zombie:   { slot: 'mon_zombie',   slug: 'ragm-zombie',    animation: 'rigid', height: 1.5 },
+    golem:    { slug: 'ragm-golem',                         animation: 'rigid', height: 1.55 },
+    exploder: { slug: 'ragm-bloatling',                     animation: 'rigid', height: 0.85 },
+    karghul:  { slug: 'ragm-furnace-tyrant',                animation: 'rigid', height: 1.55, boss: true },
+  },
+  _models: Object.create(null),   // slug -> Promise<immutable normalized template>
   pool: [],                       // live actor rigs
   crowd: [],                      // town NPCs and townsfolk, same rigs, no combat
 
@@ -44,6 +55,113 @@ const Actors3 = {
       eye: mk(pal.eye, pal.eye, 1.6),
     };
     return this._mats[kind];
+  },
+
+  // Resolve from the public asset registry first, with the dedicated map as a
+  // fallback for models which are not part of an act pack. Species lookup is
+  // exclusively `fam`/`def`; `kind` is not a monster species identifier.
+  modelSpec(m) {
+    let fam = m && m.fam;
+    if (!fam && m && typeof m.def === 'string') fam = m.def;
+    if (!fam && m && m.def) {
+      for (const id in MONSTERS) if (MONSTERS[id] === m.def) { fam = id; break; }
+      if (!fam) for (const id in BOSSES) if (BOSSES[id] === m.def) { fam = id; break; }
+    }
+    const own = fam && this.MODEL_MAP[fam];
+    if (!own) return null;
+    const manifest = own.slot && typeof Assets !== 'undefined' && Assets.MANIFEST[own.slot];
+    const slug = manifest && manifest.slug || own.slug;
+    return slug ? Object.assign({ fam }, own, { slug }) : null;
+  },
+
+  _material(d) {
+    const p = d || {};
+    const type = p.type && THREE[p.type] ? p.type : 'MeshStandardMaterial';
+    const opts = {
+      color: p.color === undefined ? 0xffffff : p.color,
+      transparent: !!p.transparent, opacity: p.opacity === undefined ? 1 : p.opacity,
+      side: p.side === undefined ? THREE.FrontSide : p.side,
+    };
+    if (type === 'MeshStandardMaterial') {
+      opts.roughness = p.roughness === undefined ? 0.8 : p.roughness;
+      opts.metalness = p.metalness || 0;
+      opts.emissive = p.emissive || 0;
+      opts.emissiveIntensity = p.emissiveIntensity === undefined ? 1 : p.emissiveIntensity;
+      opts.flatShading = !!p.flatShading;
+    }
+    return new THREE[type](opts);
+  },
+
+  // Compiled scenes contain primitives only. Geometry and base materials are
+  // created once per slug and never mutated or disposed by actor retirement.
+  _compileModel(doc, slug) {
+    if (!doc || doc.format !== 'diabloid-primitive-scene' || !Array.isArray(doc.meshes) || !doc.meshes.length)
+      throw new Error('invalid compiled monster model ' + slug);
+    if (doc.coordinateSystem !== 'right-handed-y-up') throw new Error('unsupported coordinates for ' + slug);
+    const materials = (doc.materials || []).map(d => this._material(d));
+    const root = new THREE.Group();
+    for (const p of doc.meshes) {
+      const gd = p.geometry || {}, Ctor = THREE[gd.type];
+      if (typeof Ctor !== 'function' || !gd.parameters) throw new Error('unsupported geometry in ' + slug);
+      const a = gd.parameters, order = {
+        BoxGeometry: ['width', 'height', 'depth', 'widthSegments', 'heightSegments', 'depthSegments'],
+        SphereGeometry: ['radius', 'widthSegments', 'heightSegments', 'phiStart', 'phiLength', 'thetaStart', 'thetaLength'],
+        CylinderGeometry: ['radiusTop', 'radiusBottom', 'height', 'radialSegments', 'heightSegments', 'openEnded', 'thetaStart', 'thetaLength'],
+        ConeGeometry: ['radius', 'height', 'radialSegments', 'heightSegments', 'openEnded', 'thetaStart', 'thetaLength'],
+        PlaneGeometry: ['width', 'height', 'widthSegments', 'heightSegments'],
+        TorusGeometry: ['radius', 'tube', 'radialSegments', 'tubularSegments', 'arc'],
+      }[gd.type];
+      if (!order) throw new Error('unsupported geometry ' + gd.type);
+      const mesh = new THREE.Mesh(new Ctor(...order.map(k => a[k])), materials[p.material] || materials[0]);
+      if (p.position) mesh.position.fromArray(p.position);
+      if (p.rotation) mesh.rotation.fromArray(p.rotation);
+      if (p.scale) mesh.scale.fromArray(p.scale);
+      mesh.castShadow = true; mesh.receiveShadow = false;
+      root.add(mesh);
+    }
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(root), extent = new THREE.Vector3();
+    box.getSize(extent);
+    if (!Number.isFinite(extent.y) || extent.y <= 0 || extent.y > 1000) throw new Error('invalid bounds for ' + slug);
+    // Source metadata is metres per unit. One metre/tile is one world unit;
+    // the per-spec height then makes silhouette/targeting height explicit.
+    const units = doc.unitsPerMetre || 1;
+    root.userData.sourceHeight = extent.y / units;
+    root.userData.minY = box.min.y;
+    root.userData.unitsPerMetre = units;
+    return root;
+  },
+
+  requestModel(spec) {
+    if (!spec) return Promise.reject(new Error('unmapped monster model'));
+    if (!this._models[spec.slug]) {
+      const url = 'assets/models/baked/' + encodeURIComponent(spec.slug) + '.scene.json';
+      this._models[spec.slug] = fetch(url).then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + spec.slug);
+        return r.json();
+      }).then(doc => this._compileModel(doc, spec.slug));
+    }
+    return this._models[spec.slug];
+  },
+
+  instanceModel(template, spec, def) {
+    // Object3D.clone creates only the mutable hierarchy; geometry and base
+    // materials remain shared. No authored material is mutated per instance.
+    const model = template.clone(true), rig = new THREE.Group();
+    const size = def.size || 1;
+    const scale = spec.height * size / template.userData.sourceHeight;
+    model.scale.setScalar(scale / template.userData.unitsPerMetre);
+    model.position.y = -template.userData.minY * scale / template.userData.unitsPerMetre;
+    // The compiled contract and game contract are both +Z forward. A future
+    // source with a different authored forward axis declares a one-time yaw in
+    // MODEL_MAP instead of compensating every frame.
+    model.rotation.y = spec.yaw || 0;
+    rig.add(model);
+    rig.userData.authored = true;
+    rig.userData.animation = spec.animation;
+    rig.userData.modelSlug = spec.slug;
+    rig.userData.targetHeight = spec.height * size;
+    return rig;
   },
 
   // part(): one primitive, positioned and scaled in local space
@@ -188,6 +306,15 @@ const Actors3 = {
     const w = t * 9 + (a._phase || 0);
     const swing = moving ? Math.sin(w) * 0.55 : Math.sin(t * 1.7 + (a._phase || 0)) * 0.05;
 
+    // Rigid-authored models still communicate locomotion and attacks through
+    // root motion; they are not substituted for limb-dependent species.
+    if (d.authored) {
+      const attack = a.attackT > 0 ? Math.sin((1 - a.attackT / 0.3) * Math.PI) : 0;
+      rig.position.y = moving ? Math.abs(Math.sin(w)) * 0.035 : Math.sin(t * 1.7 + (a._phase || 0)) * 0.012;
+      rig.rotation.x = -attack * 0.12;
+      return;
+    }
+
     if (d.legs && !d.skitter) {
       d.legs[0].rotation.x = swing;
       if (d.legs[1]) d.legs[1].rotation.x = -swing;
@@ -245,13 +372,23 @@ const Actors3 = {
         // under `fam`, not `kind` — `kind` is only set for summoned traps.
         // Reading the def off the monster means the rig cannot disagree with
         // the stats, and the fallback lookup covers anything spawned by hand.
-        const def = m.def || MONSTERS[m.fam] || BOSSES[m.fam] || MONSTERS[m.kind] || BOSSES[m.kind];
-        const id = m.fam || m.kind;
+        const id = m.fam || (typeof m.def === 'string' ? m.def : null);
+        const def = (m.def && typeof m.def === 'object' ? m.def : null) || MONSTERS[id] || BOSSES[id];
         if (!def || !id) continue;
+        const spec = this.modelSpec(m);
+        // Start the authored request before constructing the visible fallback.
+        // Keeping that fallback during I/O avoids invisible/untargetable actors.
+        const requested = spec && this.requestModel(spec);
         m._rig = this.build(def.body, id, def.pal, (def.size || 1) * (m.boss ? 1.3 : 1));
         m._phase = (m.x * 7.3 + m.y * 3.1) % 6.28;
         R3.scene.add(m._rig);
         this.pool.push(m);
+        if (requested) requested.then(template => {
+          if (!m._rig || this.pool.indexOf(m) < 0) return;
+          const authored = this.instanceModel(template, spec, def);
+          authored.position.copy(m._rig.position); authored.rotation.copy(m._rig.rotation);
+          R3.scene.remove(m._rig); m._rig = authored; R3.scene.add(authored);
+        }).catch(() => { /* the already-created build() rig is the fallback */ });
       }
       const r = m._rig;
       r.position.x = m.x; r.position.z = m.y;
