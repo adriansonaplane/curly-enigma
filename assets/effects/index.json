@@ -1,7 +1,7 @@
 {
   "kind": "effects",
   "base": "https://fabclaude.com/api",
-  "pulled": "2026-07-27T20:39:53Z",
+  "pulled": "2026-07-28T03:28:57Z",
   "entries": [
     { "slug": "soulflame-3d", "meta": "soulflame-3d.json", "html": "soulflame-3d.html" },
     { "slug": "torch-3d", "meta": "torch-3d.json", "html": "torch-3d.html" },
