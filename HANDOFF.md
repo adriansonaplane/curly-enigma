@@ -17,13 +17,14 @@ DIABLOID is intended as a **visual demo**, not a portfolio piece, commercial
 prototype, or systems sandbox. Fidelity and atmosphere therefore take priority
 over content volume and balance.
 
-The real-hardware smoke-test milestone has now been completed (§2). The next
-concrete milestone is to decide and document the camera direction: retain the
-isometric preset or retire it and make third-person the sole presentation of the
-3D world. The owner's current preference is to move forward with the 3D world
-and possibly remove the remaining isometric path, but this is not yet approval
-to delete it. No camera-removal feature work should begin until that scope and
-its save/settings compatibility requirements are confirmed.
+The camera decision is complete: **remove orthographic isometric, retain two
+perspective presets**. `elevated` preserves the fixed, readable overview without
+parallel projection; `third` remains the freely orbitable close view. This was
+chosen over retaining orthographic mode because particles, occlusion and scale
+now have one projection contract, and over third-person-only because the fixed
+overview remains important for dungeon and edge-of-screen combat readability.
+Both presets use the same Three.js camera, world pass, picking, and closed-form
+`R3.screenBasis()` movement basis. Do not add mode-specific world renderers.
 
 ## 2. Last known-good state
 
@@ -91,8 +92,8 @@ high-DPI scaling, alt-tab / context-loss recovery.
 
 My recommendation, not a decision:
 
-1. **Camera direction** — decide whether to retire the isometric preset before
-   doing more mode-specific work.
+1. **Camera validation** — keep the two perspective presets on the smoke route
+   and do not restore an orthographic rendering path.
 2. **Crashes / correctness** — nothing known from the first hardware smoke test.
 3. **Performance** — the draw-call merge (§8 of the appendix) is the one
    high-value, well-understood optimisation left.
@@ -106,9 +107,8 @@ My recommendation, not a decision:
   burst simultaneously.
 - **`R3.screenBasis()` deriving from `yaw` in closed form.** Reverting it to
   `getWorldDirection()` reintroduces a shipped bug (see appendix §3).
-- **The isometric preset.** Iso and third-person currently share one rig. The
-  owner is considering removing iso in favour of the 3D-world direction, but
-  deletion requires the explicit scope decision described in §1.
+- **The single perspective rendering path.** Elevated and third-person are
+  presets on one rig; orthographic is intentionally retired.
 - **Dungeon sconces generating cold, in hallways.** This is a design decision the
   owner made explicitly, twice.
 - **`vendor/three.min.js`** — pinned r128. The code uses r128-era APIs
@@ -126,9 +126,8 @@ My recommendation, not a decision:
 
 **Architectural decisions explained but under-documented in code:**
 
-- *Isometric as camera preset.* The 2D renderer baked the projection into a
-  matrix, which is why "isometric" and "third person" were two code paths that
-  disagreed. One rig, one set of maths, classic look as a preset.
+- *Elevated perspective as camera preset.* The fixed overview and freely
+  orbitable third-person view share one perspective rig and one set of maths.
 - *Nameplates/damage/bubbles/minimap stay 2D.* They are genuinely screen-space.
   A nameplate wants crisp text at a fixed pixel size; billboarded quads fight the
   depth buffer. This split is why `renderer.js` is 350 lines and `render.js` was
@@ -178,12 +177,17 @@ Keep this route for regression testing; each step states the expected behaviour.
 6. **Loot** — kill something, confirm a coloured bead drops with a rarity-tinted
    label. Pick up, equip, confirm the item appears **on the character model**
    (helm, shield, weapon are all visible fixtures).
-7. **Drop / store an item**, then **save and reload** — this passed once with the
-   pre-migration save recorded in §2; keep checking it for regressions.
+7. **Drop / store an item**, then **save and reload**. Before loading, also set
+   `localStorage.cam_v1` to an old payload with `mode: "iso"`; it must load the
+   elevated preset cleanly while retaining compatible third-person preferences.
 8. **Boss** — a boss should be larger (1.3×) with a wider health bar.
 9. **Portal (T)**, **death**, and **hardcore death** if that mode is enabled.
-10. **Camera (V)** — iso ↔ third person. Movement keys must stay correct in
-    both; this is the bug that was just fixed, so it is worth re-checking.
+10. **Camera (V)** — elevated ↔ third person. In *each* preset, walk all four
+    screen directions; target and place projectile/AoE skills near every screen
+    edge; pass behind walls and confirm occlusion fading; inspect particles and
+    equipped helm/shield/weapon; and traverse a dense dungeon room to confirm
+    the layout remains readable. In third person, repeat after orbiting with
+    `[`, `]`, and middle-drag. Movement must remain camera-relative throughout.
 11. **Settings** — toggle mood spooky/bright, quality high/low, shadows. Low
     quality drops the light budget 12 → 6.
 
@@ -248,20 +252,18 @@ util → audio → baked/index.js → assetpacks → assets → data → sprites
 `FX3.PX = 1/32` converts on read. `Render.worldToScreen(x, y, z)` still takes
 `z` in pixels so `physics.js` and `target.js` needed no changes.
 
-## A3. Camera: iso is a preset, not a projection
+## A3. Camera: two presets, one perspective path
 
-`MODE_ISO` = orthographic, yaw pinned to π/4. `MODE_FREE` = perspective, orbits.
+`MODE_ELEVATED` pins yaw to π/4 and uses a high perspective view.
+`MODE_FREE` is perspective and orbits. Both render through `R3.perspCam`; camera
+mode may select rig values but must never select a different world renderer.
+Movement reads `R3.screenBasis()` directly, so its axes always match the yaw
+used to draw the scene. Legacy `cam_v1` values with `mode: "iso"` migrate to
+`elevated`; legacy orthographic pitch is deliberately not copied.
 
-**`Cam.yaw` is not the camera's yaw in iso mode** — `renderer.js` only pushes it
-into `R3.yaw` in FREE mode. Movement input rotated by `Cam.yaw` while the picture
-used `R3.yaw` is exactly how "press left, walk south" happened. Use
-`R3.screenBasis()`.
-
-Ortho gotchas that cost real time:
-- **Point sprites.** `size / -viewZ` is a *perspective* correction; under ortho
-  it shrinks every particle to sub-pixel. See the `ortho` uniform in `fx3d.js`.
-- **Readback.** No `preserveDrawingBuffer`, so `drawImage(canvas)` in a test
-  returns black. Measurement artifact, not a black screen — shim the constructor.
+**Readback note.** There is no `preserveDrawingBuffer`, so `drawImage(canvas)`
+in a test returns black. This is a measurement artifact, not a black screen;
+shim the constructor when a test needs readback.
 
 ## A4. Instancing constrains props
 

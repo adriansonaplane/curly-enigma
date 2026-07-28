@@ -182,9 +182,10 @@ const Render = {
     Cam.update(dt, pl);
     R3.setZoom(Cam.zoom);
     if ((Cam.mode === 'third') !== (R3.mode === R3.MODE_FREE)) {
-      R3.setMode(Cam.mode === 'third' ? R3.MODE_FREE : R3.MODE_ISO);
+      R3.setMode(Cam.mode === 'third' ? R3.MODE_FREE : R3.MODE_ELEVATED);
     }
-    if (R3.mode === R3.MODE_FREE) { R3.yaw = Cam.yaw; R3.pitch = U.clamp(Cam.pitch || 0.6, R3.PITCH_MIN, R3.PITCH_MAX); }
+    R3.yaw = Cam.yaw;
+    R3.pitch = U.clamp(Cam.pitch || 0.6, R3.PITCH_MIN, R3.PITCH_MAX);
     const shx = G.shake ? U.rf(U.rand, -G.shake, G.shake) * 0.02 : 0;
     const shz = G.shake ? U.rf(U.rand, -G.shake, G.shake) * 0.02 : 0;
     R3.lookAt(Cam.fx + shx, Cam.fy + shz);
