@@ -144,20 +144,22 @@ Both perspectives expose independent, persisted settings:
   sits, so the controls never invert as you orbit
 - Walls between the camera and your hero **fade out** so a low angle never boxes you in
 
-Pre-rendered diamond tiles stay pixel-correct at any yaw: the camera matrix
-`P(zoom,pitch) · R(yaw) · P(1,0.5)⁻¹` maps the baked art into the rotated view, and walls become
-true extrusions — ground corners projected, lifted, with only the camera-facing quads drawn.
-The whole floor pass runs under a single transform.
+The playable world is rendered by **Three.js**: floors, walls, props, actors,
+loot markers, lighting, and combat effects are real 3D scene content shared by
+both camera presets. Intentional screen-space presentation remains Canvas 2D:
+the minimap, nameplates, damage numbers, targeting feedback, chat bubbles,
+physics chips, skill/item icons, portraits, and HUD canvases. Those overlays are
+kept crisp and fixed-size rather than turned into world geometry.
 
 **Physics** — smashed props throw chunks that arc, tumble, bounce off floors and walls, skid to a
 stop under friction, splash in water and burn up in lava. Corpses **ragdoll** along the blow that
 killed them. Explosions apply radial impulses to debris, corpses and loose props alike, and
 materials (wood, stone, clay, bone, metal, glass, cloth) each have their own restitution and drag.
 
-**Human figure** — the old stick sprite is gone. Every humanoid is now a jointed skeleton —
+**Human figure** — the old world sprite is gone. Every in-world humanoid is now a jointed 3D skeleton —
 pelvis, spine, neck, head, upper and forearms, thighs and shins — posed by an animation state
 machine with a contralateral walk cycle, a faster run, windup/strike/recover attacks, casting,
-flinches, deaths and dances. The hero is drawn live rather than from a sheet, so **equipment is
+flinches, deaths and dances. The hero rig is posed live, so **equipment is
 visible**: your helm (with visor, crest and horns at higher rarities), chest plate and pauldrons,
 cape, belt buckle, gloves, boots and your actual weapon — sword, axe, mace, spear, bow, crossbow,
 staff, wand, dagger or orb — all coloured by the item's rarity and glowing if it's a set or unique.

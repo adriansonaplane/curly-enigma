@@ -150,3 +150,18 @@ test('representative combat effects reach visible Three.js pools', async ({ page
   expect(result.flashes).toBeGreaterThan(0);
   expect(result.bolts).toBeGreaterThan(0);
 });
+
+test('damage numbers retain their screen-space overlay payload', async ({ page }) => {
+  const errors = [];
+  await openGame(page, errors); await startGame(page);
+  const result = await page.evaluate(broken => {
+    const drawn = [], fillText = Render.ctx.fillText;
+    Render.ctx.fillText = function (text) { drawn.push(text); };
+    UI.dmgNum(G.player.x, G.player.y, broken ? '' : '321', '#fff', false);
+    Render.drawDamage(Render.ctx);
+    Render.ctx.fillText = fillText;
+    return { payload: G.dmgNums.at(-1).txt, drawn };
+  }, mutation === 'damage-overlay');
+  expect(result.payload).toBe('321');
+  expect(result.drawn).toContain('321');
+});
