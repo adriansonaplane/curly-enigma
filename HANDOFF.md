@@ -34,18 +34,21 @@ Both presets use the same Three.js camera, world pass, picking, and closed-form
 | PR | #10 → `main` (open at handoff) |
 | Last commit | `328d551` — torch toggle |
 | Last **automated** verification | `328d551`, headless Chromium + swiftshader |
-| Last **human** playtested commit | `7ee5312` (documentation HEAD; game code unchanged from `328d551`) |
+| Last **human** playtest | 2026-07-28, merge commit `cb9f811` |
 | Browser | Firefox 153 |
 | Operating system | Linux |
 | Resolution / device pixel ratio | 2560×1440 / 1.25 |
 | GPU | NVIDIA GeForce RTX 3060 |
-| Profile / save state | Existing pre-migration save (not a clean profile) |
+| Profile / save state | Existing pre-PR-10 save (not a clean profile); loaded successfully |
 
 ### Human playtest results
 
-The owner reported the following average/worst-observed frame rates. The final
-two mode-specific figures were reported as single observations, not separate
-average/worst pairs; do not infer unreported values.
+The owner observed **96–155 FPS**. They confirmed that the reported
+`155/155, 155/107, 107/96, 155, 96` measurements map, in order, to town, a
+normal dungeon, a busy room, isometric mode, and third-person mode. The first
+three are average/worst-observed pairs; the final two mode-specific figures are
+single observations, not separate average/worst pairs. Do not infer unreported
+values.
 
 | Scene / mode | Average FPS | Worst-observed FPS |
 |---|---:|---:|
@@ -57,16 +60,17 @@ average/worst pairs; do not infer unreported values.
 
 - **Visual or input defects:** none reported. No screenshot or video was
   supplied because no defect was reported.
-- **Save and reload:** behaved correctly with the pre-migration save.
-- **Portal, normal death, and hardcore death:** all behaved correctly.
+- **Save and reload:** appeared to work correctly with the pre-PR-10 save.
+- **Portal, normal death, and hardcore death:** all appeared to work correctly.
 
 The older automated verification remains useful supplementary evidence: it ran
 in headless Chromium with software GL (swiftshader) at 1100×640 or 1440×860.
 Treat its "zero errors, 230 draw calls" result as correctness evidence, not
+real-hardware performance evidence. This Firefox/RTX 3060 session is the first
 real-hardware performance evidence.
 
 Saves are `localStorage`. The human test above is the first recorded check of a
-pre-migration save across the 3D migration.
+pre-PR-10 save across the 3D migration.
 
 ## 3. Known issues
 
@@ -158,8 +162,10 @@ My recommendation, not a decision:
 
 ## 6. Manual smoke-test route
 
-Completed once by the owner on the real-hardware environment recorded in §2.
-Keep this route for regression testing; each step states the expected behaviour.
+Completed by the owner on 2026-07-28 in Firefox 153 on Linux, at a 2560×1440
+viewport and 1.25× device scaling on an RTX 3060, using merge commit `cb9f811`.
+The observed range was 96–155 FPS. Keep this route for regression testing; each
+step states the expected behaviour.
 
 1. **Create a character** — class grid shows 7 classes; picking one and
    confirming lands you in Haven's Rest.
