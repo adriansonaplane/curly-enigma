@@ -26,6 +26,7 @@ const Actors3 = {
     karghul:  { slug: 'ragm-furnace-tyrant',                animation: 'rigid', height: 1.55, boss: true },
   },
   _models: Object.create(null),   // slug -> Promise<immutable normalized template>
+  _staticGeometry: Object.create(null), // archetype/variant -> material-key geometries
   pool: [],                       // live actor rigs
   crowd: [],                      // town NPCs and townsfolk, same rigs, no combat
 
@@ -164,137 +165,147 @@ const Actors3 = {
     return rig;
   },
 
-  // part(): one primitive, positioned and scaled in local space
-  _part(geo, mat, x, y, z, sx, sy, sz) {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    m.scale.set(sx, sy === undefined ? sx : sy, sz === undefined ? sx : sz);
-    m.castShadow = true; m.receiveShadow = false;
-    return m;
+  // Merge static primitive copies without depending on BufferGeometryUtils.
+  // Inputs are made non-indexed consistently: that keeps the implementation
+  // small, avoids invalid mixed index layouts, and preserves every triangle.
+  _mergeGeometries(geometries) {
+    if (!geometries.length) throw new Error('cannot merge an empty geometry list');
+    const flat = geometries.map(geometry => geometry.index ? geometry.toNonIndexed() : geometry.clone());
+    const names = Object.keys(flat[0].attributes).sort();
+    if (!names.includes('position')) throw new Error('merged geometry requires positions');
+    for (const geometry of flat) {
+      const own = Object.keys(geometry.attributes).sort();
+      if (own.join('|') !== names.join('|')) throw new Error('mismatched geometry attributes');
+      for (const name of names) {
+        const a = flat[0].attributes[name], b = geometry.attributes[name];
+        if (a.itemSize !== b.itemSize || a.normalized !== b.normalized || a.array.constructor !== b.array.constructor)
+          throw new Error('mismatched ' + name + ' attribute layout');
+        if (b.count !== geometry.attributes.position.count)
+          throw new Error('mismatched ' + name + ' attribute count');
+      }
+    }
+    const merged = new THREE.BufferGeometry();
+    for (const name of names) {
+      const sample = flat[0].attributes[name];
+      let length = 0;
+      for (const geometry of flat) length += geometry.attributes[name].array.length;
+      const array = new sample.array.constructor(length);
+      let offset = 0;
+      for (const geometry of flat) {
+        const source = geometry.attributes[name].array;
+        array.set(source, offset); offset += source.length;
+      }
+      merged.setAttribute(name, new THREE.BufferAttribute(array, sample.itemSize, sample.normalized));
+    }
+    merged.computeBoundingBox();
+    merged.computeBoundingSphere();
+    for (const geometry of flat) geometry.dispose();
+    return merged;
+  },
+
+  _transformGeometry(source, transform) {
+    const t = transform || {};
+    const position = t.position || [0, 0, 0];
+    const rotation = t.rotation || [0, 0, 0];
+    const scale = t.scale || [1, 1, 1];
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3().fromArray(position),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2])),
+      new THREE.Vector3().fromArray(scale));
+    const geometry = source.clone();
+    // applyMatrix4 uses a normal matrix for normals, including non-uniform scale.
+    geometry.applyMatrix4(matrix);
+    return geometry;
+  },
+
+  _animatedPart(rig, role, geometry, material, transform) {
+    const mesh = new THREE.Mesh(geometry, material), t = transform || {};
+    mesh.position.fromArray(t.position || [0, 0, 0]);
+    mesh.rotation.fromArray(t.rotation || [0, 0, 0]);
+    mesh.scale.fromArray(t.scale || [1, 1, 1]);
+    mesh.castShadow = true; mesh.receiveShadow = false;
+    rig.add(mesh);
+    if (role) {
+      if (role.endsWith('[]')) (rig.userData[role.slice(0, -2)] || (rig.userData[role.slice(0, -2)] = [])).push(mesh);
+      else rig.userData[role] = mesh;
+    }
+    return mesh;
   },
 
   // ---- archetypes ----
-  // Each returns a group whose named children the animator drives. Origin is
-  // at the feet, +Z forward, so a facing is just group.rotation.y.
+  // Static parts are baked into archetype-local geometry. Animated parts keep
+  // their own meshes even when a particular pose happens not to move them.
   build(body, kind, pal, size) {
-    const g = this.geo(), M = this.mats(kind, pal);
-    const rig = new THREE.Group();
-    const P = (geo, mat, ...a) => { const m = this._part(geo, mat, ...a); rig.add(m); return m; };
-    const s = size || 1;
+    const g = this.geo(), M = this.mats(kind, pal), rig = new THREE.Group();
+    const buckets = Object.create(null), materialKeys = ['main', 'dark', 'eye'];
+    const T = (x, y, z, sx, sy, sz, rotation) => ({
+      position: [x, y, z], scale: [sx, sy === undefined ? sx : sy, sz === undefined ? sx : sz],
+      rotation: rotation || [0, 0, 0],
+    });
+    const animatedPart = (role, geometry, material, transform) =>
+      this._animatedPart(rig, role, geometry, material, transform);
+    const staticPart = (geometry, materialKey, transform) =>
+      (buckets[materialKey] || (buckets[materialKey] = [])).push({ geometry, transform });
 
     switch (body) {
-      case 'skeleton': {
-        rig.userData.legs = [
-          P(g.cyl, M.main, -0.13, 0.36, 0, 0.07, 0.72, 0.07),
-          P(g.cyl, M.main, 0.13, 0.36, 0, 0.07, 0.72, 0.07)];
-        const torso = P(g.cyl, M.main, 0, 0.95, 0, 0.2, 0.52, 0.14);
-        // ribs — the read that says "skeleton" at a glance
-        for (let i = 0; i < 4; i++)
-          P(g.cyl, M.dark, 0, 0.78 + i * 0.12, 0, 0.23, 0.03, 0.17);
-        rig.userData.arms = [
-          P(g.cyl, M.main, -0.28, 0.98, 0, 0.055, 0.5, 0.055),
-          P(g.cyl, M.main, 0.28, 0.98, 0, 0.055, 0.5, 0.055)];
-        const head = P(g.sphere, M.main, 0, 1.36, 0, 0.19, 0.22, 0.19);
-        P(g.sphere, M.eye, -0.07, 1.37, 0.15, 0.045);
-        P(g.sphere, M.eye, 0.07, 1.37, 0.15, 0.045);
-        rig.userData.head = head; rig.userData.torso = torso;
+      case 'skeleton':
+        animatedPart('legs[]', g.cyl, M.main, T(-0.13, .36, 0, .07, .72, .07));
+        animatedPart('legs[]', g.cyl, M.main, T(.13, .36, 0, .07, .72, .07));
+        animatedPart('torso', g.cyl, M.main, T(0, .95, 0, .2, .52, .14));
+        for (let i = 0; i < 4; i++) staticPart(g.cyl, 'dark', T(0, .78 + i * .12, 0, .23, .03, .17));
+        animatedPart('arms[]', g.cyl, M.main, T(-.28, .98, 0, .055, .5, .055));
+        animatedPart('arms[]', g.cyl, M.main, T(.28, .98, 0, .055, .5, .055));
+        staticPart(g.sphere, 'main', T(0, 1.36, 0, .19, .22, .19));
+        staticPart(g.sphere, 'eye', T(-.07, 1.37, .15, .045)); staticPart(g.sphere, 'eye', T(.07, 1.37, .15, .045));
         break;
-      }
-      case 'brute': {
-        rig.userData.legs = [
-          P(g.cyl, M.dark, -0.22, 0.34, 0, 0.15, 0.7, 0.15),
-          P(g.cyl, M.dark, 0.22, 0.34, 0, 0.15, 0.7, 0.15)];
-        const torso = P(g.blob, M.main, 0, 1.05, 0, 0.46, 0.5, 0.38);
-        rig.userData.arms = [
-          P(g.cyl, M.main, -0.5, 1.0, 0, 0.13, 0.62, 0.13),
-          P(g.cyl, M.main, 0.5, 1.0, 0, 0.13, 0.62, 0.13)];
-        // hunched, small head, huge shoulders
-        P(g.blob, M.main, -0.42, 1.32, 0, 0.2);
-        P(g.blob, M.main, 0.42, 1.32, 0, 0.2);
-        const head = P(g.blob, M.main, 0, 1.44, 0.06, 0.21, 0.19, 0.2);
-        P(g.sphere, M.eye, -0.08, 1.46, 0.17, 0.05);
-        P(g.sphere, M.eye, 0.08, 1.46, 0.17, 0.05);
-        rig.userData.head = head; rig.userData.torso = torso;
+      case 'brute':
+        animatedPart('legs[]', g.cyl, M.dark, T(-.22, .34, 0, .15, .7, .15)); animatedPart('legs[]', g.cyl, M.dark, T(.22, .34, 0, .15, .7, .15));
+        animatedPart('torso', g.blob, M.main, T(0, 1.05, 0, .46, .5, .38));
+        animatedPart('arms[]', g.cyl, M.main, T(-.5, 1, 0, .13, .62, .13)); animatedPart('arms[]', g.cyl, M.main, T(.5, 1, 0, .13, .62, .13));
+        staticPart(g.blob, 'main', T(-.42, 1.32, 0, .2)); staticPart(g.blob, 'main', T(.42, 1.32, 0, .2)); staticPart(g.blob, 'main', T(0, 1.44, .06, .21, .19, .2));
+        staticPart(g.sphere, 'eye', T(-.08, 1.46, .17, .05)); staticPart(g.sphere, 'eye', T(.08, 1.46, .17, .05));
         break;
-      }
-      case 'blob': {
-        const torso = P(g.blob, M.main, 0, 0.42, 0, 0.55, 0.44, 0.55);
-        P(g.blob, M.dark, 0, 0.66, 0, 0.34, 0.26, 0.34);
-        P(g.sphere, M.eye, -0.14, 0.6, 0.34, 0.07);
-        P(g.sphere, M.eye, 0.14, 0.6, 0.34, 0.07);
-        rig.userData.torso = torso; rig.userData.wobble = true;
-        break;
-      }
-      case 'spider': {
-        const torso = P(g.blob, M.main, 0, 0.42, -0.1, 0.42, 0.3, 0.5);
-        P(g.blob, M.dark, 0, 0.4, 0.3, 0.26, 0.22, 0.26);
-        const legs = [];
-        for (let i = 0; i < 8; i++) {
-          const side = i < 4 ? -1 : 1, k = i % 4;
-          const l = P(g.cyl, M.dark, side * 0.34, 0.3, -0.24 + k * 0.18, 0.04, 0.42, 0.04);
-          l.rotation.z = side * 0.9;
-          legs.push(l);
-        }
-        rig.userData.legs = legs; rig.userData.torso = torso; rig.userData.skitter = true;
-        P(g.sphere, M.eye, -0.09, 0.46, 0.5, 0.05);
-        P(g.sphere, M.eye, 0.09, 0.46, 0.5, 0.05);
-        break;
-      }
-      case 'bat': {
-        const torso = P(g.blob, M.main, 0, 0.8, 0, 0.17, 0.22, 0.2);
-        rig.userData.wings = [
-          P(g.box, M.dark, -0.36, 0.86, 0, 0.5, 0.03, 0.3),
-          P(g.box, M.dark, 0.36, 0.86, 0, 0.5, 0.03, 0.3)];
-        P(g.cone, M.main, -0.08, 1.0, 0, 0.06, 0.12, 0.06);
-        P(g.cone, M.main, 0.08, 1.0, 0, 0.06, 0.12, 0.06);
-        P(g.sphere, M.eye, -0.06, 0.84, 0.15, 0.04);
-        P(g.sphere, M.eye, 0.06, 0.84, 0.15, 0.04);
-        rig.userData.torso = torso; rig.userData.fly = true;
-        break;
-      }
-      case 'serpent': {
-        const seg = [];
-        for (let i = 0; i < 6; i++)
-          seg.push(P(g.blob, i % 2 ? M.dark : M.main, 0, 0.26, -i * 0.3, 0.3 - i * 0.03));
-        const head = P(g.blob, M.main, 0, 0.34, 0.28, 0.24, 0.2, 0.3);
-        P(g.sphere, M.eye, -0.09, 0.38, 0.46, 0.05);
-        P(g.sphere, M.eye, 0.09, 0.38, 0.46, 0.05);
-        rig.userData.segs = seg; rig.userData.head = head; rig.userData.slither = true;
-        break;
-      }
-      case 'ghost': {
-        const torso = P(g.blob, M.main, 0, 0.85, 0, 0.34, 0.44, 0.3);
-        const tail = P(g.cone, M.main, 0, 0.4, 0, 0.3, 0.6, 0.28);
-        tail.rotation.x = Math.PI;
-        P(g.sphere, M.eye, -0.1, 0.98, 0.24, 0.055);
-        P(g.sphere, M.eye, 0.1, 0.98, 0.24, 0.055);
-        // Ghosts read as translucent. Materials are shared per monster kind and
-        // every ghost-bodied kind wants this, so setting it on the shared
-        // material is correct rather than a leak — it cannot reach a kind that
-        // is not a ghost.
-        M.main.transparent = true; M.main.opacity = 0.62;
-        M.main.emissive = new THREE.Color(pal.main);
-        M.main.emissiveIntensity = 0.25;
-        rig.userData.torso = torso; rig.userData.tail = tail;
-        rig.userData.fly = true; rig.userData.ghost = true;
-        break;
-      }
-      default: {  // humanoid
-        rig.userData.legs = [
-          P(g.cyl, M.dark, -0.14, 0.35, 0, 0.09, 0.7, 0.09),
-          P(g.cyl, M.dark, 0.14, 0.35, 0, 0.09, 0.7, 0.09)];
-        const torso = P(g.blob, M.main, 0, 0.98, 0, 0.28, 0.36, 0.2);
-        rig.userData.arms = [
-          P(g.cyl, M.main, -0.33, 0.96, 0, 0.07, 0.52, 0.07),
-          P(g.cyl, M.main, 0.33, 0.96, 0, 0.07, 0.52, 0.07)];
-        const head = P(g.blob, M.main, 0, 1.35, 0, 0.19, 0.21, 0.19);
-        P(g.sphere, M.eye, -0.07, 1.37, 0.16, 0.045);
-        P(g.sphere, M.eye, 0.07, 1.37, 0.16, 0.045);
-        rig.userData.head = head; rig.userData.torso = torso;
-        break;
-      }
+      case 'blob':
+        animatedPart('torso', g.blob, M.main, T(0, .42, 0, .55, .44, .55));
+        staticPart(g.blob, 'dark', T(0, .66, 0, .34, .26, .34)); staticPart(g.sphere, 'eye', T(-.14, .6, .34, .07)); staticPart(g.sphere, 'eye', T(.14, .6, .34, .07));
+        rig.userData.wobble = true; break;
+      case 'spider':
+        animatedPart('torso', g.blob, M.main, T(0, .42, -.1, .42, .3, .5)); staticPart(g.blob, 'dark', T(0, .4, .3, .26, .22, .26));
+        for (let i = 0; i < 8; i++) { const side = i < 4 ? -1 : 1, k = i % 4; animatedPart('legs[]', g.cyl, M.dark, T(side * .34, .3, -.24 + k * .18, .04, .42, .04, [0, 0, side * .9])); }
+        staticPart(g.sphere, 'eye', T(-.09, .46, .5, .05)); staticPart(g.sphere, 'eye', T(.09, .46, .5, .05)); rig.userData.skitter = true; break;
+      case 'bat':
+        animatedPart('torso', g.blob, M.main, T(0, .8, 0, .17, .22, .2));
+        animatedPart('wings[]', g.box, M.dark, T(-.36, .86, 0, .5, .03, .3)); animatedPart('wings[]', g.box, M.dark, T(.36, .86, 0, .5, .03, .3));
+        staticPart(g.cone, 'main', T(-.08, 1, 0, .06, .12, .06)); staticPart(g.cone, 'main', T(.08, 1, 0, .06, .12, .06));
+        staticPart(g.sphere, 'eye', T(-.06, .84, .15, .04)); staticPart(g.sphere, 'eye', T(.06, .84, .15, .04)); rig.userData.fly = true; break;
+      case 'serpent':
+        for (let i = 0; i < 6; i++) animatedPart('segs[]', g.blob, i % 2 ? M.dark : M.main, T(0, .26, -i * .3, .3 - i * .03));
+        staticPart(g.blob, 'main', T(0, .34, .28, .24, .2, .3)); staticPart(g.sphere, 'eye', T(-.09, .38, .46, .05)); staticPart(g.sphere, 'eye', T(.09, .38, .46, .05)); rig.userData.slither = true; break;
+      case 'ghost':
+        animatedPart('torso', g.blob, M.main, T(0, .85, 0, .34, .44, .3));
+        staticPart(g.cone, 'main', T(0, .4, 0, .3, .6, .28, [Math.PI, 0, 0])); staticPart(g.sphere, 'eye', T(-.1, .98, .24, .055)); staticPart(g.sphere, 'eye', T(.1, .98, .24, .055));
+        M.main.transparent = true; M.main.opacity = .62; M.main.emissive = new THREE.Color(pal.main); M.main.emissiveIntensity = .25;
+        rig.userData.fly = true; rig.userData.ghost = true; break;
+      default:
+        animatedPart('legs[]', g.cyl, M.dark, T(-.14, .35, 0, .09, .7, .09)); animatedPart('legs[]', g.cyl, M.dark, T(.14, .35, 0, .09, .7, .09));
+        animatedPart('torso', g.blob, M.main, T(0, .98, 0, .28, .36, .2)); animatedPart('arms[]', g.cyl, M.main, T(-.33, .96, 0, .07, .52, .07)); animatedPart('arms[]', g.cyl, M.main, T(.33, .96, 0, .07, .52, .07));
+        staticPart(g.blob, 'main', T(0, 1.35, 0, .19, .21, .19)); staticPart(g.sphere, 'eye', T(-.07, 1.37, .16, .045)); staticPart(g.sphere, 'eye', T(.07, 1.37, .16, .045));
     }
-    rig.scale.setScalar(s);
+
+    // `body` is currently the only geometry-affecting variant. Keep the key
+    // explicit so future horns/sex/elite shapes cannot accidentally alias it.
+    const cacheKey = body + '|base';
+    let cached = this._staticGeometry[cacheKey];
+    if (!cached) {
+      cached = this._staticGeometry[cacheKey] = Object.create(null);
+      for (const materialKey of materialKeys) if (buckets[materialKey])
+        cached[materialKey] = this._mergeGeometries(buckets[materialKey].map(p => this._transformGeometry(p.geometry, p.transform)));
+    }
+    for (const materialKey of materialKeys) if (cached[materialKey]) {
+      const mesh = new THREE.Mesh(cached[materialKey], M[materialKey]);
+      mesh.castShadow = true; mesh.receiveShadow = false; rig.add(mesh);
+    }
+    rig.scale.setScalar(size || 1);
     return rig;
   },
 
@@ -349,6 +360,23 @@ const Actors3 = {
                         : (moving ? Math.abs(Math.sin(w)) * 0.05 : 0);
     rig.position.y = hover;
     if (d.torso && !d.wobble) d.torso.rotation.z = moving ? Math.sin(w) * 0.06 : 0;
+  },
+
+  // Development-only snapshot for the ~40-monster draw-call/FPS runs.
+  // Call after a rendered frame in both elevated and third-person modes; the
+  // renderer counters come from the same R3.stats() panel used elsewhere.
+  stats() {
+    const out = R3.stats();
+    let actorMeshes = 0, visibleActors = 0;
+    for (const owner of this.pool.concat(this.crowd)) {
+      if (!owner._rig || !owner._rig.visible) continue;
+      visibleActors++;
+      owner._rig.traverse(node => { if (node.isMesh && node.visible) actorMeshes++; });
+    }
+    return Object.assign({}, out, {
+      visibleActors, actorMeshes,
+      mergedArchetypes: Object.keys(this._staticGeometry).length,
+    });
   },
 
   // ---- pooling ----
