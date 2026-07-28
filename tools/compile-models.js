@@ -95,6 +95,22 @@ function compile(entry) {
   sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox;
   vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
   vm.runInContext(fs.readFileSync(THREE, 'utf8'), sandbox, { timeout: 5000 });
+  // Keep hold of Object3D subtrees as catalogue code assembles them. Some
+  // payload families (notably the RAGM actors) keep their model in a closure
+  // instead of publishing window.MODEL, so inspecting global names can never
+  // find them. Object3D.add is a considerably stronger boundary: regardless
+  // of the variable name, a renderable model must be attached to a group or
+  // scene. The original method still does all the work; this is observation
+  // only, and the candidates are ranked after construction has finished.
+  vm.runInContext(`(() => {
+    globalThis.__OBJECT3D_ADDITIONS__ = [];
+    const add = THREE.Object3D.prototype.add;
+    THREE.Object3D.prototype.add = function (...objects) {
+      for (const object of objects) if (object && object.isObject3D)
+        globalThis.__OBJECT3D_ADDITIONS__.push(object);
+      return add.apply(this, objects);
+    };
+  })()`, sandbox, { timeout: 5000 });
   sandbox.THREE.WebGLRenderer = class { constructor() { this.domElement = {}; this.shadowMap = {}; }
     setPixelRatio() {} setSize() {} setClearColor() {} render() {} };
   sandbox.THREE.PMREMGenerator = class { compileEquirectangularShader() {} fromScene() { return { texture: null }; } };
@@ -153,7 +169,25 @@ function compile(entry) {
       found = consider(key, globalThis[key]);
       if (found) break;
     }
-    return { found, tried, modelKeys: (typeof MODEL !== 'undefined' && MODEL && !MODEL.isObject3D)
+    // Closure-local models cannot be reached by name. Prefer the largest
+    // usable subtree observed while the payload called Object3D.add(). A
+    // preview scene is rejected by looksLikeModel because it contains its
+    // camera/lights; a model group remains a valid candidate. Stable insertion
+    // order breaks ties, so this does not introduce machine-dependent output.
+    if (!found) {
+      const observed = (globalThis.__OBJECT3D_ADDITIONS__ || []).map((o, order) => {
+        let meshes = 0;
+        if (o && o.isObject3D) o.traverse(n => { if (n.isMesh) meshes++; });
+        return { o, order, meshes };
+      }).filter(x => looksLikeModel(x.o))
+        .sort((a, b) => b.meshes - a.meshes || a.order - b.order);
+      if (observed.length) {
+        found = observed[0].o;
+        tried.push('observed Object3D subtree:' + observed[0].meshes + ' meshes');
+      }
+    }
+    return { found, tried, observed: (globalThis.__OBJECT3D_ADDITIONS__ || []).length,
+      modelKeys: (typeof MODEL !== 'undefined' && MODEL && !MODEL.isObject3D)
       ? Object.keys(MODEL).slice(0, 20) : null };
   })()`, sandbox, { timeout: 5000 });
 
@@ -163,6 +197,7 @@ function compile(entry) {
     const detail = [
       root.modelKeys ? `window.MODEL keys: [${root.modelKeys.join(', ')}]` : 'window.MODEL: absent',
       root.tried.length ? `candidates seen: ${root.tried.join(', ')}` : 'no Object3D globals found',
+      `Object3D additions observed: ${root.observed}`,
       `scripts executed: ${scripts.length}`,
     ].join('; ');
     throw new Error(`${entry.slug}: no usable model root — ${detail}`);
