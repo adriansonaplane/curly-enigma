@@ -1,0 +1,18 @@
+{
+  "entries": [
+    {
+      "file": "runic-pillar-uoc.scene.json",
+      "slug": "runic-pillar-uoc"
+    },
+    {
+      "file": "soul-cage-uoc.scene.json",
+      "slug": "soul-cage-uoc"
+    },
+    {
+      "file": "wooden-door-uoc.scene.json",
+      "slug": "wooden-door-uoc"
+    }
+  ],
+  "kind": "compiled-models",
+  "version": 1
+}
