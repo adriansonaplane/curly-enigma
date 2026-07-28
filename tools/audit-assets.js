@@ -104,10 +104,29 @@ function stripComments(s) {
   return s.replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
 }
 
+// Syntax-check every inline script. The audit called a batch of payloads
+// "clean" while they were full of code the sanitiser had mangled — clean of
+// *security* problems, but broken. Valid-JS is cheap to check and would have
+// caught that immediately, so it is part of the gate now.
+function scriptsParse(html) {
+  const re = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+  let m;
+  while ((m = re.exec(html))) {
+    try { new Function(m[1]); }
+    catch (e) { return e.message.split('\n')[0]; }
+  }
+  return null;
+}
+
 function auditFile(file) {
   const raw = fs.readFileSync(file, 'utf8');
   const body = stripComments(raw);
   const hits = [];
+  if (/\.html?$/i.test(file)) {
+    const err = scriptsParse(raw);
+    if (err) hits.push({ id: 'broken-js', sev: 'block', why: 'inline script does not parse — payload is corrupt',
+                         n: 1, sample: err.slice(0, 70) });
+  }
   for (const r of RULES) {
     r.re.lastIndex = 0;
     const found = body.match(r.re);
