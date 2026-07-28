@@ -114,9 +114,60 @@ function compile(entry) {
   };
   flush();
   if (typeof sandbox.onload === 'function') { try { sandbox.onload.call(sandbox); } catch (e) {} flush(); }
-  if (!sandbox.MODEL || !sandbox.MODEL.root)
-    throw new Error(`${entry.slug}: payload did not expose window.MODEL.root`
-      + ' (it may build the model somewhere this offline harness does not reach)');
+
+  // Find the model.
+  //
+  // `window.MODEL.root` is the documented contract and is tried first, but
+  // every monster payload in the catalogue failed it while every prop passed,
+  // which says the shape varies rather than that fifteen files are broken.
+  // So a few obvious equivalents are accepted too.
+  //
+  // The guard that matters: a candidate must contain meshes and must NOT
+  // contain a camera or a light. That is what separates the model from the
+  // catalogue's whole preview scene — and pulling in the preview scene means
+  // pulling in its ground plane, which is exactly how earlier bakes ended up
+  // with an opaque slab under everything.
+  const root = vm.runInContext(`(() => {
+    const looksLikeModel = (o) => {
+      if (!o || !o.isObject3D) return false;
+      let meshes = 0, bad = 0;
+      o.traverse(n => {
+        if (n.isMesh) meshes++;
+        if (n.isCamera || n.isLight) bad++;
+      });
+      return meshes > 0 && bad === 0;
+    };
+    const tried = [];
+    const consider = (label, o) => {
+      if (!o) return null;
+      tried.push(label + (o.isObject3D ? ':Object3D' : ':' + typeof o));
+      return looksLikeModel(o) ? o : null;
+    };
+    let found = null;
+    if (typeof MODEL !== 'undefined' && MODEL) {
+      found = consider('MODEL.root', MODEL.root) || consider('MODEL', MODEL)
+        || consider('MODEL.group', MODEL.group) || consider('MODEL.object', MODEL.object)
+        || consider('MODEL.mesh', MODEL.mesh) || consider('MODEL.model', MODEL.model);
+    }
+    if (!found) for (const key of ['MONSTER', 'ACTOR', 'ROOT', 'model', 'root', 'group']) {
+      found = consider(key, globalThis[key]);
+      if (found) break;
+    }
+    return { found, tried, modelKeys: (typeof MODEL !== 'undefined' && MODEL && !MODEL.isObject3D)
+      ? Object.keys(MODEL).slice(0, 20) : null };
+  })()`, sandbox, { timeout: 5000 });
+
+  if (!root.found) {
+    // Report what the payload DID expose. A bare "did not expose MODEL.root"
+    // costs a round trip to a human who has the file; this does not.
+    const detail = [
+      root.modelKeys ? `window.MODEL keys: [${root.modelKeys.join(', ')}]` : 'window.MODEL: absent',
+      root.tried.length ? `candidates seen: ${root.tried.join(', ')}` : 'no Object3D globals found',
+      `scripts executed: ${scripts.length}`,
+    ].join('; ');
+    throw new Error(`${entry.slug}: no usable model root — ${detail}`);
+  }
+  sandbox.__ROOT__ = root.found;
   sandbox.KEEP_DECALS = KEEP_DECALS;
   const scene = vm.runInContext(`(() => {
     const round = n => Object.is(n, -0) ? 0 : +n.toFixed(6);
@@ -159,8 +210,8 @@ function compile(entry) {
       if (!(m.map || m.alphaMap)) return false;
       return o.geometry.type === 'PlaneGeometry' || o.geometry.type === 'CircleGeometry';
     };
-    MODEL.root.updateMatrixWorld(true);
-    MODEL.root.traverse(o => {
+    __ROOT__.updateMatrixWorld(true);
+    __ROOT__.traverse(o => {
       if (!o.isMesh) return;
       if (isDecal(o)) { dropped.push(o.geometry.type); return; }
       const p = o.geometry.parameters || {};
