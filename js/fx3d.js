@@ -96,6 +96,7 @@ const FX3 = {
   group: null,
   add: null, norm: null,    // two Points objects: additive and normal blending
   rings: [], flashes: [], bolts: [], projs: [],
+  ambient: [], ambientTheme: null,
   ready: false,
 
   // A soft radial dot, generated rather than loaded — the game ships no
@@ -257,6 +258,38 @@ const FX3 = {
       dst.color.array[i * 3 + 2] = col.b;
       dst.size.array[i] = (p.size || 2) * this.PX * (p.add ? 1 : k * 0.6 + 0.4);
     }
+    // Ambient motes share the existing two particle uploads and therefore add
+    // no draw calls. Slots are persistent and respawn around the camera.
+    const map = G.map, kind = map && (THEMES[map.theme] || {}).amb;
+    const desired = Render.quality === 'low' ? 32 : 120;
+    if (kind !== this.ambientTheme) { this.ambientTheme = kind; this.ambient.length = 0; }
+    while (kind && this.ambient.length < desired) this.ambient.push({ phase: U.rand() * 99, x: 0, y: 0, z: 0 });
+    const focus = R3.focus;
+    const reset = p => {
+      for (let tries = 0; tries < 8; tries++) {
+        p.x = focus.x + U.rf(U.rand, -15, 15); p.y = focus.z + U.rf(U.rand, -15, 15);
+        const tx = Math.floor(p.x), ty = Math.floor(p.y);
+        if (!map || tx < 0 || ty < 0 || tx >= map.w || ty >= map.h || map.t[ty * map.w + tx] === TILE.WALL) continue;
+        p.z = U.rf(U.rand, 5, 70); break;
+      }
+    };
+    const style = {
+      dust: ['#b7ad96', false, 1.5], ember: ['#ff8a2f', true, 2.1],
+      ash: ['#d08065', true, 1.7], spore: ['#75e69a', true, 2.4], firefly: ['#dfff78', true, 2.8],
+    }[kind];
+    if (style) for (let j = 0; j < Math.min(desired, this.ambient.length); j++) {
+      const p = this.ambient[j];
+      if (!p.z || Math.abs(p.x - focus.x) > 17 || Math.abs(p.y - focus.z) > 17) reset(p);
+      p.z += (kind === 'dust' || kind === 'ash' ? -2 : 5) * 0.016;
+      p.x += Math.sin(t * 0.35 + p.phase) * 0.003;
+      if (p.z < 2 || p.z > 78) reset(p);
+      const dst = style[1] ? A : N, i = style[1] ? na++ : nn++;
+      if (i >= this.MAX) { if (style[1]) na--; else nn--; continue; }
+      dst.position.array[i * 3] = p.x; dst.position.array[i * 3 + 1] = p.z * this.PX; dst.position.array[i * 3 + 2] = p.y;
+      col.set(style[0]); const pulse = kind === 'firefly' ? 0.55 + Math.sin(t * 2 + p.phase) * 0.35 : 0.65;
+      dst.color.array[i * 3] = col.r * pulse; dst.color.array[i * 3 + 1] = col.g * pulse; dst.color.array[i * 3 + 2] = col.b * pulse;
+      dst.size.array[i] = style[2] * this.PX;
+    }
     this.add.geometry.setDrawRange(0, na);
     this.norm.geometry.setDrawRange(0, nn);
     for (const a of [A, N]) { a.position.needsUpdate = true; a.color.needsUpdate = true; a.size.needsUpdate = true; }
@@ -332,6 +365,7 @@ const FX3 = {
     }
     this.group = null; this.add = null; this.norm = null;
     this.rings = []; this.flashes = []; this.bolts = []; this.projs = [];
+    this.ambient = []; this.ambientTheme = null;
     this.ready = false;
   },
 };

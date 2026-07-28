@@ -33,6 +33,9 @@ const R3 = {
   maxLights: 12,            // WebGL has a real cost per light; nearest-N wins
   mood: 'spooky',
   heroLightMul: 0.42,
+  gradeEnabled: true,
+  grade: null,
+  _target: null, _postScene: null, _postCam: null, _postMat: null,
 
   init(canvas) {
     if (typeof THREE === 'undefined') {
@@ -51,6 +54,31 @@ const R3 = {
 
     this.scene = new THREE.Scene();
 
+    // One texture lookup is enough for the deliberately restrained grade.
+    // Keeping it here (rather than tinting hundreds of materials) also makes
+    // the setting instant and leaves the sRGB output conversion intact.
+    this._target = new THREE.WebGLRenderTarget(1, 1, {
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat, depthBuffer: true,
+    });
+    this._postScene = new THREE.Scene();
+    this._postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    this._postMat = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: this._target.texture }, top: { value: new THREE.Color() },
+        bottom: { value: new THREE.Color() }, amount: { value: 0 }, vignette: { value: 0 },
+      },
+      vertexShader: 'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.0,1.0);}',
+      fragmentShader: `uniform sampler2D map; uniform vec3 top; uniform vec3 bottom;
+        uniform float amount; uniform float vignette; varying vec2 vUv;
+        void main(){ vec4 c=texture2D(map,vUv); vec3 tint=mix(bottom,top,vUv.y);
+          c.rgb=mix(c.rgb,c.rgb*tint*1.45,amount);
+          float edge=smoothstep(0.82,0.25,length(vUv-0.5));
+          c.rgb*=mix(1.0,edge,vignette); gl_FragColor=c; }`,
+      depthTest: false, depthWrite: false,
+    });
+    this._postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._postMat));
+
     this.perspCam = new THREE.PerspectiveCamera(48, 1, 0.1, 400);
     this.cam = this.perspCam;
 
@@ -64,6 +92,7 @@ const R3 = {
     const w = window.innerWidth, h = window.innerHeight;
     this.W = w; this.H = h;
     this.renderer.setSize(w, h, false);
+    if (this._target) this._target.setSize(Math.floor(w * this.dpr), Math.floor(h * this.dpr));
     this.perspCam.aspect = w / h;
     this.perspCam.updateProjectionMatrix();
   },
@@ -151,7 +180,18 @@ const R3 = {
   render() {
     if (!this.ready) return;
     this.updateCamera();
-    this.renderer.render(this.scene, this.cam);
+    if (this.gradeEnabled && this.grade && this._postMat) {
+      const u = this._postMat.uniforms;
+      u.top.value.set(this.grade[0]); u.bottom.value.set(this.grade[1]);
+      u.amount.value = this.grade[2]; u.vignette.value = Math.min(0.22, this.grade[2] * 1.15);
+      this.renderer.setRenderTarget(this._target);
+      this.renderer.render(this.scene, this.cam);
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this._postScene, this._postCam);
+    } else {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this.scene, this.cam);
+    }
   },
 
   // ---- scene helpers ----

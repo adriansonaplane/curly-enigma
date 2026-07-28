@@ -17,6 +17,7 @@ const World3 = {
   lights: [],          // { light, src } — src is the map.lights entry
   hero: null,          // the hero's own lamp
   ambient: null,
+  shafts: [],
   built: false,
 
   // ---- materials ----
@@ -49,6 +50,8 @@ const World3 = {
     const g = new THREE.Group();
     this.group = g;
     R3.scene.add(g);
+
+    this.configureAtmosphere(map);
 
     const M = this._mat(map.theme);
     const { w, h } = map;
@@ -130,8 +133,53 @@ const World3 = {
     }
 
     this.buildLights(map);
+    this.buildShafts(map);
     this.built = true;
     return { floors: fi, walls: wi, doors: di, lava: li, water: ai, haz: hi, lights: this.lights.length };
+  },
+
+  configureAtmosphere(map) {
+    const th = THEMES[map.theme] || THEMES.crypt;
+    R3.grade = th.grade || null;
+    // Town keeps its long sight lines; dungeons use exponential fog so rooms
+    // disappear gently without moving the camera's far plane.
+    const density = map.theme === 'town' ? 0.00035 : (th.fog ? th.fog[1] * 0.022 : 0.0015);
+    this.fog = th.fog ? new THREE.FogExp2(new THREE.Color(th.fog[0]), density) : null;
+    this.updateAtmosphere(true);
+  },
+
+  updateAtmosphere(enabled) {
+    if (!R3.scene) return;
+    R3.scene.fog = enabled === false ? null : this.fog;
+  },
+
+  buildShafts(map) {
+    const th = THEMES[map.theme];
+    this.shafts = [];
+    if (!th.shaft) return;
+    const geo = new THREE.ConeGeometry(1, 7, 12, 1, true);
+    for (const src of map.shafts || []) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: th.shaft, transparent: true, opacity: 0.075,
+        blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(src.x, 3.5, src.y);
+      mesh.scale.set(src.w, 1, src.w);
+      mesh.renderOrder = 1;
+      this.group.add(mesh);
+      this.shafts.push({ mesh, src });
+    }
+  },
+
+  updateShafts(t, enabled) {
+    const fx = R3.focus;
+    for (const e of this.shafts) {
+      const dx = e.src.x - fx.x, dz = e.src.y - fx.z;
+      e.mesh.visible = !!enabled && dx * dx + dz * dz < 34 * 34;
+      if (e.mesh.visible) e.mesh.material.opacity = 0.06 + Math.sin(t * 0.7 + e.src.phase) * 0.018;
+    }
   },
 
   // ---- lighting ----
@@ -225,6 +273,7 @@ const World3 = {
         }
       });
     }
-    this.group = null; this.lights = []; this.hero = null; this.built = false;
+    this.group = null; this.lights = []; this.shafts = []; this.hero = null; this.fog = null; this.built = false;
+    if (R3.scene) R3.scene.fog = null;
   },
 };
