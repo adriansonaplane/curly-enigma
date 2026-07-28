@@ -22,7 +22,7 @@ const WUI = {
     potHp: 'q', potMp: 'e', portal: 't', mute: 'n', interact: 'f',
     inv: 'i', char: 'c', skills: 'k', ladder: 'l', quests: 'j', settings: 'o', chat: 'enter',
     social: 'u', guildp: 'g',
-    camMode: 'v', camRotL: '[', camRotR: ']', camIn: '+', camOut: '-',
+    camPreset: 'v', camRotL: '[', camRotR: ']', camIn: '+', camOut: '-',
     targetNext: 'tab', targetClear: 'x',
     slot1: '1', slot2: '2', slot3: '3', slot4: '4', slot5: '5',
     slot6: '6', slot7: '7', slot8: '8', slot9: '9', slot10: '0',
@@ -34,7 +34,7 @@ const WUI = {
     ['inv', 'Inventory'], ['char', 'Character'], ['skills', 'Skill trees'], ['ladder', 'Season ladder'],
     ['quests', 'Quest log'], ['settings', 'Settings'], ['chat', 'Focus chat'],
     ['social', 'Social (friends)'], ['guildp', 'Guild panel'],
-    ['camMode', 'Toggle camera mode'], ['camRotL', 'Rotate camera left'], ['camRotR', 'Rotate camera right'],
+    ['camPreset', 'Toggle camera preset'], ['camRotL', 'Rotate camera left'], ['camRotR', 'Rotate camera right'],
     ['camIn', 'Zoom in'], ['camOut', 'Zoom out'],
     ['targetNext', 'Target nearest enemy'], ['targetClear', 'Clear target'],
     ['slot1', 'Action slot 1'], ['slot2', 'Action slot 2'], ['slot3', 'Action slot 3'], ['slot4', 'Action slot 4'],
@@ -56,7 +56,10 @@ const WUI = {
   // ================= INIT =================
   init() {
     this.set = Object.assign({}, this.DEF_SET, this._load(this.SETK));
-    this.keymap = Object.assign({}, this.DEF_KEYS, this._load(this.SETK + '_keys'));
+    const savedKeys = this._load(this.SETK + '_keys') || {};
+    if (savedKeys.camMode && !savedKeys.camPreset) savedKeys.camPreset = savedKeys.camMode;
+    delete savedKeys.camMode;
+    this.keymap = Object.assign({}, this.DEF_KEYS, savedKeys);
     this.layout = this._load(this.LAYK) || {};
 
     // strip the legacy skill hotbar slots (potion counters stay, hidden)
@@ -865,9 +868,9 @@ const WUI = {
       body.appendChild(r);
       return r;
     };
-    row('Perspective', 'Isometric is the classic view; third person rides behind the hero', r => {
+    row('Camera preset', 'Elevated is a fixed overview; third person supports free orbit', r => {
       const sel = document.createElement('select');
-      sel.innerHTML = '<option value="iso">Isometric</option><option value="third">Third person</option>';
+      sel.innerHTML = '<option value="elevated">Elevated</option><option value="third">Third person</option>';
       sel.value = Cam.mode;
       sel.addEventListener('change', () => { Cam.setMode(sel.value); this.renderSettings(); });
       r.appendChild(sel);
@@ -902,7 +905,7 @@ const WUI = {
     b.className = 'ws-btn';
     b.textContent = 'Reset';
     b.addEventListener('click', () => {
-      Cam.prefs = { iso: { zoom: 1.0, pitch: 0.50 }, third: { zoom: 1.6, pitch: 0.40 } };
+      Cam.prefs = { elevated: { zoom: 1.0, pitch: 0.72 }, third: { zoom: 1.6, pitch: 0.40 } };
       Cam.orbitSpeed = 2.2; Cam.yawTarget = 0; Cam.applyPrefs(false); Cam.save();
       this.renderSettings();
     });
@@ -1273,9 +1276,7 @@ const WUI = {
     if (k === m.interact) { Game.toggleLight(); return true; }
     if (k === m.targetNext) { Target.tabNext(); return true; }
     if (k === m.targetClear) { Target.clear(); return true; }
-    if (k === m.camMode) { Cam.cycleMode(); return true; }
-    if (k === m.camRotL) { if (Cam.mode === 'iso') Cam.rotate(-1); return true; }
-    if (k === m.camRotR) { if (Cam.mode === 'iso') Cam.rotate(1); return true; }
+    if (k === m.camPreset) { Cam.cycleMode(); return true; }
     if (k === m.camIn) { Cam.adjustZoom(0.12); return true; }
     if (k === m.camOut) { Cam.adjustZoom(-0.12); return true; }
     if (k === m.potHp) { Game.drinkPotion('hp'); return true; }

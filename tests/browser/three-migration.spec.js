@@ -28,6 +28,19 @@ test('page boots WebGL and has no console errors', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('legacy orthographic camera preference migrates to elevated perspective', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('cam_v1', JSON.stringify({
+    mode: 'iso', prefs: { iso: { zoom: 2.2, pitch: 0.22 }, third: { zoom: 1.9, pitch: 0.44 } },
+  })));
+  const errors = [];
+  await openGame(page, errors);
+  expect(await page.evaluate(() => ({
+    mode: Cam.mode, zoom: Cam.prefs.elevated.zoom, pitch: Cam.prefs.elevated.pitch,
+    thirdZoom: Cam.prefs.third.zoom, perspective: R3.cam === R3.perspCam,
+  }))).toEqual({ mode: 'elevated', zoom: 1, pitch: 0.72, thirdZoom: 1.9, perspective: true });
+  expect(errors).toEqual([]);
+});
+
 test('character creation uses the real menu flow', async ({ page }) => {
   const errors = [];
   await openGame(page, errors);
@@ -98,16 +111,16 @@ test('torch light and emissive instance transition through light and snuff', asy
   expect(result.lit).toBe(false);
 });
 
-for (const mode of ['iso', 'third']) {
+for (const mode of ['elevated', 'third']) {
   test(`movement is camera-relative in ${mode} mode`, async ({ page }) => {
     const errors = [];
     await openGame(page, errors); await startGame(page);
     const result = await page.evaluate(({ mode, broken }) => {
-      Cam.setMode(mode); Cam.applyPrefs(true); R3.setMode(mode === 'third' ? R3.MODE_FREE : R3.MODE_ISO);
+      Cam.setMode(mode); Cam.applyPrefs(true); R3.setMode(mode === 'third' ? R3.MODE_FREE : R3.MODE_ELEVATED);
       if (mode === 'third') { Cam.yaw = Cam.yawTarget = 1.1; R3.yaw = 1.1; }
       R3.lookAt(G.player.x, G.player.y);
       const basis = R3.screenBasis();
-      const [dx, dy] = Cam.screenToWorldDir(1, 0);
+      const dx = basis.rx, dy = basis.rz;
       const dot = dx * basis.rx + dy * basis.rz;
       return broken ? -dot : dot;
     }, { mode, broken: mutation === `movement-${mode}` });

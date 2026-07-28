@@ -130,7 +130,7 @@ via Edit Mode (layout persists between sessions):
 ### Cameras, physics and a real human figure
 Two perspectives, a rigid-body layer, and an articulated body that wears what you equip.
 
-**Adjustable camera** — switch between the classic **Isometric** view and a **Third Person**
+**Adjustable camera** — switch between a fixed **Elevated** perspective and a **Third Person**
 camera that **orbits freely around your hero, like a sphere**. The world is fixed: the level never
 moves on its own, your character moves through it, and the camera only turns when you turn it.
 Both perspectives expose independent, persisted settings:
@@ -138,7 +138,7 @@ Both perspectives expose independent, persisted settings:
 - **Zoom** 0.55×–2.8× on the mouse wheel, the `+`/`-` keys or a settings slider
 - **Pitch** (elevation), from near top-down to a low, horizon-heavy angle
 - **Free orbit** — hold `[` / `]` to swing around the hero, or drag with the middle mouse button
-  for combined yaw and pitch. Isometric keeps its 90° snap so the classic view stays square.
+  for combined yaw and pitch in third person. Elevated stays fixed for consistent readability.
 - **Orbit speed** for the rotate keys
 - **Camera-relative movement** — W is always "away from the viewer" no matter where the camera
   sits, so the controls never invert as you orbit
@@ -177,7 +177,6 @@ wellheads and ore veins. Many are **interactive**:
 | **Fountain** | Drink to heal and gain Fountain's Vigor |
 | **Crates, pots, urns, sacks** | Smash them into physics debris, sometimes loot |
 
-![Isometric camera](screenshots/camera_iso.png)
 ![Third-person camera](screenshots/camera_third.png)
 ![Camera settings](screenshots/camera_settings.png)
 
@@ -342,7 +341,7 @@ ladder) walk the town, chatter, and react to what you do.
 | **U · G** | Social (friends) · Guild |
 | **Tab** | Target nearest enemy · press again to cycle |
 | **X** | Clear target · **click** a unit to focus, click again to cast |
-| **V** | Toggle isometric / third-person camera |
+| **V** | Toggle elevated / third-person camera preset |
 | **[ · ]** | Orbit camera (hold) · **middle-drag** — free orbit · **wheel / + · -** — zoom |
 | **Enter** | Chat (`/help` for commands) |
 | **N** | Mute · **Esc** — menu |
@@ -362,7 +361,7 @@ any action bar slot (right-click a slot to lift its contents; right-click a skil
 | `js/render.js` | Isometric renderer, lighting moods, atmosphere, props, doors, particles, minimap |
 | `js/assets.js` | Art slot registry, catalogue manifest, API client, ingest pipeline, placeholders |
 | `js/assetpacks.js` | Curated per-act pull lists (models, monsters, effects, traps) |
-| `js/camera.js` | Projection matrix, iso/third-person modes, free orbit, zoom and pitch |
+| `js/camera.js` | Elevated/third-person presets, free orbit, zoom and pitch |
 | `js/figure.js` | Skeletal human figure with equipment fixtures and animation |
 | `js/physics.js` | Rigid-body debris, ragdolls, per-material restitution and friction |
 | `js/target.js` | Unit targeting: reticles, tab cycling, click-to-focus, range checks |

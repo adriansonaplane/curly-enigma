@@ -3,9 +3,8 @@
 
 // The 2D isometric renderer baked its projection into a matrix, which is why
 // "isometric" and "third person" were two different code paths that disagreed
-// with each other. Here isometric is just an ORTHOGRAPHIC CAMERA AT A FIXED
-// ANGLE — one camera rig, one set of maths, and the classic look is a preset
-// rather than a cage. Free pitch comes for free because nothing is baked.
+// with each other. Both retained presets now use this single perspective rig:
+// elevated is a fixed, readable overview and free is the orbitable close view.
 //
 // World axes: X east, Z south, Y up. One world unit = one dungeon tile, so a
 // tile at (tx, ty) sits at (tx + 0.5, 0, ty + 0.5) and every existing game
@@ -19,10 +18,10 @@ const R3 = {
 
   // camera state, kept compatible with the old Cam prefs so saved settings
   // and the existing keybinds keep working
-  MODE_ISO: 'iso', MODE_FREE: 'free',
-  mode: 'iso',
+  MODE_ELEVATED: 'elevated', MODE_FREE: 'free',
+  mode: 'elevated',
   yaw: Math.PI * 0.25,      // classic 45° — the D2 look
-  pitch: 0.615,             // ~35.26° is true isometric; this is close and reads better
+  pitch: 0.72,
   dist: 24,
   zoom: 1,
   ZOOM_MIN: 0.4, ZOOM_MAX: 3.2,
@@ -52,12 +51,8 @@ const R3 = {
 
     this.scene = new THREE.Scene();
 
-    // Both cameras exist; the mode picks which one renders. Orthographic is
-    // what makes the isometric preset genuinely isometric rather than a
-    // perspective camera pretending.
-    this.orthoCam = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 400);
     this.perspCam = new THREE.PerspectiveCamera(48, 1, 0.1, 400);
-    this.cam = this.orthoCam;
+    this.cam = this.perspCam;
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -71,42 +66,27 @@ const R3 = {
     this.renderer.setSize(w, h, false);
     this.perspCam.aspect = w / h;
     this.perspCam.updateProjectionMatrix();
-    this.updateOrtho();
-  },
-
-  // Orthographic frustum sized so `zoom` means the same thing it did in 2D:
-  // roughly how many tiles fit across the screen.
-  updateOrtho() {
-    const tilesAcross = 26 / this.zoom;
-    const halfW = tilesAcross / 2;
-    const halfH = halfW * (this.H / Math.max(1, this.W));
-    const c = this.orthoCam;
-    c.left = -halfW; c.right = halfW; c.top = halfH; c.bottom = -halfH;
-    c.updateProjectionMatrix();
   },
 
   setMode(m) {
     this.mode = m;
-    this.cam = (m === this.MODE_ISO) ? this.orthoCam : this.perspCam;
-    if (m === this.MODE_ISO) { this.yaw = Math.PI * 0.25; this.pitch = 0.615; }
+    this.cam = this.perspCam;
+    if (m === this.MODE_ELEVATED) { this.yaw = Math.PI * 0.25; this.pitch = 0.72; }
   },
-  cycleMode() { this.setMode(this.mode === this.MODE_ISO ? this.MODE_FREE : this.MODE_ISO); },
+  cycleMode() { this.setMode(this.mode === this.MODE_ELEVATED ? this.MODE_FREE : this.MODE_ELEVATED); },
 
-  // Free orbit. In iso mode the angles are pinned, so the classic look cannot
-  // be knocked askew by a stray drag — that is the whole point of a preset.
+  // Free orbit belongs to third person; elevated cannot be knocked askew.
   orbit(dYaw, dPitch) {
-    if (this.mode === this.MODE_ISO) return false;
+    if (this.mode === this.MODE_ELEVATED) return false;
     this.yaw += dYaw;
     this.pitch = U.clamp(this.pitch + dPitch, this.PITCH_MIN, this.PITCH_MAX);
     return true;
   },
   adjustZoom(delta) {
     this.zoom = U.clamp(this.zoom * (1 + delta), this.ZOOM_MIN, this.ZOOM_MAX);
-    this.updateOrtho();
   },
   setZoom(z) {
     this.zoom = U.clamp(z, this.ZOOM_MIN, this.ZOOM_MAX);
-    this.updateOrtho();
   },
 
   // Point the rig at a world position (game x/y -> world x/z).
@@ -119,7 +99,7 @@ const R3 = {
   },
 
   updateCamera() {
-    const d = this.mode === this.MODE_ISO ? 60 : this.dist / this.zoom;
+    const d = this.mode === this.MODE_ELEVATED ? 30 / this.zoom : this.dist / this.zoom;
     const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
     const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
     const c = this.cam;
@@ -194,7 +174,7 @@ const R3 = {
     const r = this.renderer ? this.renderer.info.render : null;
     return {
       mode: this.mode, yaw: +this.yaw.toFixed(3), pitch: +this.pitch.toFixed(3),
-      zoom: +this.zoom.toFixed(2), ortho: this.cam === this.orthoCam,
+      zoom: +this.zoom.toFixed(2), ortho: false,
       calls: r ? r.calls : 0, tris: r ? r.triangles : 0,
       objects: this.scene ? this.scene.children.length : 0,
     };

@@ -662,7 +662,9 @@ const Game = {
     let my = (this.keys[km.moveD] || this.keys['arrowdown'] ? 1 : 0) - (this.keys[km.moveU] || this.keys['arrowup'] ? 1 : 0);
     pl.moving = false;
     if (!pl.dead && (mx || my)) {
-      let [wx, wy] = Cam.screenToWorldDir(mx, my);
+      const basis = R3.screenBasis();
+      let wx = mx * basis.rx - my * basis.fx;
+      let wy = mx * basis.rz - my * basis.fz;
       const len = Math.hypot(wx, wy);
       wx /= len; wy /= len;
       const spd = d.moveSpd * (G.map.town ? 1.15 : 1);
