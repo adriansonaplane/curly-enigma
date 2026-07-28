@@ -181,7 +181,8 @@ const Physics = {
   },
 
   // ---------------- drawing ----------------
-  // small debris batches into one pass; large pieces depth-sort with the world
+  // Small debris is an intentional screen-space overlay. Large pieces are not
+  // drawn here; the former legacy painter for them had no runtime caller.
   drawSmall(ctx) {
     for (const d of this.debris) {
       if (d.big) continue;
@@ -200,28 +201,6 @@ const Physics = {
       } else ctx.fillRect(-s * 0.6, -s * 0.6, s * 1.2, s * 1.2);
       ctx.restore();
     }
-  },
-
-  drawBig(ctx, d, t) {
-    const [sx, sy] = Render.worldToScreen(d.x, d.y, d.z);
-    const fade = d.life < 1.5 ? d.life / 1.5 : 1;
-    ctx.save();
-    ctx.globalAlpha = fade;
-    // contact shadow
-    ctx.fillStyle = `rgba(0,0,0,${0.3 * Math.max(0, 1 - d.z / 60)})`;
-    const [gx, gy] = Render.worldToScreen(d.x, d.y, 0);
-    ctx.beginPath(); ctx.ellipse(gx, gy, d.size * 1.1 * Cam.zoom, d.size * 0.5 * Cam.zoom, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.translate(sx, sy);
-    ctx.rotate(d.ang);
-    const s = d.size * Cam.zoom;
-    const g = ctx.createLinearGradient(-s, -s, s, s);
-    g.addColorStop(0, U.shade(d.col, 1.25)); g.addColorStop(1, U.shade(d.col, 0.7));
-    ctx.fillStyle = g;
-    if (d.shape === 'plank') { ctx.fillRect(-s * 1.4, -s * 0.4, s * 2.8, s * 0.8); }
-    else { ctx.fillRect(-s, -s, s * 2, s * 2); }
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1;
-    ctx.strokeRect(-s, -s, s * 2, s * 2);
-    ctx.restore();
   },
 
   clear() { this.debris.length = 0; },

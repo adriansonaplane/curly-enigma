@@ -317,9 +317,9 @@ const Render = {
       ctx.globalAlpha = k;
       ctx.font = (d.crit ? 'bold 19px' : '14px') + ' Palatino Linotype, serif';
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillText(d.text, sx + 1, sy + 1);
+      ctx.fillText(d.txt, sx + 1, sy + 1);
       ctx.fillStyle = d.color || '#fff';
-      ctx.fillText(d.text, sx, sy);
+      ctx.fillText(d.txt, sx, sy);
     }
     ctx.restore();
   },
