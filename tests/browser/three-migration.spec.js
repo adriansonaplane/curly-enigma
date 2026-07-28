@@ -81,6 +81,14 @@ test('hero and nearby actor rigs are visible in the Three.js scene', async ({ pa
   expect(result).toEqual({ hero: true, monster: true, parts: true });
 });
 
+test('production page excludes the disabled SDF actor experiment', async ({ page }) => {
+  const errors = [];
+  await openGame(page, errors);
+  expect(await page.evaluate(() => ({ sdf: typeof SDFActorsExperimental, actors: typeof Actors3 })))
+    .toEqual({ sdf: 'undefined', actors: 'object' });
+  expect(errors).toEqual([]);
+});
+
 test('torch light and emissive instance transition through light and snuff', async ({ page }) => {
   const errors = [];
   await openGame(page, errors); await startGame(page);
