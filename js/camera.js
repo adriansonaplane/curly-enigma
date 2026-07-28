@@ -64,35 +64,53 @@ const Cam = {
   },
   cycleMode() { this.setMode(this.mode === 'elevated' ? 'third' : 'elevated'); },
 
+  // Every mutator refuses while the elevated preset is active.
+  //
+  // These used to run unconditionally, which had two consequences worth
+  // remembering. Middle-drag reached orbit() directly, so the elevated view
+  // was shoved and then yanked back by a per-frame re-pin; and orbit() wrote
+  // prefs.elevated.pitch straight to localStorage, where it was saved forever
+  // and then ignored, because the rig set its own pitch on every mode switch.
+  // A preset that both stores and discards the same value has two owners.
+  // Now it has one: R3.PRESETS.
+  fixed() { return this.mode !== 'third'; },
+
   adjustZoom(delta) {
+    if (this.fixed()) return false;
     const p = this.prefs[this.mode];
     p.zoom = U.clamp(p.zoom * (1 + delta), this.ZOOM_MIN, this.ZOOM_MAX);
     this.zoomTarget = p.zoom;
     this.save();
+    return true;
   },
   setZoom(z) {
+    if (this.fixed()) return false;
     const p = this.prefs[this.mode];
     p.zoom = U.clamp(z, this.ZOOM_MIN, this.ZOOM_MAX);
     this.zoomTarget = p.zoom;
     this.save();
+    return true;
   },
   setPitch(v) {
+    if (this.fixed()) return false;
     const p = this.prefs[this.mode];
     p.pitch = U.clamp(v, this.PITCH_MIN, this.PITCH_MAX);
     this.pitchTarget = p.pitch;
     this.save();
+    return true;
   },
   // Free orbit around the hero — the camera moves, the world does not.
   orbit(dYaw, dPitch) {
+    if (this.fixed()) return false;
     this.yawTarget += dYaw;
     if (dPitch) this.setPitch(this.prefs[this.mode].pitch + dPitch);
     if (dYaw) this.save();
+    return true;
   },
-  // The elevated preset is fixed; third person turns freely.
   rotate(dir) {
-    if (this.mode === 'third') {
-      this.yawTarget += dir * Math.PI / 4;
-    }
+    if (this.fixed()) return false;
+    this.yawTarget += dir * Math.PI / 4;
+    return true;
   },
 
   // ---------------- per-frame ----------------
@@ -102,7 +120,6 @@ const Cam = {
     // them and nothing tracks their facing, so the world only appears to turn
     // when the player actually asks the camera to turn.
     const tfx = pl.x, tfy = pl.y;
-    if (this.mode === 'elevated') this.yawTarget = Math.PI * 0.25;
 
     // focus easing — third person lags a touch so movement feels weighty
     const fk = this.mode === 'third' ? 1 - Math.pow(0.0000004, dt) : 1;

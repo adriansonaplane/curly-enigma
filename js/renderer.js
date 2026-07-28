@@ -183,12 +183,14 @@ const Render = {
     G.shake = Math.max(0, G.shake - dt * 30);
     if (this.fx.shake === false) G.shake = 0;
     Cam.update(dt, pl);
-    R3.setZoom(Cam.zoom);
     if ((Cam.mode === 'third') !== (R3.mode === R3.MODE_FREE)) {
       R3.setMode(Cam.mode === 'third' ? R3.MODE_FREE : R3.MODE_ELEVATED);
     }
-    R3.yaw = Cam.yaw;
-    R3.pitch = U.clamp(Cam.pitch || 0.6, R3.PITCH_MIN, R3.PITCH_MAX);
+    // Push the player's camera intent at the rig. Both calls refuse while a
+    // preset is locked, so the preset's own yaw/pitch/zoom survive the frame
+    // rather than being reassigned from Cam and re-corrected afterwards.
+    R3.setZoom(Cam.zoom);
+    R3.setOrientation(Cam.yaw, Cam.pitch || 0.6);
     const shx = G.shake ? U.rf(U.rand, -G.shake, G.shake) * 0.02 : 0;
     const shz = G.shake ? U.rf(U.rand, -G.shake, G.shake) * 0.02 : 0;
     R3.lookAt(Cam.fx + shx, Cam.fy + shz);
