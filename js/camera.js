@@ -1,20 +1,14 @@
 // ============ DIABLOID: camera.js — perspective, zoom, yaw, pitch ============
-// Two perspectives share one projection:
-//   ISO           — the classic fixed dimetric view (yaw locked to 0)
+// Two presets share one perspective projection:
+//   ELEVATED      — a fixed high-angle dungeon overview
 //   THIRD PERSON  — camera swings in behind the hero, follows their facing,
 //                   pulls closer and drops its pitch toward the horizon
 // Projection: screen = P(pitch,zoom) · R(yaw) · (world - focus)
 'use strict';
 
-// The isometric tile metrics used to live in the 2D renderer. The camera still
-// wants them to report screen-space units for the few overlay callers that ask
-// (Target's range arcs, Physics' debris), so they live here now that the
-// renderer that defined them is gone.
-const ISO_X = 32, ISO_Y = 16;
-
 const Cam = {
-  MODES: ['iso', 'third'],
-  mode: 'iso',
+  MODES: ['elevated', 'third'],
+  mode: 'elevated',
 
   yaw: 0, yawTarget: 0,          // radians, world rotation about the focus
   zoom: 1, zoomTarget: 1,        // 1 = classic scale
@@ -24,7 +18,7 @@ const Cam = {
 
   // per-mode saved preferences
   prefs: {
-    iso:   { zoom: 1.0, pitch: 0.50 },
+    elevated: { zoom: 1.0, pitch: 0.72 },
     third: { zoom: 1.6, pitch: 0.40 },
   },
   ZOOM_MIN: 0.55, ZOOM_MAX: 2.8,
@@ -36,8 +30,13 @@ const Cam = {
   init() {
     const s = this._load();
     if (s) {
-      this.mode = s.mode || 'iso';
-      if (s.prefs) this.prefs = Object.assign(this.prefs, s.prefs);
+      // cam_v1 formerly persisted `iso`; deliberately migrate it rather than
+      // leaving a removed mode (or its orthographic pitch) active.
+      this.mode = s.mode === 'third' ? 'third' : 'elevated';
+      if (s.prefs) {
+        if (s.prefs.third) this.prefs.third = Object.assign(this.prefs.third, s.prefs.third);
+        if (s.prefs.elevated) this.prefs.elevated = Object.assign(this.prefs.elevated, s.prefs.elevated);
+      }
       this.orbitSpeed = s.orbitSpeed !== undefined ? s.orbitSpeed : this.orbitSpeed;
     }
     this.applyPrefs(true);
@@ -51,7 +50,7 @@ const Cam = {
     const p = this.prefs[this.mode];
     this.zoomTarget = p.zoom;
     this.pitchTarget = p.pitch;
-    if (this.mode === 'iso') this.yawTarget = 0;
+    if (this.mode === 'elevated') this.yawTarget = Math.PI * 0.25;
     if (instant) { this.zoom = this.zoomTarget; this.pitch = this.pitchTarget; this.yaw = this.yawTarget; }
   },
 
@@ -61,9 +60,9 @@ const Cam = {
     this.applyPrefs(false);
     this.save();
     if (typeof UI !== 'undefined')
-      UI.announce(m === 'third' ? 'Third-person camera' : 'Isometric camera', '#8fc8ff', 1600);
+      UI.announce(m === 'third' ? 'Third-person camera' : 'Elevated camera', '#8fc8ff', 1600);
   },
-  cycleMode() { this.setMode(this.mode === 'iso' ? 'third' : 'iso'); },
+  cycleMode() { this.setMode(this.mode === 'elevated' ? 'third' : 'elevated'); },
 
   adjustZoom(delta) {
     const p = this.prefs[this.mode];
@@ -89,11 +88,9 @@ const Cam = {
     if (dPitch) this.setPitch(this.prefs[this.mode].pitch + dPitch);
     if (dYaw) this.save();
   },
-  // discrete nudge: iso keeps its axis-aligned snap, third person turns freely
+  // The elevated preset is fixed; third person turns freely.
   rotate(dir) {
-    if (this.mode === 'iso') {
-      this.yawTarget = Math.round((this.yawTarget + dir * Math.PI / 2) / (Math.PI / 2)) * (Math.PI / 2);
-    } else {
+    if (this.mode === 'third') {
       this.yawTarget += dir * Math.PI / 4;
     }
   },
@@ -105,8 +102,7 @@ const Cam = {
     // them and nothing tracks their facing, so the world only appears to turn
     // when the player actually asks the camera to turn.
     const tfx = pl.x, tfy = pl.y;
-    if (this.mode === 'iso')
-      this.yawTarget = Math.round(this.yawTarget / (Math.PI / 2)) * (Math.PI / 2);
+    if (this.mode === 'elevated') this.yawTarget = Math.PI * 0.25;
 
     // focus easing — third person lags a touch so movement feels weighty
     const fk = this.mode === 'third' ? 1 - Math.pow(0.0000004, dt) : 1;
@@ -125,71 +121,9 @@ const Cam = {
     const k = 1 - Math.pow(0.002, dt);
     this.zoom += (this.zoomTarget - this.zoom) * k;
     this.pitch += (this.pitchTarget - this.pitch) * k;
-
-    // cached projection scalars
+    // Retained for the pre-WebGL input fallback below; these are not a world
+    // projection and carry no pixel-unit contract.
     this.cos = Math.cos(this.yaw); this.sin = Math.sin(this.yaw);
-    this.ux = ISO_X * this.zoom;              // screen-x per rotated world unit
-    this.uy = ISO_X * this.zoom * this.pitch; // screen-y per rotated world unit
-    this.rotated = Math.abs(this.sin) > 0.0015 || Math.abs(this.cos - 1) > 0.0015;
   },
 
-  // Screen-relative input -> world direction. Undoes the camera yaw so "up
-  // the screen" is always away from the viewer, whatever the orbit angle.
-  // Turn screen-space input (mx = right, my = down) into a world direction.
-  //
-  // This used to invert the 2D renderer's BAKED isometric projection and then
-  // rotate it by Cam.yaw. That was correct exactly as long as the picture was
-  // also drawn from a matrix built out of Cam.yaw. It is not any more: the
-  // scene is drawn by a real camera, and in the isometric preset that camera
-  // is pinned to 45 degrees no matter what Cam.yaw says. Input and picture
-  // disagreed, so pressing left walked the character south.
-  //
-  // Asking the live camera which way is right and which way is forward cannot
-  // drift, because it is the same camera that drew the frame.
-  screenToWorldDir(mx, my) {
-    if (typeof R3 !== 'undefined' && R3.ready) {
-      const b = R3.screenBasis();
-      // screen-down is toward the viewer, i.e. away from where the camera looks
-      return [mx * b.rx - my * b.fx, mx * b.rz - my * b.fz];
-    }
-    const wx = mx + my, wy = my - mx;          // pre-3D fallback: classic iso basis
-    const c = this.cos, s = this.sin;
-    return [wx * c + wy * s, -wx * s + wy * c];
-  },
-
-  // world -> rotated frame (relative to focus)
-  rot(x, y) {
-    const dx = x - this.fx, dy = y - this.fy;
-    return [dx * this.cos - dy * this.sin, dx * this.sin + dy * this.cos];
-  },
-
-  // depth key for painter's-algorithm sorting (screen-Y order)
-  depth(x, y) {
-    const dx = x - this.fx, dy = y - this.fy;
-    return (dx * this.sin + dy * this.cos) + (dx * this.cos - dy * this.sin);
-  },
-
-  // Transform mapping a base-projected tile sprite into the current view:
-  //   T = P(zoom,pitch) · R(yaw) · P(1, 0.5)⁻¹
-  // With ISO_Y = ISO_X/2 this works out to
-  //   [ z·cos     -2z·sin  ]
-  //   [ z·p·sin    2z·p·cos]
-  // returned column-major as [a, b, c, d] for setTransform(a,b,c,d,e,f).
-  // Every term must agree exactly with worldToScreen or the floor slides out
-  // from under the entities standing on it — see the regression test.
-  tileMatrix() {
-    const z = this.zoom, p = this.pitch, c = this.cos, s = this.sin;
-    return [c * z, s * z * p, -s * z * 2, c * z * p * 2];
-  },
-
-  // how far (in tiles) the visible frustum reaches from the focus
-  // Half-extent of the visible region, in tiles. The screen maps to a box in
-  // rotated space; unrotating it can grow the bound by at most sqrt(2).
-  // The cap has to sit above the true visible extent at minimum zoom, or the
-  // tile loop stops short of the frustum and the screen corners render empty.
-  // Culling inside the loop keeps the cost of the headroom negligible.
-  viewRadius(W, H) {
-    const half = (W / (this.ux * 2) + H / (this.uy * 2)) * 0.5;
-    return Math.min(84, Math.ceil(half * 1.415 + 3));
-  },
 };

@@ -182,9 +182,10 @@ const Render = {
     Cam.update(dt, pl);
     R3.setZoom(Cam.zoom);
     if ((Cam.mode === 'third') !== (R3.mode === R3.MODE_FREE)) {
-      R3.setMode(Cam.mode === 'third' ? R3.MODE_FREE : R3.MODE_ISO);
+      R3.setMode(Cam.mode === 'third' ? R3.MODE_FREE : R3.MODE_ELEVATED);
     }
-    if (R3.mode === R3.MODE_FREE) { R3.yaw = Cam.yaw; R3.pitch = U.clamp(Cam.pitch || 0.6, R3.PITCH_MIN, R3.PITCH_MAX); }
+    R3.yaw = Cam.yaw;
+    R3.pitch = U.clamp(Cam.pitch || 0.6, R3.PITCH_MIN, R3.PITCH_MAX);
     const shx = G.shake ? U.rf(U.rand, -G.shake, G.shake) * 0.02 : 0;
     const shz = G.shake ? U.rf(U.rand, -G.shake, G.shake) * 0.02 : 0;
     R3.lookAt(Cam.fx + shx, Cam.fy + shz);
@@ -317,9 +318,9 @@ const Render = {
       ctx.globalAlpha = k;
       ctx.font = (d.crit ? 'bold 19px' : '14px') + ' Palatino Linotype, serif';
       ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillText(d.text, sx + 1, sy + 1);
+      ctx.fillText(d.txt, sx + 1, sy + 1);
       ctx.fillStyle = d.color || '#fff';
-      ctx.fillText(d.text, sx, sy);
+      ctx.fillText(d.txt, sx, sy);
     }
     ctx.restore();
   },

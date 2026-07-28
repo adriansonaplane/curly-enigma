@@ -230,12 +230,9 @@ const FX3 = {
     if (!this.ready) return null;
     const col = new THREE.Color();
 
-    // Pixels-per-world-unit differs by projection: under ortho it is fixed by
-    // the frustum width, under perspective it falls off with depth.
-    const iso = R3.cam === R3.orthoCam;
-    const px = iso
-      ? R3.W * R3.zoom / 26 * R3.dpr
-      : R3.H * R3.dpr / (2 * Math.tan(R3.perspCam.fov * Math.PI / 360));
+    // Both camera presets use the same perspective projection.
+    const iso = false;
+    const px = R3.H * R3.dpr / (2 * Math.tan(R3.perspCam.fov * Math.PI / 360));
     for (const pts of [this.add, this.norm]) {
       pts.material.uniforms.scale.value = px;
       pts.material.uniforms.ortho.value = iso ? 1 : 0;
