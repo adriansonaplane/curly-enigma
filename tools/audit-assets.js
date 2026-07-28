@@ -70,8 +70,18 @@ const RULES = [
     re: /\bon(?:load|error|click|mouseover)\s*=\s*["']/gi },
 
   // 4. escape attempts
+  // Explicit window.parent / window.top / window.opener is unambiguous.
   { id: 'parent-access', sev: 'block', why: 'reaches for the parent frame',
-    re: /\b(?:window\s*\.\s*)?(?:parent|top|opener)\s*\./g },
+    re: /\bwindow\s*\.\s*(?:parent|top|opener)\s*\./g },
+  // postMessage out of the frame, however it is spelled.
+  { id: 'frame-postmessage', sev: 'block', why: 'posts a message out of the frame',
+    re: /(?:window\s*\.\s*)?\b(?:parent|top|opener)\s*\.\s*postMessage\s*\(/g },
+  // A BARE `top.` / `parent.` is usually a local variable — these payloads use
+  // `const top = ...` heavily — so it is a warning for a human to judge, not a
+  // block. Treating it as a frame reference is what led to the code being
+  // rewritten and broken.
+  { id: 'bare-frame-word', sev: 'warn', why: 'bare top/parent/opener — check it is a local, not a frame',
+    re: /(?<!window\s*\.\s*)(?<![.\w$])(?:parent|top|opener)\s*\.\s*(?!postMessage)/g },
   { id: 'postmessage-wildcard', sev: 'warn', why: 'postMessage to *',
     re: /postMessage\s*\([^)]*,\s*["']\*["']/g },
   { id: 'nav', sev: 'block', why: 'navigates the browser',

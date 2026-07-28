@@ -1,0 +1,12 @@
+{
+  "kind": "baked-models",
+  "facings": 8,
+  "cell": 128,
+  "baked": "2026-07-28T03:18:53.036Z",
+  "entries": [
+    {
+      "slug": "wooden-door-uoc",
+      "sheet": "wooden-door-uoc.png"
+    }
+  ]
+}

@@ -46,14 +46,28 @@ function scrub(html, depth) {
     return '<!-- removed: remote link -->';
   });
 
-  // Keep the expression shape — `void (...)` still evaluates the argument list,
-  // so a scene that builds its debug object inline cannot throw.
-  out = out.replace(/window\.parent\.postMessage\s*\(/g, () => {
+  // The actual escape vector: postMessage out of the frame. `void (...)` keeps
+  // the expression shape, so a scene building its debug object inline still
+  // evaluates its arguments and cannot throw.
+  out = out.replace(/(?:window\s*\.\s*)?\b(?:parent|top|opener)\s*\.\s*postMessage\s*\(/g, () => {
     notes.push('parent-postMessage->void');
     return 'void (';
   });
-  out = out.replace(/\b(?:window\.)?(?:parent|top|opener)\s*\.\s*(?!postMessage)/g, () => {
-    notes.push('other-parent-access->window');
+
+  // Only EXPLICIT window.parent / window.top / window.opener are neutralised.
+  //
+  // This used to also rewrite bare `parent.` / `top.` / `opener.`, which was a
+  // serious mistake: `top` is an ordinary local variable name, and these
+  // payloads use it constantly (`const top = box(...); top.position.y = ...`).
+  // That rule turned thousands of lines of model-building code into
+  // `window.position.y = ...`, which throws at runtime. It even corrupted
+  // property access — `rays[i].top.scale` became `rays[i].window.scale` inside
+  // an animation loop, killing the render call after it.
+  //
+  // A bare identifier cannot be told from a frame reference by regex, so it is
+  // left alone here and reported by the audit instead, for a human to judge.
+  out = out.replace(/\bwindow\s*\.\s*(?:parent|top|opener)\s*\.\s*/g, () => {
+    notes.push('explicit-window-frame-access->window');
     return 'window.';
   });
   return { out, notes };
