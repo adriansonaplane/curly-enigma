@@ -1086,18 +1086,38 @@ const WUI = {
     const pl = G.player;
     if (!pl || !pl.quests || !this.QUESTS) return;
     for (const q of QuestState.takeCompleted(pl)) {
-      pl.gold += q.gold;
-      if (q.xp) G.awardXp(Math.round(q.xp));
       sfx('shrine');
-      UI.announce(`Quest complete: ${q.name}`, '#6be26b', 3000);
-      this.chat('combat', `Quest complete: <span style="color:#6be26b">${U.esc(q.name)}</span> — +${U.fmt(q.gold)}g${q.xp ? ', +' + U.fmt(Math.round(q.xp)) + ' xp' : ''}`, '#b8d8a0');
+      UI.announce(`Ready to turn in: ${q.name}`, '#ffd94f', 3000);
+      this.chat('combat', `<span style="color:#ffd94f">${U.esc(q.name)}</span> is ready to turn in to ${U.esc(q.turnInNpc)}.`, '#e8d890');
     }
+  },
+
+  acceptQuest(id, branch) {
+    if (QuestState.accept(G.player, id, branch)) {
+      this.chat('sys', `Quest accepted: ${U.esc(QuestState.byId[id].name)}`, '#ffd94f');
+      this.renderQuests();
+    }
+  },
+
+  turnInQuest(id) {
+    const q = QuestState.byId[id];
+    const reward = q && QuestState.turnIn(G.player, id, q.turnInNpc, hook => {
+      if (G.player.dialogue && G.player.dialogue.flags) G.player.dialogue.flags['quest.' + hook] = true;
+    });
+    if (!reward) return;
+    G.player.gold += reward.gold || 0;
+    if (reward.xp) G.awardXp(Math.round(reward.xp));
+    sfx('shrine');
+    UI.announce(`Quest complete: ${q.name}`, '#6be26b', 3000);
+    this.chat('combat', `Quest complete: <span style="color:#6be26b">${U.esc(q.name)}</span> — +${U.fmt(reward.gold || 0)}g${reward.xp ? ', +' + U.fmt(Math.round(reward.xp)) + ' xp' : ''}`, '#b8d8a0');
+    this.renderQuests();
   },
 
   updateTracker() {
     const el = document.getElementById('wui-tracker');
     const pl = G.player;
-    const active = this.QUESTS.filter(q => this.questAvailable(q) && !pl.quests.done[q.id]).slice(0, 3);
+    const tracked = new Set([QuestState.STATES.ACCEPTED, QuestState.STATES.OBJECTIVE_PROGRESS, QuestState.STATES.READY]);
+    const active = this.QUESTS.filter(q => tracked.has(QuestState.status(q, pl))).slice(0, 3);
     if (!active.length) { el.innerHTML = ''; return; }
     let h = '<div class="qt-title">OBJECTIVES</div>';
     for (const q of active) {
@@ -1112,18 +1132,24 @@ const WUI = {
     const p = UI.panel('quests');
     UI.head(p, 'QUEST LOG');
     const pl = G.player;
-    const avail = this.QUESTS.filter(q => this.questAvailable(q));
-    const open = avail.filter(q => !pl.quests.done[q.id]);
-    const done = avail.filter(q => pl.quests.done[q.id]);
-    let h = `<div class="npc-line">${open.length} active · ${done.length} completed</div>`;
-    for (const q of open.concat(done)) {
-      const isDone = pl.quests.done[q.id];
+    const visible = this.QUESTS.filter(q => this.questAvailable(q) || QuestState.status(q, pl) !== QuestState.STATES.OFFERED);
+    const activeStates = new Set([QuestState.STATES.ACCEPTED, QuestState.STATES.OBJECTIVE_PROGRESS, QuestState.STATES.READY]);
+    const active = visible.filter(q => activeStates.has(QuestState.status(q, pl)));
+    const done = visible.filter(q => QuestState.status(q, pl) === QuestState.STATES.COMPLETED);
+    let h = `<div class="npc-line">${active.length} accepted · ${done.length} completed</div>`;
+    for (const q of visible) {
+      const state = QuestState.status(q, pl);
+      const isDone = state === QuestState.STATES.COMPLETED;
       const prog = Math.min(this.questProg(q), q.need);
       h += `<div class="q-item${isDone ? ' done' : ''}">
-        <div class="q-name">${U.esc(q.name)}${isDone ? '<span class="q-tag">✓ COMPLETE</span>' : ''}</div>
+        <div class="q-name">${U.esc(q.name)}<span class="q-tag">${U.esc(state.toUpperCase())}</span></div>
         <div class="q-desc">${U.esc(q.desc)}</div>
         <div class="q-prog">${U.fmt(prog)} / ${U.fmt(q.need)}<span class="q-bar"><i style="width:${Math.round(prog / q.need * 100)}%"></i></span></div>
-        <div class="q-gold">Reward: ${U.fmt(q.gold)} gold${q.xp ? ' · ' + U.fmt(Math.round(q.xp)) + ' xp' : ''}</div>
+        <div class="q-gold">${U.esc(q.giverNpc)} → ${U.esc(q.turnInNpc)} · Reward: ${U.fmt(q.rewards.gold)} gold${q.rewards.xp ? ' · ' + U.fmt(Math.round(q.rewards.xp)) + ' xp' : ''}</div>
+        ${state === QuestState.STATES.OFFERED ? (q.branches.length
+          ? q.branches.map(branch => `<button onclick="WUI.acceptQuest('${q.id}','${branch.id}')">${U.esc(branch.label)}</button>`).join('')
+          : `<button onclick="WUI.acceptQuest('${q.id}')">Accept</button>`) : ''}
+        ${state === QuestState.STATES.READY ? `<button onclick="WUI.turnInQuest('${q.id}')">Turn in to ${U.esc(q.turnInNpc)}</button>` : ''}
       </div>`;
     }
     p.insertAdjacentHTML('beforeend', h);
