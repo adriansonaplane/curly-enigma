@@ -1122,7 +1122,8 @@ const Hero3 = {
     const r = this.rig;
     r.position.set(pl.x, 0, pl.y);
     // game angles are atan2(dy, dx) on the ground plane; the rig faces +Z
-    r.rotation.y = Math.PI / 2 - (pl.dir || 0);
+    const heading = Number.isFinite(pl.dir) ? pl.dir : 0;
+    r.rotation.y = Math.PI / 2 - heading;
     return r;
   },
 
