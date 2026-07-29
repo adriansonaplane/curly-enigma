@@ -21,10 +21,16 @@
 // This tool measures the compiled result and reports the four ways that goes
 // wrong:
 //
-//   FLOATING / SUNKEN   the model does not rest on y=0, so it hovers or sinks
-//                       when the game places it on the floor plane.
+//   FLOATING / SUNKEN   the model does not rest on y=0. INFORMATIONAL: the
+//                       runtime re-seats every authored model on its lowest
+//                       vertex (actors3d.js instanceModel, `position.y =
+//                       -minY * scale`), so this corrects itself. A small sink
+//                       just means the payload's origin sits above its feet.
+//                       It is still worth reading, because a LARGE gap says
+//                       the recovered root may be missing part of the body.
 //   OFF-CENTRE          the model's footprint is not over the origin, so it
 //                       orbits its own pivot instead of turning in place.
+//                       Nothing compensates x/z — this one is a real defect.
 //   SIZE                the model is not plausibly the size of the thing it
 //                       depicts, which means a fit-to-frame scale came along.
 //   FROZEN-ROT          every mesh shares one identical non-zero rotation.
@@ -194,4 +200,15 @@ const contradictory = rows.filter(r => /bottom/i.test(r.pivot || '') &&
   (r.flags.includes('FLOATING') || r.flags.includes('SUNKEN')));
 if (contradictory.length)
   console.log(`  !! ${contradictory.length} model(s) claim a bottom pivot but do not rest on y=0`);
+// Separate the flags the runtime fixes from the ones it does not, so a row
+// that needs a person is not buried among rows that correct themselves.
+const SELF_CORRECTING = new Set(['FLOATING', 'SUNKEN']);
+const real = flagged.filter(r => r.flags.some(f => !SELF_CORRECTING.has(f.split(':')[0])));
+if (flagged.length) {
+  console.log(`  of the ${flagged.length} flagged, ${flagged.length - real.length} are float/sink only,`
+    + ' which instanceModel re-seats at load');
+  console.log(real.length
+    ? `  needs a person  : ${real.map(r => r.slug).join(', ')}`
+    : '  needs a person  : none');
+}
 console.log(flagged.length ? '\nRun with --verbose to see every model.\n' : '\n');
