@@ -308,8 +308,11 @@ const WUI = {
       b.textContent = label; b.title = title;
       b.addEventListener('click', fn);
       btns.insertBefore(b, document.getElementById('btn-mute'));
+      return b;
     };
     addBtn('J', 'Quest Log (' + this.keyLabel('quests') + ')', () => UI.toggle('quests'));
+    const codexButton = addBtn('C', 'Codex', () => UI.toggle('codex'));
+    codexButton.id = 'wui-codex-button';
     addBtn('R', 'Faction Reputation', () => UI.toggle('reputation'));
     addBtn('U', 'Social (' + this.keyLabel('social') + ')', () => UI.toggle('social'));
     addBtn('G', 'Guild (' + this.keyLabel('guildp') + ')', () => UI.toggle('guild'));
@@ -317,7 +320,7 @@ const WUI = {
 
     // panels
     document.getElementById('panels').insertAdjacentHTML('beforeend',
-      '<div id="panel-settings" class="panel wide hidden"></div><div id="panel-quests" class="panel hidden"></div><div id="panel-reputation" class="panel wide hidden"></div>' +
+      '<div id="panel-settings" class="panel wide hidden"></div><div id="panel-quests" class="panel hidden"></div><div id="panel-codex" class="panel wide hidden"></div><div id="panel-reputation" class="panel wide hidden"></div>' +
       '<div id="panel-social" class="panel hidden"></div><div id="panel-guild" class="panel hidden"></div>');
 
     // edit banner
@@ -1150,6 +1153,58 @@ const WUI = {
   },
 
   // ================= QUESTS =================
+  discoverLoreSource(type, id, metadata) {
+    const pl = G.player;
+    if (!pl) return [];
+    pl.lore = Lore.migrate(pl.lore);
+    const found = Lore.discoverSource(pl.lore, type, id, metadata);
+    if (found.length) {
+      Save.saveChar(pl);
+      for (const entry of found) UI.announce(`Codex discovered: ${entry.title}`, '#c9a7ff', 2600);
+      this.updateCodexUnread();
+      if (UI.openPanel === 'codex') this.renderCodex();
+    }
+    return found;
+  },
+
+  updateCodexUnread() {
+    const button = document.getElementById('wui-codex-button');
+    if (!button || !G.player) return;
+    const count = Lore.unreadCount(Lore.migrate(G.player.lore));
+    button.classList.toggle('has-unread', count > 0);
+    button.dataset.unread = count || '';
+    button.setAttribute('aria-label', count ? `Codex, ${count} unread` : 'Codex');
+  },
+
+  renderCodex() {
+    const panel = UI.panel('codex'), state = G.player.lore = Lore.migrate(G.player.lore);
+    UI.head(panel, 'LORE CODEX');
+    const controls = document.createElement('div'); controls.className = 'codex-controls';
+    const search = document.createElement('input'); search.type = 'search'; search.placeholder = 'Search discovered lore…'; search.value = this.codexQuery || '';
+    const filter = document.createElement('select');
+    for (const category of ['All', ...Lore.categories]) { const option = document.createElement('option'); option.value = category; option.textContent = category; filter.appendChild(option); }
+    filter.value = this.codexCategory || 'All'; controls.append(search, filter); panel.appendChild(controls);
+    const list = document.createElement('div'); list.className = 'codex-list'; panel.appendChild(list);
+    const draw = () => {
+      list.replaceChildren(); const query = search.value.trim().toLowerCase();
+      const visible = Lore.entries.filter(entry => Lore.has(state, entry.id) && (filter.value === 'All' || entry.category === filter.value) &&
+        (!query || [entry.title, entry.category, entry.content, entry.source.location].some(value => String(value || '').toLowerCase().includes(query))));
+      if (!visible.length) { const empty = document.createElement('p'); empty.className = 'codex-empty'; empty.textContent = 'No discovered entries match these filters.'; list.appendChild(empty); return; }
+      for (const entry of visible) {
+        const card = document.createElement('article'); card.className = 'codex-entry' + (state.read[entry.id] ? '' : ' unread');
+        const heading = document.createElement('h3'); heading.textContent = entry.title;
+        const category = document.createElement('span'); category.className = 'codex-category'; category.textContent = entry.category;
+        const content = document.createElement('p'); content.textContent = entry.content;
+        const record = state.discovered[entry.id], source = record.source || entry.source;
+        const meta = document.createElement('small'); meta.textContent = `${source.type} · ${source.location || 'Unknown location'} · ${entry.id}`;
+        card.append(heading, category, content, meta); list.appendChild(card); Lore.markRead(state, entry.id);
+      }
+      Save.saveChar(G.player); this.updateCodexUnread();
+    };
+    search.addEventListener('input', () => { this.codexQuery = search.value; draw(); });
+    filter.addEventListener('change', () => { this.codexCategory = filter.value; draw(); }); draw();
+  },
+
   renderReputation() {
     const p = UI.panel('reputation'), state = G.player.reputation;
     UI.head(p, 'FACTIONS & REPUTATION');
@@ -1201,6 +1256,7 @@ const WUI = {
       if (G.player.dialogue && G.player.dialogue.flags) G.player.dialogue.flags['quest.' + hook] = true;
     });
     if (!reward) return;
+    this.discoverLoreSource('quest', id, { location: q.name });
     G.player.gold += reward.gold || 0;
     if (q.faction) Factions.change(G.player.reputation, q.faction, q.reputation || 0);
     if (reward.xp) G.awardXp(Math.round(reward.xp));
@@ -1875,6 +1931,7 @@ const WUI = {
       _open(name);
       if (name === 'settings') self.renderSettings();
       if (name === 'quests') self.renderQuests();
+      if (name === 'codex') self.renderCodex();
       if (name === 'reputation') self.renderReputation();
     };
   },

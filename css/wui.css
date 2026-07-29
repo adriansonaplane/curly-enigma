@@ -647,3 +647,15 @@ body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
 .party-actions { display:none; gap:2px; margin-top:3px; }
 .party-unit:hover .party-actions, .party-unit:focus-within .party-actions { display:flex; }
 .party-actions button { padding:1px 3px; font-size:8px; }
+.codex-controls { display:flex; gap:8px; margin:8px 0 12px; }
+.codex-controls input { flex:1; min-width:0; }
+.codex-list { display:grid; gap:9px; max-height:58vh; overflow:auto; padding-right:4px; }
+.codex-entry { position:relative; padding:12px 14px; border:1px solid #5d4a30; background:rgba(12,9,8,.78); }
+.codex-entry.unread { border-left:4px solid #c9a7ff; }
+.codex-entry.unread::after { content:'NEW'; position:absolute; right:10px; top:10px; color:#c9a7ff; font-size:10px; }
+.codex-entry h3 { margin:0 0 3px; color:#e8d089; }
+.codex-entry p { white-space:pre-wrap; line-height:1.45; color:#d8c9a3; }
+.codex-entry small { color:#847252; }
+.codex-category { color:#c9a7ff; font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+#wui-codex-button.has-unread { position:relative; color:#e3c9ff; }
+#wui-codex-button.has-unread::after { content:attr(data-unread); position:absolute; right:-4px; top:-7px; min-width:14px; padding:1px 3px; border-radius:8px; background:#8d4dc2; color:white; font-size:9px; }

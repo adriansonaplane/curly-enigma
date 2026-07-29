@@ -755,6 +755,7 @@ const UI = {
     const node = graph && graph.nodes[currentId];
     if (node) {
       Dialogue.visit(pl.dialogue, npc.id, currentId);
+      if (typeof WUI !== 'undefined') WUI.discoverLoreSource('dialogue', npc.id, { node: currentId, location: G.map.name });
       Save.saveChar(pl);
     }
     const line = node ? node.text : U.pick(U.rand, npc.def.lines);
@@ -767,51 +768,6 @@ const UI = {
       b.addEventListener('click', fn);
       opts.appendChild(b);
     };
-    const conditionMet = c => !c || (typeof c === 'object' &&
-      Object.keys(c).every(k => ['level', 'gold', 'visited', 'notVisited', 'flag', 'notFlag'].includes(k)) &&
-      (c.level === undefined || pl.lvl >= c.level) && (c.gold === undefined || pl.gold >= c.gold) &&
-      (!c.visited || !!state.visited[c.visited]) && (!c.notVisited || !state.visited[c.notVisited]) &&
-      (!c.flag || !!state.flags[c.flag]) && (!c.notFlag || !state.flags[c.notFlag]));
-    const validEffects = e => !e || (typeof e === 'object' &&
-      Object.keys(e).every(k => ['gold', 'hpPotions', 'mpPotions', 'heal', 'setFlag'].includes(k)) &&
-      ['gold', 'hpPotions', 'mpPotions'].every(k => e[k] === undefined || Number.isFinite(e[k])) &&
-      (e.setFlag === undefined || typeof e.setFlag === 'string') && (e.heal === undefined || typeof e.heal === 'boolean'));
-    const applyEffects = e => {
-      if (!validEffects(e)) return false;
-      const gold = pl.gold + (e && e.gold || 0), hp = pl.potions.hp + (e && e.hpPotions || 0), mp = pl.potions.mp + (e && e.mpPotions || 0);
-      if (gold < 0 || hp < 0 || hp > 20 || mp < 0 || mp > 20) return false;
-      pl.gold = gold; pl.potions.hp = hp; pl.potions.mp = mp;
-      if (e && e.heal) { pl.hp = pl.derived.maxHp; pl.mp = pl.derived.maxMp; }
-      if (e && e.setFlag) state.flags[e.setFlag] = true;
-      return true;
-    };
-    const go = next => this.npcDialog(npc, graph.nodes[next] ? next : id, trail.concat(id));
-    const actions = {
-      heal: () => { applyEffects({ heal: true }); sfx('shrine'); this.announce('You feel whole again.', '#6be26b'); this.closeAll(); },
-      buyHp: () => applyEffects({ gold: -(20 + pl.lvl * 6), hpPotions: 1 }) ? (sfx('gold'), this.npcDialog(npc, id, trail)) : sfx('nope'),
-      buyMp: () => applyEffects({ gold: -(20 + pl.lvl * 6), mpPotions: 1 }) ? (sfx('gold'), this.npcDialog(npc, id, trail)) : sfx('nope'),
-      vendor: () => { Game.restock(); this.open('vendor'); }, gamble: () => this.open('gamble'), stash: () => this.open('stash'),
-    };
-    for (const choice of node.choices || []) {
-      const choiceKey = `${npc.id}:${id}:${choice.id}`;
-      if (!choice.id || !choice.text || !conditionMet(choice.condition) || (choice.remember && state.choices[choiceKey])) continue;
-      let label = choice.text;
-      if (choice.action === 'buyHp' || choice.action === 'buyMp') label += ` — ${20 + pl.lvl * 6}g`;
-      add(label, () => {
-        if (choice.action) { if (actions[choice.action]) actions[choice.action](); return; }
-        let result = choice;
-        if (choice.skillCheck) {
-          const check = choice.skillCheck, stat = pl.derived && pl.derived[check.stat];
-          if (!Number.isFinite(stat) || !Number.isFinite(check.difficulty)) return sfx('nope');
-          const old = state.checks[choiceKey];
-          const passed = old === 'success' || (old !== 'failure' && stat >= check.difficulty);
-          state.checks[choiceKey] = passed ? 'success' : 'failure'; result = passed ? check.success : check.failure;
-        }
-        if (!result || !applyEffects(result.effects)) return sfx('nope');
-        if (choice.remember) state.choices[choiceKey] = true;
-        Save.saveChar(pl);
-        result.next ? go(result.next) : this.npcDialog(npc, id, trail);
-      });
     if (node) for (const choice of node.choices || []) {
       const consequenceId = `${npc.id}.${choice.id}`;
       if (!Dialogue.meets(choice.condition, pl, pl.dialogue, npc.id)) continue;
@@ -844,7 +800,6 @@ const UI = {
       case 'gambler': add('Gamble', () => this.open('gamble')); break;
       case 'stash': add('Open the vault', () => this.open('stash')); break;
     }
-    if (trail.length) add('← Back', () => this.npcDialog(npc, trail[trail.length - 1], trail.slice(0, -1)));
     add('Farewell', () => this.closeAll());
     p.appendChild(opts);
   },

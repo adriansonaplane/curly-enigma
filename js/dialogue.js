@@ -7,7 +7,7 @@
 //   skillCheck:{ stat, difficulty, success:{ next, effects }, failure:{ next, effects } }
 // `remember` makes a choice consequential: after successful effects it is
 // recorded and cannot be selected twice, including after saving and reloading.
-const DialogueGraphs = Object.freeze({
+const LegacyDialogueGraphs = Object.freeze({
   healer: { start: 'welcome', nodes: {
     welcome: { text: 'The Light keeps no ledger, friend. What do you need?', choices: [
       { id: 'heal', text: 'Heal my wounds.', action: 'heal' },

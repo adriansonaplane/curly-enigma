@@ -1,0 +1,18 @@
+'use strict';
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const context = { console, Date: { now: () => 1234 } }; context.globalThis = context;
+vm.runInNewContext(fs.readFileSync('js/lore.js', 'utf8'), context);
+const Lore = context.Lore, state = Lore.create();
+assert.ok(Lore.entries.every(entry => entry.id && entry.category && entry.content && entry.source.location));
+assert.deepStrictEqual([...Lore.discoverSource(state, 'dialogue', 'elder', { node: 'welcome' })].map(e => e.id), ['place.havens-rest']);
+Lore.discoverSource(state, 'dialogue', 'elder', { node: 'parish' });
+Lore.discoverSource(state, 'dialogue', 'elder', { node: 'abyss' });
+assert.strictEqual(Lore.unreadCount(state), 3);
+assert.strictEqual(Lore.discoverSource(state, 'dialogue', 'elder').length, 0, 'discoveries are idempotent');
+Lore.discoverSource(state, 'prop', 'bookshelf');
+assert.ok(Lore.has(state, 'mystery.heart-below'), 'dependency chain unlocks deductions');
+Lore.markRead(state, 'mystery.heart-below');
+const migrated = Lore.migrate(JSON.parse(JSON.stringify(state)));
+assert.ok(migrated.read['mystery.heart-below']);
+assert.ok(!Object.prototype.hasOwnProperty.call(Lore.byId, 'unknown'));
+console.log('lore contract: ok');
