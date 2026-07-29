@@ -743,6 +743,7 @@ const UI = {
     this.openPanel = 'npc';
     p.classList.remove('hidden');
     this.head(p, npc.def.name.toUpperCase());
+    const pl = G.player;
     const graph = DialogueGraphs[npc.id];
     if (!graph || !graph.nodes) return this.closeAll();
     const pl = G.player;
@@ -853,7 +854,6 @@ const UI = {
       case 'smith': add('Trade', () => { Game.restock(); this.open('vendor'); }); break;
       case 'gambler': add('Gamble', () => this.open('gamble')); break;
       case 'stash': add('Open the vault', () => this.open('stash')); break;
-      case 'elder': add('Thank you, elder', () => this.closeAll()); break;
     }
     if (trail.length) add('← Back', () => this.npcDialog(npc, trail[trail.length - 1], trail.slice(0, -1)));
     add('Farewell', () => this.closeAll());
