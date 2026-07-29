@@ -89,6 +89,7 @@ const Render = {
   // Two dynamic instance buffers replace the old 48 groups / 96 meshes.
   MARKERS: 48,
   _markerState: null, markerColumns: null, markerBeads: null,
+  _markerObject: null, _markerColor: null, _markerColumnColor: null,
   markers(map) {
     if (this.markerColumns) return;
     const geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16, 1, true);
@@ -107,6 +108,11 @@ const Render = {
       R3.scene.add(mesh);
     }
     this._markerState = new Float32Array(this.MARKERS * 8);
+    // syncMarkers runs every frame. Keep its upload scratch objects alongside
+    // the compact state buffer rather than creating garbage for every marker.
+    this._markerObject = new THREE.Object3D();
+    this._markerColor = new THREE.Color();
+    this._markerColumnColor = new THREE.Color();
   },
 
   syncMarkers(t) {
@@ -114,7 +120,7 @@ const Render = {
     let n = 0;
     const use = (x, y, color, h, r, beadY) => {
       if (n >= this.MARKERS) return;
-      const i = n++ * 8, c = new THREE.Color(color), a = this._markerState;
+      const i = n++ * 8, c = this._markerColor.set(color), a = this._markerState;
       a[i] = x; a[i + 1] = y; a[i + 2] = c.r; a[i + 3] = c.g; a[i + 4] = c.b;
       a[i + 5] = h; a[i + 6] = r; a[i + 7] = beadY === undefined ? -1 : beadY;
     };
@@ -132,7 +138,7 @@ const Render = {
         : (gi.item && Items.rarityColor ? Items.rarityColor(gi.item.rarity) : '#cfcfcf');
       use(gi.x, gi.y, c, 0.6, 0.34, 0.3);
     }
-    const dummy = new THREE.Object3D(), col = new THREE.Color();
+    const dummy = this._markerObject, col = this._markerColor;
     let nc = 0, nb = 0;
     for (let j = 0; j < n; j++) {
       const i = j * 8, a = this._markerState, x = a[i], y = a[i + 1];
@@ -143,7 +149,8 @@ const Render = {
         this.markerColumns.setMatrixAt(nc, dummy.matrix);
         // Preserve the old faint, pulsing column opacity through additive RGB.
         const pulse = 0.07 + Math.sin(t * 3 + x + y) * 0.025;
-        this.markerColumns.setColorAt(nc++, col.clone().multiplyScalar(pulse));
+        this._markerColumnColor.copy(col).multiplyScalar(pulse);
+        this.markerColumns.setColorAt(nc++, this._markerColumnColor);
       }
       if (a[i + 7] >= 0) {
         dummy.position.set(x, a[i + 7] + Math.sin(t * 2.4 + x * 3) * 0.06, y);

@@ -293,6 +293,33 @@ test('maximum effects and markers stay bounded by instance categories', async ({
   await openGame(page, errors); await startGame(page);
   const result = await page.evaluate(() => {
     const x = G.player.x, y = G.player.y;
+    const renderBatches = () => {
+      FX3.sync(G.time);
+      const map = G.map; G.map = null; Render.syncMarkers(G.time); G.map = map;
+      const keep = new Set([FX3.group, Render.markerColumns, Render.markerBeads]);
+      const visibility = R3.scene.children.map(o => [o, o.visible]);
+      for (const [o] of visibility) o.visible = keep.has(o);
+      R3.renderer.info.reset(); R3.renderer.render(R3.scene, R3.cam);
+      const calls = R3.renderer.info.render.calls;
+      for (const [o, visible] of visibility) o.visible = visible;
+      return calls;
+    };
+
+    // Activate every distinct material/blend batch once. This is the draw-call
+    // baseline: adding instances below must not increase it.
+    G.parts.length = 0; G.rings.length = 0; G.flashes.length = 0;
+    G.bolts.length = 0; G.projs.length = 0;
+    G.parts.push(
+      { x, y, z: 8, life: 1, maxLife: 1, color: '#fff', size: 2, add: true },
+      { x, y, z: 8, life: 1, maxLife: 1, color: '#fff', size: 2, add: false },
+    );
+    G.rings.push({ x, y, r: 1, maxR: 2, t: 1, maxT: 1, color: '#fff' });
+    G.flashes.push({ x, y, r: 2, t: 1, maxT: 1, color: '#fff' });
+    G.bolts.push({ x, y, t: 1, maxT: 1, color: '#fff' });
+    G.projs.push({ x, y, vx: 1, vy: 0, elem: 'phys', kind: 'arrow' });
+    G.groundItems = [{ x, y, gold: true }];
+    const baselineCalls = renderBatches();
+
     G.parts.length = 0; G.rings.length = 0; G.flashes.length = 0;
     G.bolts.length = 0; G.projs.length = 0;
     for (let i = 0; i < FX3.MAX; i++) G.parts.push({
@@ -304,24 +331,20 @@ test('maximum effects and markers stay bounded by instance categories', async ({
     for (let i = 0; i < FX3.BOLTS; i++) G.bolts.push({ x, y, t: 1, maxT: 1, color: '#fff' });
     for (let i = 0; i < FX3.PROJS; i++) G.projs.push({ x, y, vx: 1, vy: 0, elem: 'phys', kind: i & 1 ? 'arrow' : 'orb' });
     G.groundItems = Array.from({ length: Render.MARKERS }, (_, i) => ({ x: x + i * 0.01, y, gold: true }));
-    FX3.sync(G.time);
-    const map = G.map; G.map = null; Render.syncMarkers(G.time); G.map = map;
-
-    const keep = new Set([FX3.group, Render.markerColumns, Render.markerBeads]);
-    const visibility = R3.scene.children.map(o => [o, o.visible]);
-    for (const [o] of visibility) o.visible = keep.has(o);
-    R3.renderer.info.reset(); R3.renderer.render(R3.scene, R3.cam);
-    const calls = R3.renderer.info.render.calls;
-    for (const [o, visible] of visibility) o.visible = visible;
+    const saturatedCalls = renderBatches();
     return {
-      calls,
+      baselineCalls, saturatedCalls,
       counts: [FX3.rings.count, FX3.flashes.count, FX3.bolts.count,
         FX3.beads.count, FX3.shafts.count, Render.markerColumns.count, Render.markerBeads.count],
+      allInstanced: [FX3.rings, FX3.flashes, FX3.bolts, FX3.beads, FX3.shafts,
+        Render.markerColumns, Render.markerBeads].every(mesh => mesh.isInstancedMesh),
     };
   });
   expect(result.counts).toEqual([24, 16, 12, 64, 32, 48, 48]);
+  expect(result.allInstanced).toBe(true);
+  expect(result.saturatedCalls).toBe(result.baselineCalls);
   // Nine logical batches; transparent DoubleSide categories may use two GPU passes.
-  expect(result.calls).toBeLessThanOrEqual(14);
+  expect(result.saturatedCalls).toBeLessThanOrEqual(14);
   expect(errors).toEqual([]);
 });
 
