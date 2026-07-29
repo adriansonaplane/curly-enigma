@@ -118,20 +118,59 @@ function scriptsParse(html) {
   return null;
 }
 
+// Severity has to follow whether the code RUNS.
+//
+// A .json payload is not uniformly executable. The compiler reads exactly two
+// things from it: the `html` field, whose inline scripts it evaluates, and
+// `spec.pivot`. Everything else — description, tags, and `spec.api`, which
+// carries a prose usage example — is inert metadata that nothing ever runs.
+//
+// Scanning the whole file at block severity treated that documentation as
+// though it were code. bookcase.json was reported as making a network request
+// at runtime on the strength of a comment reading "// Or fetch the HTML and use
+// in your own project", and it stayed on the open-items list for days.
+//
+// So: the executable surface is judged at full severity, and the rest is still
+// reported — a hostile URL in a description is worth seeing — but as a warning
+// that says plainly it is not executed.
+function split(file, raw) {
+  if (!/\.json$/i.test(file)) return { exec: raw, inert: '' };
+  let doc;
+  try { doc = JSON.parse(raw); } catch (e) { return { exec: raw, inert: '' }; }
+  const exec = typeof doc.html === 'string' ? doc.html : '';
+  const rest = Object.assign({}, doc); delete rest.html;
+  return { exec, inert: JSON.stringify(rest) };
+}
+
 function auditFile(file) {
   const raw = fs.readFileSync(file, 'utf8');
-  const body = stripComments(raw);
+  const { exec, inert } = split(file, raw);
+  const body = stripComments(exec);
   const hits = [];
-  if (/\.html?$/i.test(file)) {
-    const err = scriptsParse(raw);
-    if (err) hits.push({ id: 'broken-js', sev: 'block', why: 'inline script does not parse — payload is corrupt',
-                         n: 1, sample: err.slice(0, 70) });
-  }
+  // Now runs for .json too, against the html field the compiler evaluates.
+  // Previously this was gated on the filename, so the corruption check never
+  // examined what the pipeline actually consumes.
+  const err = scriptsParse(exec);
+  if (err) hits.push({ id: 'broken-js', sev: 'block', why: 'inline script does not parse — payload is corrupt',
+                       n: 1, sample: err.slice(0, 70) });
   for (const r of RULES) {
     r.re.lastIndex = 0;
     const found = body.match(r.re);
     if (found && found.length) {
       hits.push({ id: r.id, sev: r.sev, why: r.why, n: found.length, sample: found[0].slice(0, 70) });
+    }
+  }
+  // Same rules over the inert metadata, always downgraded, never silent.
+  const seen = new Set(hits.map(h => h.id));
+  const inertBody = stripComments(inert);
+  for (const r of RULES) {
+    if (seen.has(r.id)) continue;
+    r.re.lastIndex = 0;
+    const found = inertBody.match(r.re);
+    if (found && found.length) {
+      hits.push({ id: r.id + ' (metadata)', sev: 'warn', n: found.length,
+        why: r.why + ' — but in metadata the pipeline never executes',
+        sample: found[0].slice(0, 70) });
     }
   }
   const three = THREE_HINTS.filter(h => h.re.test(body)).map(h => h.id);
