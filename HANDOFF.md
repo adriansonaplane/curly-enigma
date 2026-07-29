@@ -697,3 +697,62 @@ second fails safe and is the recommendation. Not done.
 No `ragm-*` model has been rendered. Six models are flagged by the placement
 inspector and have not been read. FPS on real hardware is now the only
 outstanding step in §U2's sequence.
+
+## U9. 2026-07-29 — Placement verdict on the compiled pack
+
+Six of 99 models flag on placement, **all six are `ragm-*`, none of the 84 props**.
+That is specific to the closure-local roots the compiler recovers, not to the
+pipeline generally.
+
+| model | height | floor gap | gap as % of own height | offset as % of footprint |
+|---|---:|---:|---:|---:|
+| ragm-troll | 2.51 | −0.138 | 5.5% | 0% |
+| ragm-wraith | 1.71 | −0.080 | 4.7% | 0% |
+| ragm-lich-lord | 2.42 | −0.068 | 2.8% | 0% |
+| ragm-necromancer | 1.77 | −0.050 | 2.8% | 0% |
+| ragm-skeletal-mage | 1.79 | −0.050 | 2.8% | 0% |
+| **ragm-volcanic-imp** | **1.00** | **+0.562** | **56.2%** | **20.2%** |
+
+**Five of the six are benign.** `instanceModel` re-seats every authored model on
+its lowest vertex (`js/actors3d.js`, `position.y = -minY * scale`), so a sink of
+a few percent just means the payload's origin sits above its feet. Nothing
+compensates x/z, so a footprint offset is uncorrected all the way to the screen.
+
+**`ragm-volcanic-imp` is the one to look at.** Its geometry occupies
+y ∈ [0.562, 1.562] — a metre-tall band floating half a metre up, wider than it
+is tall, off-axis, while every sibling spans roughly 0 → 1.7–2.5. The working
+hypothesis is that the compiler's largest-mesh-bearing-subtree heuristic grabbed
+the upper body and left the legs behind. **Unconfirmed** — spawning a Cinder Imp
+(`imp` is mapped to it) settles it. If true, the fix belongs in the compiler's
+recovery ranking, and it is the first evidence that the heuristic which
+unblocked all 99 models mis-picks. Worth knowing before more species are wired.
+
+### A measurement lesson, twice
+
+Both placement tools shipped with a defect that made them agree with whatever
+they were measuring, which is Appendix A9's warning in practice:
+
+1. Bounds were taken from transformed axis-aligned boxes, which over-cover a
+   rotated part — worst case a UV sphere, whose box is the full ±r cube while
+   the sphere is rotation-invariant. One rotated scaled sphere misreported its
+   own `minY` by 0.41 world units. Fixed by bounding actual vertices; tolerance
+   went from 1e-2 to 1e-5.
+2. Thresholds were absolute metres. A model 20% of its own footprint off-axis
+   passed a 0.30m bar, and the triage reported "needs a person: none" while the
+   text beside it named that model as the one real defect. Now judged relative
+   to each model's own size — and not tuned to the pack, which separates itself
+   by two orders of magnitude.
+
+Neither was caught by a test. Both were caught by a number contradicting a
+sentence. Prefer checks that are relative to the thing measured.
+
+### Open
+
+- **`ragm-volcanic-imp`** — render it; decide whether the root is truncated.
+- **`bookcase.json`'s `fetch`** — the only blocking audit finding in a file the
+  compiler reads. No sanitiser rule covers it.
+- **FPS on real hardware** — the last step of §U2's sequence. §3 #1's 230–380
+  draw-call figure is now re-measurable rather than quotable.
+- **Index tracking** (§U8) — `assets/models/index.json` and
+  `baked/manifest.json` are tracked at the 3-model sample state, so a branch
+  switch silently reverts a 99-model working set. Fix written down, not taken.
