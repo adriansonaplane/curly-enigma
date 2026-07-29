@@ -10,7 +10,7 @@ const WUI = {
   set: null, keymap: null, layout: {},
   DEF_SET: {
     vol: 0.5, mute: false,
-    quality: 'auto', fpsLimit: 0, fog: true, shafts: true, ao: true, reflections: true, grade: true, fps: false,
+    quality: 'auto', renderScale: 1, fpsLimit: 0, fog: true, shafts: true, ao: true, reflections: true, grade: true, fps: false,
     mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
     ctIn: true, ctOut: true, bubbles: true, physics: true,
@@ -937,6 +937,18 @@ const WUI = {
     sel.addEventListener('change', () => { this.set.quality = sel.value; this.saveSet(); this.applySettings(); sfx('ui'); });
     body.appendChild(row);
 
+    const scale = document.createElement('div');
+    scale.className = 'ws-row';
+    scale.innerHTML = `<span class="ws-label">3D render scale<span class="ws-hint">Lowers only the 3D scene; interface text remains native resolution</span></span>
+      <select><option value="1">100%</option><option value="0.85">85%</option><option value="0.75">75%</option><option value="0.6">60%</option></select>`;
+    const rsel = scale.querySelector('select');
+    rsel.value = String(this.set.renderScale === undefined ? 1 : this.set.renderScale);
+    rsel.addEventListener('change', () => {
+      this.set.renderScale = +rsel.value;
+      this.saveSet(); this.applySettings(); sfx('ui');
+    });
+    body.appendChild(scale);
+
     const frameLimit = document.createElement('div');
     frameLimit.className = 'ws-row';
     frameLimit.innerHTML = `<span class="ws-label">FPS limit<span class="ws-hint">Display uses every browser animation frame</span></span>
@@ -945,6 +957,7 @@ const WUI = {
     fsel.value = String(this.set.fpsLimit || 0);
     fsel.addEventListener('change', () => {
       this.set.fpsLimit = +fsel.value;
+      Render.targetFps = this.set.fpsLimit || 60;
       this.saveSet();
       // Start the newly selected cadence at the next browser frame.
       Game._last = 0;
@@ -1134,6 +1147,8 @@ const WUI = {
       bubbles: s.bubbles,
     };
     Render.qualityMode = s.quality;
+    Render.renderScale = U.clamp(Number(s.renderScale === undefined ? 1 : s.renderScale), 0.25, 1);
+    Render.targetFps = Number(s.fpsLimit) || 60;
     Render.mood = s.mood || 'spooky';
     Render.heroLightMul = U.clamp((s.heroLight === undefined ? 42 : s.heroLight) / 100, 0, 1);
     Physics.enabled = s.physics !== false;
