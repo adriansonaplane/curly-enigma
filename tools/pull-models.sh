@@ -179,7 +179,27 @@ if [ "$fail" -gt 0 ]; then
   printf '\n  Re-run to retry just those, e.g.:\n    ./tools/pull-models.sh %s\n' "${failed[0]%% *}"
   exit 1
 fi
+# Sanitise what we just pulled, here, rather than telling the caller to.
+#
+# A freshly pulled payload carries a live <script src> pointing at cdnjs and a
+# window.parent.postMessage channel. Leaving that on disk and printing a
+# reminder does not work: the scrub edits untracked files in place, so nothing
+# records that it happened and nothing detects that it did not. A later re-pull
+# silently reverts every payload, and the next audit reports 192 blocking
+# findings that were fixed days earlier.
+#
+# It is idempotent, so re-running the pull re-runs this harmlessly.
+# Set SANITIZE=0 to keep the untouched originals for comparison.
+if [ "${SANITIZE:-1}" = "1" ] && [ "$ok" -gt 0 ]; then
+  printf '\n'
+  if node "$(dirname "$0")/sanitize-payloads.js" "$OUT"; then :; else
+    printf '\n  SANITISE FAILED — the payloads on disk still reach for a CDN.\n'
+    printf '  Do not open them in a browser. Re-run: node tools/sanitize-payloads.js %s\n' "$OUT"
+    exit 1
+  fi
+fi
+
 printf '\n  Next:\n'
-printf '    node tools/audit-assets.js %s      # must be clean before anything else\n' "$OUT"
-printf '    node tools/sanitize-payloads.js %s # strip the CDN + parent access\n' "$OUT"
-printf '    then push, and I will bake them.\n'
+printf '    node tools/audit-assets.js %s      # after the scrub above\n' "$OUT"
+printf '    npm run compile:models\n'
+printf '    npm run test:models\n'
