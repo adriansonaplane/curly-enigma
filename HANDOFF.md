@@ -800,15 +800,44 @@ lost, but the performance investigation now comes first:
   legs; its 56.2% floor gap and 20.2% footprint offset remain unverified.
 - Inspect and deliberately remove or permit `bookcase.json`'s `fetch`, the only
   blocking audit finding in a compiler-consumed payload.
-- Fix model-index discovery so a branch switch cannot silently reduce a local
-  99-model pack to the tracked three-model sample.
+- ~~Fix model-index discovery so a branch switch cannot silently reduce a local
+  99-model pack to the tracked three-model sample.~~ **DONE in PR #32**, which
+  merged before this section was written. `discoverEntries()` in
+  `tools/compile-models.js` now treats `index.json` as metadata rather than
+  authority and merges it with the payloads actually on disk;
+  `tests/node/model-discovery.js` covers it.
 - Replace the stale 230–380 draw-call quotation with a new real-hardware
   capture. That capture must record resolution, camera preset, FPS, calls,
   triangles, shadows, grade, light count and effective pixel ratio.
 
 ### Rendering-pipeline task list
 
-Do these in order; measurement precedes speculative restructuring:
+> **STATUS, added 2026-07-29 after the fact: items 1-8 are IMPLEMENTED.** This
+> section was written in PR #44, which merged *after* PRs #33-#43 had already
+> built all eight. Read it as a record of what was done and why, not as a queue
+> of work to pick up — starting at item 1 would rebuild the whole list.
+>
+> | # | landed in |
+> |---|---|
+> | 1. Diagnostics | #36 — `R3.stats()` reports framebuffer, effective DPR, render scale, calls, triangles, points, lines, shadow/grade state and a `gpu` block using `EXT_disjoint_timer_query` |
+> | 2. FPS limiter | #33 — `js/main.js`, `js/renderer.js`, `js/wui.js` |
+> | 3. Dynamic shadow control | #35 |
+> | 4. Render scale + governor | #34 — `renderScale` in `render3d.js`, `renderer.js`, `wui.js` |
+> | 5. Light budget profiling | #37, #40 |
+> | 6. Spatial chunking | #38, #41 — `world3d.js`, `props3d.js` |
+> | 7. Batch transient draws | #39, #42 |
+> | 8. Align AO/reflection settings | #43 |
+>
+> **What did NOT happen is the measurement.** This section opens by saying the
+> cause of the 100% GPU load "is not yet measured" and that measurement should
+> precede restructuring. The restructuring landed first, on a single owner
+> machine's symptom report, and none of it has been validated on a GPU. The one
+> outstanding task is therefore a controlled real-hardware capture — of the
+> pipeline as it now stands, not as it stood when this list was written.
+
+The original ordering and acceptance constraints follow, retained because the
+reasoning behind each item is still the reasoning to check the implementation
+against:
 
 1. **Add diagnostics.** Extend the existing stats with internal framebuffer
    size, effective DPR/render scale, triangles/points, active lights, shadow and
