@@ -3,6 +3,7 @@
   "scripts": {
     "compile:models": "node tools/compile-models.js && node tools/validate-models.js && node tools/inspect-models.js",
     "test:browser": "playwright test -c tests/browser/playwright.config.js",
+    "test:boss-summons": "node tests/node/boss-summons.js",
     "test:dialogue": "node tests/node/dialogue-contract.js",
     "test:quests": "node tests/node/quest-state-contract.js",
     "test:models": "node tests/node/model-discovery.js && node tests/node/model-contract.js"
