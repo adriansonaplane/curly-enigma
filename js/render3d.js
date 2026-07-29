@@ -11,6 +11,25 @@
 // coordinate maps straight across with y -> z.
 
 const R3 = {
+  PROFILE_SESSION_KEY: 'diabloid.rendererProfile',
+  PROFILES: {
+    default: { antialias: true, dprCap: 2, renderScaleCap: 1,
+      grading: true, maxLights: 12, reducedLighting: false, pointLightShadows: true },
+    conservative: { antialias: false, dprCap: 1, renderScaleCap: 0.75,
+      grading: false, maxLights: 6, reducedLighting: true, pointLightShadows: false },
+  },
+  profileName: 'default',
+  profile: null,
+  selectProfile(name) {
+    this.profileName = this.PROFILES[name] ? name : 'default';
+    this.profile = this.PROFILES[this.profileName];
+    this.dprCap = this.profile.dprCap;
+    this.renderScale = Math.min(this.renderScale, this.profile.renderScaleCap);
+    this.maxLights = Math.min(this.maxLights, this.profile.maxLights);
+    this.gradeEnabled = this.profile.grading && this.gradeEnabled;
+    this.shadows = this.profile.pointLightShadows && this.shadows;
+    return this.profile;
+  },
   // ---- lifecycle ----
   renderer: null, scene: null, cam: null, canvas: null,
   // W/H are CSS coordinates (and remain aliases for callers doing picking).
@@ -82,10 +101,13 @@ const R3 = {
       return false;
     }
     this.canvas = canvas;
+    let storedProfile = 'default';
+    try { storedProfile = sessionStorage.getItem(this.PROFILE_SESSION_KEY) || 'default'; } catch (_) {}
+    const profile = this.selectProfile(storedProfile);
     this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: true, alpha: false, powerPreference: 'high-performance',
+      canvas, antialias: profile.antialias, alpha: false, powerPreference: 'high-performance',
     });
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = profile.pointLightShadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     // Keep the counters across the world and grade renders so callers can
@@ -99,13 +121,13 @@ const R3 = {
     // One texture lookup is enough for the deliberately restrained grade.
     // Keeping it here (rather than tinting hundreds of materials) also makes
     // the setting instant and leaves the sRGB output conversion intact.
-    this._target = new THREE.WebGLRenderTarget(1, 1, {
+    this._target = profile.grading ? new THREE.WebGLRenderTarget(1, 1, {
       minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
       format: THREE.RGBAFormat, depthBuffer: true,
-    });
-    this._postScene = new THREE.Scene();
-    this._postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-    this._postMat = new THREE.ShaderMaterial({
+    }) : null;
+    this._postScene = profile.grading ? new THREE.Scene() : null;
+    this._postCam = profile.grading ? new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) : null;
+    this._postMat = profile.grading ? new THREE.ShaderMaterial({
       uniforms: {
         map: { value: this._target.texture }, top: { value: new THREE.Color() },
         bottom: { value: new THREE.Color() }, amount: { value: 0 }, vignette: { value: 0 },
@@ -118,8 +140,8 @@ const R3 = {
           float edge=smoothstep(0.82,0.25,length(vUv-0.5));
           c.rgb*=mix(1.0,edge,vignette); gl_FragColor=c; }`,
       depthTest: false, depthWrite: false,
-    });
-    this._postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._postMat));
+    }) : null;
+    if (this._postScene) this._postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._postMat));
 
     this.perspCam = new THREE.PerspectiveCamera(48, 1, 0.1, 400);
     this.cam = this.perspCam;
@@ -145,7 +167,8 @@ const R3 = {
   },
 
   setRenderScale(scale) {
-    const next = Math.max(0.25, Math.min(1, Number(scale) || 1));
+    const cap = this.profile ? this.profile.renderScaleCap : 1;
+    const next = Math.max(0.25, Math.min(cap, Number(scale) || 1));
     if (Math.abs(next - this.renderScale) < 0.001) return;
     this.renderScale = next;
     if (this.renderer) this.resize();
@@ -286,6 +309,9 @@ const R3 = {
     if (!canvas || this._contextBound) return;
     this._contextBound = true;
     canvas.addEventListener('webglcontextlost', () => {
+      // The next page load must start cheaply rather than immediately asking
+      // the same GPU/driver for the configuration that it just failed to run.
+      try { sessionStorage.setItem(this.PROFILE_SESSION_KEY, 'conservative'); } catch (_) {}
       this._contextLost = true;
       this._contextLosses++;
       // Discard, never delete: the objects belong to a context that is gone,
@@ -404,6 +430,9 @@ const R3 = {
     const scene = this._sceneCounters || frame;
     const gradeActive = !!(this.gradeEnabled && this.grade && this._postMat);
     return {
+      profile: this.profileName,
+      reducedLighting: !!(this.profile && this.profile.reducedLighting),
+      pointLightShadows: !!(this.profile && this.profile.pointLightShadows),
       mode: this.mode, yaw: +this.yaw.toFixed(3), pitch: +this.pitch.toFixed(3),
       zoom: +this.zoom.toFixed(2), ortho: false,
       framebuffer: { width: this.renderW, height: this.renderH },
