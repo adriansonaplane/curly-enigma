@@ -79,8 +79,6 @@ const WUI = {
     delete savedSet.ao;
     delete savedSet.reflections;
     this.set = Object.assign({}, this.DEF_SET, savedSet);
-    if (typeof GraphicsConfig !== 'undefined' && GraphicsConfig.current.fog !== this.set.fog)
-      GraphicsConfig.save(Object.assign({}, GraphicsConfig.current, { fog: this.set.fog }));
     const savedKeys = this._load(this.SETK + '_keys') || {};
     if (savedKeys.camMode && !savedKeys.camPreset) savedKeys.camPreset = savedKeys.camMode;
     delete savedKeys.camMode;
@@ -95,6 +93,9 @@ const WUI = {
     this.buildDom();
     this.wrapEngine();
     this.applySettings();
+    // Converge legacy WUI-only saves and boot storage through the same path
+    // used by confirmed changes; no scene resource is recreated at startup.
+    this.applyGraphicsConfig(this.normalizedGraphicsConfig(), { persist: true });
     window.addEventListener('resize', () => this.clampFrames());
     document.addEventListener('mousemove', e => {
       const c = document.getElementById('wui-cursoritem');
@@ -117,6 +118,96 @@ const WUI = {
   _load(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
   _save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   saveSet() { this._save(this.SETK, this.set); this._save(this.SETK + '_keys', this.keymap); },
+
+  // Build the one graphics document consumed by every rendering layer. WUI
+  // owns the interactive values while GraphicsConfig supplies boot/context
+  // options which are not exposed in this panel.
+  normalizedGraphicsConfig(overrides) {
+    const boot = typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.current : {};
+    const s = Object.assign({}, this.set, overrides || {});
+    const merged = Object.assign({}, boot, {
+      renderScale: Number(s.renderScale), authoredModels: s.authoredModels !== false,
+      advancedEffects: s.advancedEffects !== false, fog: !!s.fog,
+      shafts: !!s.shafts, grading: !!s.grade,
+    });
+    return typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.validate(merged) : merged;
+  },
+
+  applyGraphicsConfig(config, options = {}) {
+    const normalized = typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.validate(config) : config;
+    this.set.renderScale = normalized.renderScale;
+    this.set.authoredModels = normalized.authoredModels;
+    this.set.advancedEffects = normalized.advancedEffects;
+    this.set.fog = normalized.fog;
+    this.set.shafts = normalized.shafts;
+    this.set.grade = normalized.grading;
+    Render.renderScale = normalized.renderScale;
+    Render.fx.fog = normalized.fog; Render.fx.shafts = normalized.shafts; Render.fx.grade = normalized.grading;
+    World3.configure(normalized); Props3.configure(normalized); Actors3.configure(normalized); FX3.configure(normalized);
+    if (options.renderScale) R3.setRenderScale(normalized.renderScale);
+    else R3.renderScale = normalized.renderScale;
+    if (options.authoredModels) R3.setAuthoredModels(normalized.authoredModels);
+    else R3.authoredModels = normalized.authoredModels;
+    if (options.rebuildModels && G.map) Props3.build(G.map);
+    if (options.reinitializeEffects) FX3.init();
+    if (options.persist) {
+      if (typeof GraphicsConfig !== 'undefined') GraphicsConfig.save(normalized);
+      this.saveSet();
+    }
+    return normalized;
+  },
+
+  confirmChange(description, origin) {
+    if (this._confirmation) this._confirmation(false);
+    const modal = document.createElement('div');
+    modal.className = 'wui-confirm-backdrop';
+    modal.innerHTML = `<div class="wui-confirm" role="alertdialog" aria-modal="true" aria-labelledby="wui-confirm-title" aria-describedby="wui-confirm-description">
+      <h2 id="wui-confirm-title">Apply graphics change?</h2><p id="wui-confirm-description"></p>
+      <div class="wui-confirm-actions"><button type="button" data-action="cancel">Cancel</button><button type="button" data-action="confirm">Confirm</button></div></div>`;
+    modal.querySelector('p').textContent = description;
+    document.body.appendChild(modal);
+    const cancel = modal.querySelector('[data-action="cancel"]');
+    const confirm = modal.querySelector('[data-action="confirm"]');
+    return new Promise(resolve => {
+      const finish = accepted => {
+        if (!modal.isConnected) return;
+        document.removeEventListener('keydown', onKey, true);
+        modal.remove(); this._confirmation = null;
+        if (origin && origin.isConnected) origin.focus();
+        resolve(accepted);
+      };
+      const onKey = event => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish(false); }
+        if (event.key === 'Tab') {
+          const first = cancel, last = confirm;
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+      };
+      this._confirmation = finish;
+      cancel.addEventListener('click', () => finish(false));
+      confirm.addEventListener('click', () => finish(true));
+      document.addEventListener('keydown', onKey, true);
+      cancel.focus();
+    });
+  },
+
+  async requestDisruptiveChange({ key, value, control, description, apply }) {
+    const prior = this.set[key];
+    const accepted = await this.confirmChange(description, control);
+    if (!accepted) {
+      this.set[key] = prior;
+      if (control.type === 'checkbox') control.checked = !!prior;
+      else control.value = String(prior);
+      control.classList.toggle('on', !!prior);
+      return false;
+    }
+    this.set[key] = value;
+    const config = this.normalizedGraphicsConfig();
+    this.applyGraphicsConfig(config, Object.assign({ persist: true }, apply || {}));
+    this.applySettings(); sfx('ui');
+    return true;
+  },
 
   key(a) { return this.keymap[a]; },
   keyLabel(a) {
@@ -1064,6 +1155,14 @@ const WUI = {
 
   // ================= SETTINGS =================
   SETTINGS_TABS: ['GAMEPLAY', 'CAMERA', 'AUDIO', 'VIDEO', 'INTERFACE', 'KEYBINDS', 'MACROS'],
+  // Context-creation keys are not editable live in this panel. If controls are
+  // added for them they must use requestDisruptiveChange and an explicit,
+  // state-preserving renderer recreation rather than applySettings.
+  DISRUPTIVE_VIDEO_KEYS: Object.freeze([
+    'renderScale', 'authoredModels', 'advancedEffects', 'profile', 'antialias',
+    'powerPreference', 'webglVersion', 'dprCap', 'shadows', 'lightBudget', 'gpuTimers',
+  ]),
+  LIVE_VIDEO_KEYS: Object.freeze(['quality', 'fpsLimit', 'mood', 'heroLight', 'fog', 'shafts', 'grade', 'fps']),
   // Every entry here is a control/render-state contract. Do not add a visible
   // toggle until its renderer state exists and the browser contract test can
   // observe it changing.
@@ -1092,18 +1191,30 @@ const WUI = {
     [this.tabGameplay, this.tabCamera, this.tabAudio, this.tabVideo, this.tabInterface, this.tabKeybinds, this.tabMacros][this.settingsTab].call(this, body);
   },
 
-  wsToggle(body, label, hint, key, onChange) {
+  wsToggle(body, label, hint, key, onChange, disruptive) {
     const row = document.createElement('div');
     row.className = 'ws-row';
     row.dataset.setting = key;
     row.innerHTML = `<span class="ws-label">${label}${hint ? `<span class="ws-hint">${hint}</span>` : ''}</span>
       <div class="ws-toggle${this.set[key] ? ' on' : ''}"></div>`;
-    row.querySelector('.ws-toggle').addEventListener('click', () => {
+    const toggle = row.querySelector('.ws-toggle');
+    toggle.tabIndex = 0; toggle.setAttribute('role', 'checkbox'); toggle.setAttribute('aria-checked', String(!!this.set[key]));
+    const activate = async () => {
+      const next = !this.set[key];
+      if (disruptive) {
+        const accepted = await this.requestDisruptiveChange({ key, value: next, control: toggle,
+          description: disruptive.description, apply: disruptive.apply });
+        toggle.classList.toggle('on', !!this.set[key]); toggle.setAttribute('aria-checked', String(!!this.set[key]));
+        if (accepted && onChange) onChange(this.set[key]);
+        return;
+      }
       this.set[key] = !this.set[key];
-      row.querySelector('.ws-toggle').classList.toggle('on', this.set[key]);
+      toggle.classList.toggle('on', this.set[key]); toggle.setAttribute('aria-checked', String(!!this.set[key]));
       this.saveSet(); this.applySettings(); sfx('ui');
       if (onChange) onChange(this.set[key]);
-    });
+    };
+    toggle.addEventListener('click', activate);
+    toggle.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); activate(); } });
     body.appendChild(row);
   },
 
@@ -1200,8 +1311,10 @@ const WUI = {
     const rsel = scale.querySelector('select');
     rsel.value = String(this.set.renderScale === undefined ? 1 : this.set.renderScale);
     rsel.addEventListener('change', () => {
-      this.set.renderScale = +rsel.value;
-      this.saveSet(); this.applySettings(); sfx('ui');
+      const value = +rsel.value;
+      this.requestDisruptiveChange({ key: 'renderScale', value, control: rsel,
+        description: 'Changing render scale resizes the WebGL backing buffer. The game and scene stay loaded; only the existing render target is resized.',
+        apply: { renderScale: true } });
     });
     body.appendChild(scale);
 
@@ -1223,20 +1336,15 @@ const WUI = {
 
     this.wsToggle(body, 'Use authored models',
       'Load curated baked scenes instead of the built-in procedural fallback models', 'authoredModels',
-      v => {
-        R3.setAuthoredModels(v);
-        if (G.map) Props3.build(G.map);
-      });
+      null, { description: 'Changing model sources reconstructs scene prop resources. Current game state, map progress, and actors will be preserved.',
+        apply: { authoredModels: true, rebuildModels: true } });
 
     this.wsToggle(body, 'Advanced GPU effects',
       'Custom particle shaders and optional effect meshes; disabling also skips baked effect sheets',
       'advancedEffects', v => {
-        if (typeof GraphicsConfig !== 'undefined') GraphicsConfig.save(Object.assign({},
-          GraphicsConfig.current, { advancedEffects: v }));
-        FX3.configure({ advancedEffects: v });
-        FX3.init();
         if (v && typeof Assets !== 'undefined' && !Assets.sheetsReady) Assets.loadSheets();
-      });
+      }, { description: 'Changing advanced GPU effects reinitializes GPU effect resources. Current game state and scene progress will be preserved.',
+        apply: { reinitializeEffects: true } });
 
     const mood = document.createElement('div');
     mood.className = 'ws-row';
@@ -1257,10 +1365,9 @@ const WUI = {
     hl.appendChild(hi);
     body.appendChild(hl);
     for (const toggle of this.VIDEO_TOGGLES)
-      this.wsToggle(body, toggle.label, toggle.hint, toggle.key, toggle.key === 'fog' ? value => {
-        if (typeof GraphicsConfig !== 'undefined')
-          GraphicsConfig.save(Object.assign({}, GraphicsConfig.current, { fog: value }));
-      } : null);
+      this.wsToggle(body, toggle.label, toggle.hint, toggle.key, () => {
+        this.applyGraphicsConfig(this.normalizedGraphicsConfig(), { persist: true });
+      });
   },
 
   tabInterface(body) {
@@ -1446,7 +1553,7 @@ const WUI = {
     Render.mood = s.mood || 'spooky';
     Render.heroLightMul = U.clamp((s.heroLight === undefined ? 42 : s.heroLight) / 100, 0, 1);
     Render.showFps = !!s.fps;
-    R3.setAuthoredModels(s.authoredModels !== false);
+    this.applyGraphicsConfig(this.normalizedGraphicsConfig());
     Physics.enabled = s.physics !== false;
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
