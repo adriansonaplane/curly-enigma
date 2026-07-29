@@ -108,11 +108,47 @@ const R3 = {
     let storedProfile = 'default';
     try { storedProfile = sessionStorage.getItem(this.PROFILE_SESSION_KEY) || 'default'; } catch (_) {}
     const profile = this.selectProfile(storedProfile);
-    try {
-      this.renderer = new THREE.WebGLRenderer({
-        canvas, antialias: profile.antialias, alpha: false, powerPreference: 'high-performance',
-      });
-    } catch (error) {
+    const attempts = this.profileName === 'default' ? [
+      { antialias: profile.antialias, powerPreference: 'high-performance' },
+      { antialias: false, powerPreference: null },
+      { antialias: false, powerPreference: 'low-power' },
+    ] : [
+      { antialias: false, powerPreference: null },
+      { antialias: false, powerPreference: 'low-power' },
+    ];
+    const failures = [];
+    for (let i = 0; i < attempts.length; i++) {
+      const attempt = attempts[i];
+      if (i) {
+        // Browsers may permanently associate a canvas with the context type
+        // requested by a constructor even when that constructor throws.
+        const replacement = canvas.cloneNode(true);
+        canvas.parentNode.replaceChild(replacement, canvas);
+        canvas = replacement;
+      }
+      const options = { canvas, antialias: attempt.antialias, alpha: false };
+      if (attempt.powerPreference) options.powerPreference = attempt.powerPreference;
+      try {
+        this.renderer = new THREE.WebGLRenderer(options);
+        this.canvas = canvas;
+        const webglVersion = this.renderer.capabilities && this.renderer.capabilities.isWebGL2 ? 2 : 1;
+        this.initializationStatus = {
+          ok: true, status: 'ready', code: 'ready', phase: 'renderer',
+          requestedProfile: this.profileName,
+          antialias: attempt.antialias,
+          powerPreference: attempt.powerPreference || 'default',
+          webglVersion,
+        };
+        break;
+      } catch (error) {
+        failures.push({
+          antialias: attempt.antialias,
+          powerPreference: attempt.powerPreference || 'default',
+          error: error && error.message ? error.message : String(error),
+        });
+      }
+    }
+    if (!this.renderer) {
       // A failed constructor may have touched the canvas before throwing. Do
       // not leave any of our state looking usable to callers or recovery code.
       this.renderer = null;
@@ -122,9 +158,9 @@ const R3 = {
       this.initializationStatus = {
         ok: false, status: 'initialization-error',
         code: 'webgl-renderer-construction-failed', phase: 'renderer',
+        requestedProfile: this.profileName, attempts: failures,
       };
-      const detail = error && error.message ? `: ${error.message}` : '';
-      console.error(`[R3] WebGL renderer initialization failed${detail}`);
+      console.error('[R3] WebGL renderer initialization failed', failures);
       return false;
     }
     this.renderer.shadowMap.enabled = profile.pointLightShadows;
@@ -169,7 +205,6 @@ const R3 = {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.ready = true;
-    this.initializationStatus = { ok: true, status: 'ready', code: 'ready', phase: 'renderer' };
     return true;
   },
 

@@ -827,15 +827,18 @@ const Game = {
 
 // ---------------- boot ----------------
 function showRendererRecovery() {
+  const diagnostic = R3.initializationStatus || {};
   const message = document.createElement('div');
   message.id = 'renderer-init-error';
   message.setAttribute('role', 'alert');
   message.style.cssText = 'position:fixed;inset:0;z-index:10000;display:grid;place-content:center;text-align:center;padding:32px;background:#100b09;color:#ead9bf;font:18px/1.5 serif';
   message.innerHTML = `<div style="max-width:680px"><h1 style="color:#d88b55">Graphics could not start</h1>
     <p>Reload the page or close other GPU-heavy tabs. If this continues, update your graphics driver, try disabling hardware acceleration, or select Safe graphics mode.</p>
+    <pre id="renderer-init-diagnostic" style="max-width:680px;overflow:auto;text-align:left;white-space:pre-wrap;font:12px/1.4 monospace;color:#bdab97"></pre>
     <button id="renderer-reload" class="big-btn">RELOAD</button>
     <button id="renderer-safe-mode" class="big-btn dark">SAFE GRAPHICS MODE</button></div>`;
   document.body.appendChild(message);
+  document.getElementById('renderer-init-diagnostic').textContent = JSON.stringify(diagnostic, null, 2);
   document.getElementById('renderer-reload').addEventListener('click', () => location.reload());
   document.getElementById('renderer-safe-mode').addEventListener('click', () => {
     try { sessionStorage.setItem(R3.PROFILE_SESSION_KEY, 'conservative'); } catch (_) {}

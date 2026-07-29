@@ -55,6 +55,9 @@ const Render = {
     R3.onContextLost = losses => this.onContextLost(losses);
     R3.onContextRestoring = losses => this.onContextRestoring(losses);
     if (!R3.init(this.gl)) return false;
+    // A failed context request can poison a canvas. R3 may therefore recover
+    // with an equivalent replacement, which becomes the input/WebGL surface.
+    this.gl = R3.canvas;
     FX3.init();
     Actors3.clear();
     Hero3.destroy();
