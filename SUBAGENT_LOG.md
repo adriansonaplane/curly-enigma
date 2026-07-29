@@ -28,6 +28,30 @@ and **Finished** UTC timestamps. Never guess a historical time; use
 
 ---
 
+## 2026-07-29 19:34:45 UTC — Coordination Policy (`/root/coordination_policy`) — Design agent-branch workflow
+
+**Agent ID / path:** `/root/coordination_policy`
+**Assigned by:** Sol, primary agent (`/root`)
+**Status:** completed
+**Finished:** 2026-07-29 19:34:45 UTC
+
+**Scope.** Audit the requested coordination workflow and recommend a
+Markdown-only `agent` branch structure. **Non-goal:** edit files or branches.
+
+**Actions / findings.** Confirmed that only `work` existed and recommended a
+separate `agent` worktree; categorized discussion/task/feature/plan/question/
+comment files; per-note Mini logs; asynchronous work except for vital risks;
+explicit participant consensus before archival; and periodic `VITAL.md` checks.
+
+**Verification.** Static Git-branch and documentation workflow review.
+
+**Artifacts:** advisory report delivered to `/root`; no file changes.
+
+**Handoff / next.** Primary agent implemented the policy under `agent/` and is
+responsible for creating the `agent` branch after committing Markdown changes.
+
+---
+
 ## 2026-07-29 18:59:37 UTC — Sol (`/root/log_audit`) — Audit project logging conventions
 
 **Agent ID / path:** `/root/log_audit`

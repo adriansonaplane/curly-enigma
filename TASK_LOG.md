@@ -7,6 +7,29 @@ The structure is the one set out in HANDOFF.md §U4.
 
 ---
 
+## 2026-07-29 19:35:21 UTC — Sol — Establish the always-current agent documentation branch
+
+**Actor / evidence source:** Sol (`/root`) with advisory review from
+`/root/coordination_policy`. **Owner:** Adrian. **Known collaborator:** Alex.
+
+**Intent.** Create a Markdown-only `agent` branch workflow for on-demand task,
+discussion, feature, plan, question, comment, handoff, sub-agent, archive, and
+emergency/vital coordination.
+
+**Files / subsystems.** `agent/*.md`, `agent/archive/*.md`, `SUBAGENT_LOG.md`,
+and `TASK_LOG.md`; documentation only.
+
+**Decision.** Agents work asynchronously unless feedback is vital, check the
+vital log at defined checkpoints, append a Mini log to every touched note, and
+require explicit current-participant consensus before moving completed work to
+the monthly archive and removing it from active notes.
+
+**Next concrete task.** Use a browser-capable host to complete
+`TASK-20260729-01`, then archive it only after its owner and reviewer record
+agreement.
+
+---
+
 ## 2026-07-29 19:00:03 UTC — Sol — Document GPU/facing work and establish attributed logs
 
 **Actor / evidence source:** Sol (`/root`), repository state, and delegated
