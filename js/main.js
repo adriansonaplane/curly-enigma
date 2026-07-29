@@ -116,6 +116,7 @@ const Save = {
     return Object.values(all).sort((a, b) => b.lvl - a.lvl);
   },
   saveChar(pl) {
+    this.normalizeItems(pl);
     const all = this._all();
     all[pl.name.toLowerCase()] = {
       name: pl.name, cls: pl.cls, hardcore: pl.hardcore, dead: !!pl.deadForever,
@@ -126,6 +127,23 @@ const Save = {
       kills: G.stats.kills, season: SEASON.current().num,
     };
     try { localStorage.setItem(this.CHARS, JSON.stringify(all)); } catch (e) { /* storage full */ }
+  },
+  normalizeItems(pl) {
+    const seen = new Set();
+    const locations = Object.keys(pl.equip || {}).map(slot => ['equip-' + slot, pl.equip[slot]])
+      .concat((pl.inv || []).map((item, i) => ['inv-' + i, item]));
+    for (const [location, item] of locations) {
+      if (!item) continue;
+      let id = item.id && String(item.id);
+      if (!id || seen.has(id)) {
+        const stem = String(item.type || item.potion || 'item').replace(/[^a-z0-9_-]/gi, '-');
+        id = `legacy-${stem}-${location}`;
+        let suffix = 2;
+        while (seen.has(id)) id = `legacy-${stem}-${location}-${suffix++}`;
+        item.id = id;
+      }
+      seen.add(id);
+    }
   },
   loadChar(name) { return this._all()[name.toLowerCase()] || null; },
   deleteChar(name, permanent) {
@@ -183,6 +201,7 @@ const Game = {
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
     pl.inv.length = 48;
+    Save.normalizeItems(pl);
     G.stats.kills = c.kills || 0;
     this.start(pl);
   },
