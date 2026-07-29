@@ -1637,6 +1637,8 @@ const WUI = {
     Ent.damageMonster = function (m, amount, elem, opts = {}) {
       const dealt = _dm(m, amount, elem, opts);
       if (dealt && opts.from === G.player) {
+        // Delayed effects carry their cast-time source; _src remains only for
+        // legacy damage callers that have not supplied per-hit attribution.
         const src = opts.srcName || Ent._src || 'Attack';
         self.ctLine('out', (opts.crit ? '✹ ' : '') + U.fmt(Math.floor(dealt)), opts.crit ? '#ffd94f' : ELEM[elem].color, opts.crit);
         self.trackOut(dealt, src, opts.crit);
