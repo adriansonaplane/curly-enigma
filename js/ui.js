@@ -1,8 +1,96 @@
 // ============ DIABLOID: ui.js — HUD, panels, menu, ladder ============
 'use strict';
 
+// Owns inventory view state and all item transfers.  renderInv() may rebuild
+// the DOM as often as it likes without losing the user's query or ordering.
+class InventoryGridController {
+  constructor() { this.query = ''; this.filter = 'all'; this.sort = 'position'; }
+
+  matches(item) {
+    if (!item) return true;
+    const q = this.query.trim().toLowerCase();
+    if (q && ![item.name, item.baseName, item.type, item.slot, item.rarity]
+      .some(value => String(value || '').toLowerCase().includes(q))) return false;
+    return this.filter === 'all' || item.rarity === this.filter ||
+      (this.filter === 'equipment' && !item.potion);
+  }
+
+  entries(inv) {
+    const entries = inv.map((item, position) => ({ item, position }));
+    if (this.sort === 'position') return entries;
+    const rarity = { unique: 0, set: 1, rare: 2, magic: 3, common: 4 };
+    const value = (entry) => this.sort === 'rarity'
+      ? (rarity[entry.item.rarity] ?? 9)
+      : String(entry.item[this.sort] || '').toLowerCase();
+    const occupied = entries.filter(entry => entry.item).sort((a, b) => {
+      const av = value(a), bv = value(b);
+      return (av < bv ? -1 : av > bv ? 1 : 0) ||
+        String(a.item.id).localeCompare(String(b.item.id)) || a.position - b.position;
+    });
+    return occupied.concat(entries.filter(entry => !entry.item));
+  }
+
+  source(event) {
+    try { return JSON.parse(event.dataTransfer.getData('application/x-diabloid-item')); }
+    catch (e) { return null; }
+  }
+  begin(event, source) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-diabloid-item', JSON.stringify(source));
+  }
+  itemAt(source) {
+    if (!source) return null;
+    return source.kind === 'inv' ? G.player.inv[source.position] : G.player.equip[source.slot];
+  }
+  accepts(item, slot) {
+    return !!item && !item.potion && (item.slot === slot ||
+      (item.slot === 'ring' && (slot === 'ring1' || slot === 'ring2')));
+  }
+  moveToPosition(source, position) {
+    const pl = G.player, item = this.itemAt(source);
+    if (!item || position < 0 || position >= pl.inv.length) return false;
+    if (source.kind === 'inv') {
+      [pl.inv[source.position], pl.inv[position]] = [pl.inv[position], pl.inv[source.position]];
+    } else {
+      const displaced = pl.inv[position];
+      pl.inv[position] = item;
+      pl.equip[source.slot] = displaced || null;
+      if (displaced && !this.accepts(displaced, source.slot)) {
+        pl.equip[source.slot] = item; pl.inv[position] = displaced; return false;
+      }
+      Ent.computeDerived(pl);
+    }
+    Save.saveChar(pl); return true;
+  }
+  equip(source, slot) {
+    const pl = G.player, item = this.itemAt(source);
+    if (!item || item.potion || (item.reqLvl || 1) > pl.lvl) return false;
+    if (!this.accepts(item, slot)) { UI.announce(`That item cannot be equipped as ${slot}`, '#ff6a5a'); return false; }
+    if (source.kind === 'equip') {
+      if (source.slot === slot) return false;
+      if (pl.equip[slot] && !this.accepts(pl.equip[slot], source.slot)) {
+        UI.announce('Those equipment slots cannot be swapped', '#ff6a5a'); return false;
+      }
+      [pl.equip[source.slot], pl.equip[slot]] = [pl.equip[slot], pl.equip[source.slot]];
+    } else {
+      [pl.inv[source.position], pl.equip[slot]] = [pl.equip[slot] || null, item];
+    }
+    Ent.computeDerived(pl); pl.hp = Math.min(pl.hp, pl.derived.maxHp);
+    Save.saveChar(pl); sfx('equip'); return true;
+  }
+  dropToWorld(source) {
+    const pl = G.player, item = this.itemAt(source);
+    if (!item) return false;
+    if (source.kind === 'inv') pl.inv[source.position] = null;
+    else { pl.equip[source.slot] = null; Ent.computeDerived(pl); }
+    G.groundItems.push({ x: pl.x, y: pl.y, item });
+    Save.saveChar(pl); UI.announce(`Dropped ${item.name}`, '#d8c9a3'); return true;
+  }
+}
+
 const UI = {
   els: {}, openPanel: null, treeTab: 0, ladderTab: 0, menuFxT: null,
+  inventoryGrid: new InventoryGridController(),
 
   init() {
     const ids = ['hud', 'zone-label', 'announce', 'hp-fill', 'mp-fill', 'hp-text', 'mp-text', 'xp-fill',
@@ -155,6 +243,7 @@ const UI = {
   renderInv() {
     const p = this.panel('inv'), pl = G.player;
     this.head(p, 'INVENTORY');
+    const controller = this.inventoryGrid;
     const eq = document.createElement('div');
     eq.className = 'equip-grid';
     const slots = [['helm', 'Helm'], ['amulet', 'Amulet'], ['weapon', 'Weapon'], ['chest', 'Chest'], ['offhand', 'Off-hand'],
@@ -162,34 +251,64 @@ const UI = {
     for (const [slot, label] of slots) {
       const cell = document.createElement('div');
       cell.className = 'eq-slot';
+      cell.dataset.slot = slot;
       cell.innerHTML = `<span class="eq-label">${label}</span>`;
       const it = pl.equip[slot];
       if (it) {
         const cv = Sprites.itemIcon(it, 52);
+        cv.draggable = true;
+        cv.addEventListener('dragstart', e => controller.begin(e, { kind: 'equip', slot }));
         cell.appendChild(cv);
         cell.style.borderColor = Items.rarityColor(it.rarity);
         this.hookTip(cell, () => Items.tooltip(it, pl));
         cell.addEventListener('click', () => { Game.unequip(slot); this.renderInv(); });
       }
+      cell.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+      cell.addEventListener('drop', e => { e.preventDefault(); if (controller.equip(controller.source(e), slot)) this.renderInv(); });
       eq.appendChild(cell);
     }
     p.appendChild(eq);
+    const toolbar = document.createElement('div');
+    toolbar.className = 'inv-toolbar';
+    toolbar.innerHTML = `<input class="inv-search" type="text" aria-label="Search inventory" placeholder="Search inventory" value="${U.esc(controller.query)}">
+      <select class="inv-sort" aria-label="Sort inventory"><option value="position">Grid position</option><option value="name">Name</option><option value="rarity">Rarity</option><option value="slot">Item type</option></select>
+      ${['all', 'equipment', 'common', 'magic', 'rare', 'set', 'unique'].map(filter => `<button class="inv-filter-chip${controller.filter === filter ? ' active' : ''}" data-filter="${filter}">${filter[0].toUpperCase() + filter.slice(1)}</button>`).join('')}`;
+    toolbar.querySelector('.inv-sort').value = controller.sort;
+    toolbar.querySelector('.inv-search').addEventListener('input', e => { controller.query = e.target.value; this.renderInv(); const input = p.querySelector('.inv-search'); input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
+    toolbar.querySelector('.inv-sort').addEventListener('change', e => { controller.sort = e.target.value; this.renderInv(); });
+    toolbar.querySelectorAll('.inv-filter-chip').forEach(button => button.addEventListener('click', () => { controller.filter = button.dataset.filter; this.renderInv(); }));
+    p.appendChild(toolbar);
     const grid = document.createElement('div');
     grid.className = 'inv-grid';
-    for (let i = 0; i < 48; i++) {
+    for (const entry of controller.entries(pl.inv)) {
+      const i = entry.position;
       const cell = document.createElement('div');
       cell.className = 'inv-cell';
-      const it = pl.inv[i];
+      cell.dataset.position = i;
+      const it = entry.item;
       if (it) {
-        cell.appendChild(Sprites.itemIcon(it, 44));
+        const icon = Sprites.itemIcon(it, 44);
+        icon.draggable = true;
+        icon.addEventListener('dragstart', e => controller.begin(e, { kind: 'inv', position: i }));
+        cell.appendChild(icon);
         cell.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
+        cell.classList.toggle('filtered-out', !controller.matches(it));
         this.hookTip(cell, () => Items.tooltip(it, pl) +
           `<div style="color:#847252;margin-top:4px;font-size:11px">${this.openPanel === 'vendor' ? 'Click: SELL' : 'Click: equip · Right-click: sell later'}</div>`);
         cell.addEventListener('click', () => { Game.equipFromInv(i); this.renderInv(); });
       }
+      cell.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+      cell.addEventListener('drop', e => { e.preventDefault(); if (controller.moveToPosition(controller.source(e), i)) this.renderInv(); });
       grid.appendChild(cell);
     }
     p.appendChild(grid);
+    const worldDrop = document.createElement('div');
+    worldDrop.className = 'world-drop';
+    worldDrop.textContent = 'Drag here to drop in the world';
+    worldDrop.addEventListener('dragover', e => { e.preventDefault(); worldDrop.classList.add('ready'); });
+    worldDrop.addEventListener('dragleave', () => worldDrop.classList.remove('ready'));
+    worldDrop.addEventListener('drop', e => { e.preventDefault(); if (controller.dropToWorld(controller.source(e))) this.renderInv(); });
+    p.appendChild(worldDrop);
     const gold = document.createElement('div');
     gold.className = 'gold-row';
     gold.innerHTML = `⛁ ${U.fmt(pl.gold)} gold`;
