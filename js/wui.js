@@ -171,13 +171,14 @@ const WUI = {
     return normalized;
   },
 
-  confirmChange(description, origin) {
+  confirmChange(description, origin, title = 'Apply graphics change?') {
     if (this._confirmation) this._confirmation(false);
     const modal = document.createElement('div');
     modal.className = 'wui-confirm-backdrop';
     modal.innerHTML = `<div class="wui-confirm" role="alertdialog" aria-modal="true" aria-labelledby="wui-confirm-title" aria-describedby="wui-confirm-description">
       <h2 id="wui-confirm-title">Apply graphics change?</h2><p id="wui-confirm-description"></p>
       <div class="wui-confirm-actions"><button type="button" data-action="cancel">Cancel</button><button type="button" data-action="confirm">Confirm</button></div></div>`;
+    modal.querySelector('h2').textContent = title;
     modal.querySelector('p').textContent = description;
     document.body.appendChild(modal);
     const cancel = modal.querySelector('[data-action="cancel"]');
@@ -527,6 +528,29 @@ const WUI = {
       if (r.right > innerWidth || r.bottom > innerHeight)
         this.placeFrame(id, Math.min(r.left, innerWidth - r.width), Math.min(r.top, innerHeight - r.height));
     }
+  },
+
+  resetFrameLayout() {
+    this.layout = {};
+    for (const id in this.frames) {
+      const f = this.frames[id];
+      this.setFrameLocked(id, false, true);
+      if (f.resizable) {
+        f.el.style.width = '';
+        f.el.style.height = '';
+      }
+      if (f.defX !== null && f.defX !== undefined) this.placeFrame(id, f.defX, f.defY, true);
+      else {
+        f.el.style.position = '';
+        f.el.style.left = '';
+        f.el.style.top = '';
+        f.el.style.right = '';
+        f.el.style.bottom = '';
+        f.el.style.transform = '';
+      }
+    }
+    this.clampFrames();
+    this._save(this.LAYK, this.layout);
   },
 
   setEditMode(on) {
@@ -1501,7 +1525,13 @@ const WUI = {
     const btn2 = document.createElement('button');
     btn2.className = 'ws-btn danger';
     btn2.textContent = 'Reset layout';
-    btn2.addEventListener('click', () => { this.layout = {}; this._save(this.LAYK, this.layout); location.reload(); });
+    btn2.addEventListener('click', async () => {
+      const accepted = await this.confirmChange(
+        'Restore every interface frame to its default position?', btn2, 'Reset frame layout?');
+      if (!accepted) return;
+      this.resetFrameLayout();
+      sfx('ui');
+    });
     row2.appendChild(btn2);
     body.appendChild(row2);
     this.wsToggle(body, 'Player frame', '', 'fPlayer');
