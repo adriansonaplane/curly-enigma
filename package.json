@@ -6,6 +6,7 @@
     "test:boss-summons": "node tests/node/boss-summons.js",
     "test:dialogue": "node tests/node/dialogue-contract.js",
     "test:quests": "node tests/node/quest-state-contract.js",
+    "test:factions": "node tests/node/factions-contract.js",
     "test:models": "node tests/node/model-discovery.js && node tests/node/model-contract.js"
   },
   "devDependencies": {
