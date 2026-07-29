@@ -7,6 +7,52 @@ The structure is the one set out in HANDOFF.md §U4.
 
 ---
 
+## 2026-07-29 — Rendering pipeline mapped; GPU work ordered
+
+**Scope:** static review only; no runtime renderer changes and no hardware GPU
+capture in this task.
+
+Mapped the live flow from `requestAnimationFrame` through `Game.update`,
+`Render.frame`, scene synchronisation, the Three.js world pass, optional
+full-resolution grade/vignette pass, and the native-resolution 2D overlay.
+World tiles, props, particle points and static actor parts are already batched;
+the review therefore did not treat draw calls as the sole explanation for 100%
+GPU load.
+
+**Primary finding.** The frame loop is uncapped. It renders once per browser
+animation frame, and automatic quality only yields below 34 FPS. At the owner's
+145–155 FPS hardware baseline, the renderer continuously consumes available
+GPU capacity by design. Full-resolution rendering at 2560×1440 / DPR 1.25,
+an optional second full-screen grade pass, standard-material point lights,
+transparent effects and shadow work are the next likely costs to separate.
+
+**Correctness finding.** Shadow policy is not fully dynamic: `R3.shadows` is
+updated from quality each frame, while the hero light's `castShadow` flag is set
+only during map light construction. A low-quality or shadow-off change can
+therefore leave shadow-map work enabled until the next map rebuild.
+
+**Agreed execution order.** Add non-blocking diagnostics; implement a persisted
+display/30/60/90/120 FPS limiter; fix dynamic shadow disabling; add 3D render
+scale and a target-based governor; profile light budgets; then measure spatial
+chunking and transient-effect instancing. Reconcile the AO/reflection controls,
+which currently have no consumer in the reviewed renderer. Full detail and
+acceptance constraints are in HANDOFF §U10.
+
+**Existing immediate items retained.** Visually verify `ragm-volcanic-imp`,
+inspect `bookcase.json`'s fetch, make full-pack index discovery fail safe, and
+replace the stale draw-call figure with a controlled real-hardware capture.
+
+**Decision:** do not start an external TypeScript framework. Static typing may
+later begin as build-free JSDoc plus development-only `tsc --noEmit`, but it is
+explicitly outside the rendering-performance work.
+
+**Next concrete task.** Implement diagnostics and the FPS limiter first, with
+browser coverage for the cap and elapsed game time; use the resulting GPU and
+pass-level measurements to choose the next optimization rather than changing
+batch boundaries speculatively.
+
+---
+
 ## 2026-07-29 — Measured: 4,696 primitives to 1,562 draw calls
 
 **Commits:** `3ee15b8`, `eb5b1af`, `c7c5bb6`, `1ce09cb` on
