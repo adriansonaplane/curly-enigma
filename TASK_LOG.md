@@ -7,6 +7,63 @@ The structure is the one set out in HANDOFF.md §U4.
 
 ---
 
+## 2026-07-29 — Full-pack results; bounds measurement corrected
+
+**Commit:** `ff92c38`. Owner ran all three checks on the complete 99-model pack.
+
+**Result: the merge is correct across all 99.** Every model preserved its
+vertex count exactly and produced draws equal to materials plus animated parts.
+
+| | primitives | draws | |
+|---|---:|---:|---|
+| all 99 models | 4,696 | 2,432 | 48.2% fewer |
+| 15 `ragm-*` actors | 315 | 118 | 21.0 → 7.9 per monster |
+
+A 40-monster room goes from ~840 actor draws to ~315 — against HANDOFF §3 #1's
+stale 230–380 total, this is the largest single lever available.
+
+**The 29 test failures were mine.** All 29 were bounds checks; none was a
+vertex count, a draw count or a merge. `Box3.setFromObject` transforms each
+geometry's axis-aligned box, which over-covers a rotated part — worst case a
+UV sphere, whose box is the full ±r cube while the sphere is rotation-
+invariant. One rotated non-uniformly-scaled sphere misreports its own `minY`
+by **0.41 world units**. The `ragm` actors are built entirely from rotated
+scaled spheres. Both sides now bound actual vertices; tolerance 1e-2 → 1e-5,
+and runic-pillar drops from 1.08e-3 to 2.90e-8.
+
+`tools/inspect-models.js` had the same flaw and is fixed the same way — it now
+compiles through the real `actors3d.js`. **Its 2026-07-29 output is void:**
+`ragm-troll` −0.151, `ragm-lich-lord` −0.068, `ragm-wraith` −0.080 and
+`fen-shrine-idol` −0.100 are all within the over-coverage magnitude and were
+probably never sunken. Re-run required.
+
+`ragm-volcanic-imp` is the one flag likely to survive: floating 0.528 with a
+0.253 footprint offset, and measuring 1.23 × 1.06 × 1.02 — wider than tall,
+where every other actor is clearly taller than wide.
+
+**Audit read (198 payloads, all BLOCK).** The two halves differ completely:
+
+- The 99 `.json` payloads — *the only files the compiler reads* — hit exactly
+  one blocking rule each, `cdn-reference`, which is a string match on
+  `cdnjs.cloudflare.com`. No live `<script src>`, no `parent-access`, no
+  `postMessage`, no `broken-js`.
+- The 99 `.html` sidecars carry every serious finding: live remote script tags,
+  frame access, postMessage, and `broken-js` on ten of them. Nothing reads
+  these files.
+- **`bookcase.json` is the one genuine outlier: `fetch x1`**, the only runtime
+  network call in any `.json`.
+
+The owner's working payloads differ from the three committed here (local
+`wooden-door-uoc.json` contains zero occurrences of `cdnjs` and is 67
+characters longer than the audited copy), so the audited files are a different,
+un-sanitised vintage. `node tools/sanitize-payloads.js` then re-audit.
+
+**Next concrete task.** Re-run `node tools/inspect-models.js`; look at
+`bookcase.json`'s fetch and `ragm-volcanic-imp`; then re-measure draw calls and
+FPS per HANDOFF §U2 step 4.
+
+---
+
 ## 2026-07-29 — Wire the compiled monster models and merge them by material
 
 **PR / commit:** branch `claude/diablo-2-clone-game-dzbw4a`, commits `5562b58`,
@@ -67,15 +124,21 @@ the vendored three.js in a `vm`; no DOM, no GPU, no network.
 | soul-cage-uoc | 36 | 36 | 24 |
 | wooden-door-uoc | 28 | 28 | 6 |
 
-Vertices are preserved exactly in all three. Bounds are *tighter* after
-merging — `Box3.setFromObject` transforms a rotated part's own AABB and
-over-covers it, while merged geometry bounds the welded vertices. runic-pillar
-(31 of 58 parts rotated) measures 1.08e-3 shorter; the two axis-aligned models
-agree to 2e-8.
+Vertices are preserved exactly in all three.
+
+> **Superseded by the 2026-07-29 full-pack entry above.** This entry originally
+> reported bounds as legitimately "tighter after merging" (runic-pillar 1.08e-3)
+> and treated that as expected. It was not expected — it was the *reference*
+> being measured with `Box3.setFromObject`, which over-covers rotated parts. The
+> reading was right about the direction and wrong about the cause, and the
+> tolerance it justified (1e-2) was loose enough to hide a 2mm defect. Corrected
+> in `ff92c38`; runic-pillar now agrees to 2.90e-8.
 
 **Mutation testing.** Each check was confirmed to fail deliberately: dropping
 `LatheGeometry` from the runtime table (2 failures), skipping the merge (13),
-and merging without baking the transform (13).
+and merging without baking the transform (13). Re-run after `ff92c38` with the
+tightened bound: 2, 3, 6, plus two new mutations — collapsing every material
+into one bucket (3) and nudging `minY` by two millimetres (3).
 
 **Known regressions / unverified.**
 

@@ -577,3 +577,70 @@ is public and now carries 99 model payloads, 50 effect payloads and their baked
 derivatives, with no licence or chain of title recorded. That is the project
 owner's decision to make, but it should be made deliberately rather than by
 default.
+
+## U7. 2026-07-29 — Full-pack results
+
+Owner ran all three checks against the complete 99-model pack. Execution detail
+in `TASK_LOG.md`; the decision-grade facts:
+
+**The merge is correct across all 99 models.** Every one preserved its vertex
+count exactly and produced draws equal to materials plus animated parts.
+
+| | primitives | draws | |
+|---|---:|---:|---|
+| all 99 models | 4,696 | 2,432 | 48.2% fewer |
+| 15 `ragm-*` actors | 315 | 118 | 21.0 → 7.9 per monster |
+
+A 40-monster room drops from ~840 actor draws to ~315. Against §3 #1's stale
+230–380 *total*, this is the largest single lever currently available, and it
+is already landed rather than proposed.
+
+**The 29 reported test failures were a defect in the measurement, not the
+merge.** All 29 were bounds checks and none was a vertex count, a draw count or
+a merge — that shape was the tell. `Box3.setFromObject` transforms each
+geometry's axis-aligned box, which over-covers a rotated part; the worst case
+is a UV sphere, whose box is the full ±r cube while the sphere itself is
+rotation-invariant. One rotated, non-uniformly-scaled sphere misreports its own
+`minY` by **0.41 world units**, and the `ragm` actors are built entirely from
+rotated scaled spheres. Fixed in `ff92c38`: both sides bound actual vertices,
+tolerance 1e-2 → 1e-5.
+
+**`tools/inspect-models.js` output from 2026-07-29 is void.** It derived
+analytic bounds from geometry parameters, which over-covers rotated parts the
+same way. `ragm-troll` −0.151, `ragm-lich-lord` −0.068, `ragm-wraith` −0.080
+and `fen-shrine-idol` −0.100 are all inside the over-coverage magnitude and
+were probably never sunken. The tool now compiles through the real
+`actors3d.js`, so it measures what the game draws. **Re-run it.**
+
+The flag most likely to survive is **`ragm-volcanic-imp`**: floating 0.528 with
+a 0.253 footprint offset, measuring 1.23 × 1.06 × 1.02 — wider than tall, where
+every other actor is clearly taller than wide. Worth an eyeball before trusting
+that root.
+
+### Audit: read the two halves separately
+
+198 payloads, all BLOCK, but the halves are not comparable.
+
+- The **99 `.json` payloads — the only files the compiler reads** — hit exactly
+  one blocking rule each: `cdn-reference`, a string match on
+  `cdnjs.cloudflare.com`. No live `<script src>`, no `parent-access`, no
+  `postMessage`, no `broken-js`.
+- The **99 `.html` sidecars** carry every serious finding — live remote script
+  tags, frame access, postMessage, and `broken-js` on ten of them. Nothing in
+  the pipeline reads these files. This is the same distinction §U6 drew for
+  runic-pillar, now confirmed across the whole pack.
+- **`bookcase.json` is the one genuine outlier: `fetch x1`** — the only runtime
+  network call in any `.json`. Look at this one specifically.
+
+The owner's working payloads are **not** the vintage committed here: this
+checkout's `wooden-door-uoc.json` contains zero occurrences of `cdnjs` and is
+67 characters longer than the audited copy. The audited files have not been
+through `tools/sanitize-payloads.js`. Run it, then re-audit — and note §5's
+warning that an earlier sanitiser pass corrupted 19 effect payloads by
+rewriting bare `top.`, so re-compile and re-run `npm run test:models` after.
+
+### Still unverified
+
+No `ragm-*` model has yet been *rendered*. The `MODEL_MAP` heights remain
+estimates derived from each family's `def.size`. Everything above is geometry
+measured offline; none of it is a picture.
