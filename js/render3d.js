@@ -13,7 +13,10 @@
 const R3 = {
   // ---- lifecycle ----
   renderer: null, scene: null, cam: null, canvas: null,
-  W: 0, H: 0, dpr: 1,
+  // W/H are CSS coordinates (and remain aliases for callers doing picking).
+  // renderW/renderH are the actual WebGL backing dimensions.
+  W: 0, H: 0, cssW: 0, cssH: 0, renderW: 0, renderH: 0,
+  dprCap: 2, renderScale: 1, effectivePixelRatio: 1,
   ready: false,
 
   // camera state, kept compatible with the old Cam prefs so saved settings
@@ -75,11 +78,9 @@ const R3 = {
       return false;
     }
     this.canvas = canvas;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.renderer = new THREE.WebGLRenderer({
       canvas, antialias: true, alpha: false, powerPreference: 'high-performance',
     });
-    this.renderer.setPixelRatio(this.dpr);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputEncoding = THREE.sRGBEncoding;
@@ -122,11 +123,23 @@ const R3 = {
 
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    this.W = w; this.H = h;
+    const ratio = Math.min(window.devicePixelRatio || 1, this.dprCap) * this.renderScale;
+    this.W = this.cssW = w; this.H = this.cssH = h;
+    this.effectivePixelRatio = ratio;
+    this.renderW = Math.max(1, Math.floor(w * ratio));
+    this.renderH = Math.max(1, Math.floor(h * ratio));
+    this.renderer.setPixelRatio(ratio);
     this.renderer.setSize(w, h, false);
-    if (this._target) this._target.setSize(Math.floor(w * this.dpr), Math.floor(h * this.dpr));
+    if (this._target) this._target.setSize(this.renderW, this.renderH);
     this.perspCam.aspect = w / h;
     this.perspCam.updateProjectionMatrix();
+  },
+
+  setRenderScale(scale) {
+    const next = Math.max(0.25, Math.min(1, Number(scale) || 1));
+    if (Math.abs(next - this.renderScale) < 0.001) return;
+    this.renderScale = next;
+    if (this.renderer) this.resize();
   },
 
   // Apply a preset to the one camera. The lens is a camera property, not a

@@ -24,7 +24,8 @@ const Render = {
   quality: 'high', qualityMode: 'auto',
   mood: 'spooky',
   heroLightMul: 0.42,
-  _fpsN: 0, _fpsT: 0,
+  renderScale: 1, targetFps: 60,
+  _fpsN: 0, _fpsT: 0, _qualityStep: 0, _headroomWindows: 0,
   _mapBuilt: null,
 
   init() {
@@ -58,6 +59,8 @@ const Render = {
   },
 
   resize() {
+    // R3 owns the WebGL backing store. This DPR is only for the native-resolution
+    // 2D overlay, so render scaling never softens text or nameplates.
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.W = window.innerWidth; this.H = window.innerHeight;
     this.cv.width = this.W * this.dpr;
@@ -153,13 +156,33 @@ const Render = {
   },
 
   trackFps(dt) {
-    if (this.qualityMode !== 'auto') { this.quality = this.qualityMode; return; }
+    if (this.qualityMode !== 'auto') {
+      this.quality = this.qualityMode;
+      this._qualityStep = 0; this._headroomWindows = 0;
+      return;
+    }
     this._fpsN++; this._fpsT += dt;
-    if (this._fpsT >= 2.5) {
+    // Six seconds smooths loading spikes and hysteresis keeps adjacent quality
+    // levels from trading places around the target. Recovery deliberately needs
+    // four good windows (24 seconds) because raising quality is less urgent.
+    if (this._fpsT >= 6) {
       const avg = this._fpsN / this._fpsT;
       this._fpsN = 0; this._fpsT = 0;
-      if (this.quality === 'high' && avg < 34 && G.time > 8) this.quality = 'low';
+      const target = this.targetFps || 60;
+      const low = target * 0.90, high = target * 0.98;
+      if (avg < low && G.time > 10) {
+        this._qualityStep = Math.min(6, this._qualityStep + 1);
+        this._headroomWindows = 0;
+      } else if (avg > high && this._qualityStep > 0) {
+        if (++this._headroomWindows >= 4) {
+          this._qualityStep--;
+          this._headroomWindows = 0;
+        }
+      } else {
+        this._headroomWindows = 0;
+      }
     }
+    this.quality = this._qualityStep >= 4 ? 'low' : 'high';
   },
 
   // ---- the frame ----
@@ -173,11 +196,14 @@ const Render = {
     // quality and mood are owned by the settings UI; push them through
     R3.mood = this.mood;
     R3.heroLightMul = this.heroLightMul;
-    R3.shadows = this.quality === 'high' && this.fx.shadows !== false;
-    R3.maxLights = this.quality === 'high' ? 12 : 6;
+    const step = this.qualityMode === 'auto' ? this._qualityStep : (this.quality === 'low' ? 6 : 0);
+    const scaleCaps = [1, 0.85, 0.75, 0.75, 0.75, 0.75, 0.75];
+    R3.setRenderScale(Math.min(this.renderScale, scaleCaps[step]));
+    R3.shadows = step < 6 && this.fx.shadows !== false;
+    R3.maxLights = step >= 5 ? 6 : step >= 4 ? 8 : 12;
     World3.updateAtmosphere(this.fx.fog !== false);
     // Expensive atmosphere yields before lights/readability under the governor.
-    R3.gradeEnabled = this.quality === 'high' && this.fx.grade !== false;
+    R3.gradeEnabled = step < 3 && this.fx.grade !== false;
 
     // camera: the old rig's zoom/mode/shake, aimed at the same focus point
     G.shake = Math.max(0, G.shake - dt * 30);
@@ -208,7 +234,7 @@ const Render = {
 
     // ---------- 3D pass ----------
     World3.updateLights(t, pl.x, pl.y);
-    World3.updateShafts(t, this.quality === 'high' && this.fx.shafts !== false);
+    World3.updateShafts(t, step < 4 && this.fx.shafts !== false);
     Actors3.sync(G.monsters, t);
     Actors3.syncCrowd(t, G.npcs, typeof Social !== 'undefined' ? Social.townSims : null);
     Hero3.sync(pl, t);
