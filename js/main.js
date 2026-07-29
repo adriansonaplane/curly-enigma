@@ -918,6 +918,7 @@ window.addEventListener('DOMContentLoaded', () => {
   UI.init();
   WUI.init();
   Social.init();
+  Party.init();
   UI.initMenu();
   Game.bindInput();
   requestAnimationFrame(t => Game.loop(t));
