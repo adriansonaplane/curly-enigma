@@ -7,6 +7,65 @@ The structure is the one set out in HANDOFF.md §U4.
 
 ---
 
+## 2026-07-29 — White world: a GPU watchdog reset, not a leak
+
+**Commits:** `510ddc2` (context-loss survival), `2a188d4` (prop dispose leak).
+
+**Symptom.** World renders white, 2D UI overlay fine. Began with the GPU work in
+PRs #33-#43. Loads in Firefox, not in Chromium.
+
+**Root cause, unresolved.** A single frame takes 421-1323 ms:
+
+    [Violation] 'requestAnimationFrame' handler took 986ms
+
+That is a GPU driver reset. Chrome enforces a watchdog on long frames and kills
+the context; Firefox tolerates the same frame. Chromium is not broken here — it
+is the accurate reporter, and it is the better browser to debug this in.
+
+The cycle is self-sustaining: context lost -> restore -> three.js re-uploads
+every geometry (`webglcontextrestored` handler takes 213 ms) -> the next frame
+takes 421 ms -> lost again.
+
+The shader error is downstream, not a second bug. `getProgramInfoLog` is EMPTY
+with link status false, then 1282 (INVALID_OPERATION) after restore. An empty
+log with a failed link is the signature of compiling against a dying context.
+The grade shader source is fine and had been working.
+
+**Fixed along the way, neither being the cure:**
+
+- `Props3.dispose()` called only `InstancedMesh.dispose()`, freeing the instance
+  matrix buffer and neither geometry nor material — while the condition tested
+  for geometry and then ignored it. `build()` reruns per resolved authored
+  template, so a map load leaked all of it repeatedly. Real, but it does not
+  produce a 986 ms frame.
+- No WebGL context-loss handling existed anywhere, so a loss was permanent: the
+  GPU timer kept querying the dead context's handles every frame. The game now
+  survives a loss. Covered by `tests/browser/context-loss.spec.js`, which goes
+  red with `calls === 0` after restore when the handlers are removed.
+
+**Tried and reverted.** Disposing `_target` and flagging `_postMat` inside the
+restore handler, to rebuild the grade pass's dead GPU objects. It runs before
+three.js finishes its own restore and turned the probe red. The idea is sound;
+the timing is not. Needs deferring to the next frame.
+
+**Next concrete task.** 421 ms of frame time with a 213 ms re-upload is
+submission/upload volume, not fill — so grade and shadow toggles will not move
+it. Count the scene:
+
+    let meshes=0, inst=0, insts=0;
+    R3.scene.traverse(n=>{ if(n.isMesh) meshes++;
+      if(n.isInstancedMesh){inst++; insts+=n.count;} });
+
+If instanced meshes number in the hundreds or thousands, spatial chunking
+(#38/#41) split the world into more meshes than merging removed. Then bisect
+#38/#41 and #39/#42. A Firefox performance profile across one spike would name
+the function outright.
+
+**Also open.** `video-settings-contract.spec.js:3` fails on main, unrelated to
+the above and predating these commits (PR #43).
+
+---
+
 ## 2026-07-29 — Rendering pipeline mapped; GPU work ordered
 
 **Scope:** static review only; no runtime renderer changes and no hardware GPU
