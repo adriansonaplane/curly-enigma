@@ -11,7 +11,8 @@ const GraphicsConfig = (() => {
     profile: 'default', antialias: true, powerPreference: 'high-performance',
     webglVersion: 'auto', dprCap: 2, renderScale: 1, shadows: true,
     lightBudget: 12, grading: true, fog: false, shafts: true, gpuTimers: true,
-    authoredModels: true, advancedEffects: true,
+    authoredModels: true, advancedEffects: true, advancedParticles: true,
+    advancedGeometry: true, ambientEffects: true,
   });
   const enumOf = values => value => values.indexOf(value) >= 0 ? value : undefined;
   const bool = value => typeof value === 'boolean' ? value : undefined;
@@ -25,7 +26,8 @@ const GraphicsConfig = (() => {
     webglVersion: enumOf(['auto', 1, 2]), dprCap: number(0.5, 4),
     renderScale: number(0.25, 1), shadows: bool, lightBudget: integer(0, 32),
     grading: bool, fog: bool, shafts: bool, gpuTimers: bool,
-    authoredModels: bool, advancedEffects: bool,
+    authoredModels: bool, advancedEffects: bool, advancedParticles: bool,
+    advancedGeometry: bool, ambientEffects: bool,
   };
   const parseValue = (key, value) => {
     if (typeof value !== 'string') return value;
@@ -97,7 +99,8 @@ const GraphicsConfig = (() => {
     profile: 'conservative', antialias: false, powerPreference: 'low-power',
     dprCap: 1, renderScale: 0.75, shadows: false, lightBudget: 6,
     grading: false, fog: false, shafts: false, gpuTimers: false,
-    authoredModels: false, advancedEffects: false,
+    authoredModels: false, advancedEffects: false, advancedParticles: false,
+    advancedGeometry: false, ambientEffects: false,
   }));
   const compatibilityMode = () => save(Object.assign({}, current, {
     profile: 'conservative', antialias: false, powerPreference: 'default', webglVersion: 1,
@@ -108,4 +111,3 @@ const GraphicsConfig = (() => {
     diagnostics() { return { version: VERSION, storageKey: STORAGE_KEY, config: current }; },
   };
 })();
-
