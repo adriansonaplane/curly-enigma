@@ -760,10 +760,34 @@ const Props3 = {
     return true;
   },
 
+  // Free what this build owns, and nothing that outlives it.
+  //
+  // This used to call only InstancedMesh.dispose(), which frees the instance
+  // matrix buffer and NOTHING else — not the geometry, not the material, even
+  // though the condition tested for geometry before ignoring it. build() reruns
+  // every time an authored template resolves, so a map load rebuilt the prop
+  // scene repeatedly and leaked every geometry and material each time. That is
+  // GPU memory, and exhausting it is how a WebGL context gets lost.
+  //
+  // The reason it was written defensively is real: compiled templates live in
+  // `_authored`, keyed by slug, and are reused by every subsequent build. Their
+  // geometry and materials must survive this group being torn down, so they are
+  // collected into a keep set first. Everything else was made for this build.
+  //
+  // Disposing a cached template's geometry would produce a blank world just as
+  // surely as leaking it — in the other direction, and one frame sooner.
   dispose() {
     if (this.group && R3.scene) {
       R3.scene.remove(this.group);
-      this.group.traverse(n => { if (n.geometry && n.isInstancedMesh) n.dispose(); });
+      const keep = new Set();
+      for (const template of this._authored.values())
+        for (const g of (template && template.groups) || []) { keep.add(g.geometry); keep.add(g.material); }
+      this.group.traverse(n => {
+        if (n.isInstancedMesh) n.dispose();
+        if (n.geometry && !keep.has(n.geometry)) n.geometry.dispose();
+        const mat = n.material;
+        if (mat) for (const one of (Array.isArray(mat) ? mat : [mat])) if (one && !keep.has(one)) one.dispose();
+      });
     }
     this.group = null; this.sets = []; this.batches = []; this.slot = new WeakMap(); this.built = false;
   },

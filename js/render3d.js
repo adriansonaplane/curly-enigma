@@ -73,6 +73,8 @@ const R3 = {
   _target: null, _postScene: null, _postCam: null, _postMat: null,
   _sceneCounters: null, _frameCounters: null,
   _gpu: { supported: false, status: 'unsupported', ms: null, ext: null, active: null, pending: [] },
+  _contextLost: false,
+  _contextLosses: 0,
 
   init(canvas) {
     if (typeof THREE === 'undefined') {
@@ -89,6 +91,7 @@ const R3 = {
     // Keep the counters across the world and grade renders so callers can
     // snapshot both boundaries. We reset explicitly once per frame.
     this.renderer.info.autoReset = false;
+    this._bindContextEvents();
     this._initGpuTimer();
 
     this.scene = new THREE.Scene();
@@ -261,16 +264,70 @@ const R3 = {
     };
   },
 
+  // A WebGL context can be lost and restored at any time, and every GL object
+  // made against the old one dies with it. Nothing here handled that, and the
+  // GPU timer is the part that notices hardest: it holds an extension object
+  // and a queue of query objects across frames.
+  //
+  // The symptom was a permanently white world. After a loss, `_pollGpuTimer`
+  // kept asking the NEW context about the OLD extension and the OLD queries —
+  // `INVALID_ENUM: EXT_disjoint_timer_query_webgl2 not enabled` and
+  // `INVALID_OPERATION: getQueryParameter: object does not belong to this
+  // context` — every frame, forever. A sustained GL error flood is itself
+  // enough to lose the context again, so the game never recovered: lost,
+  // restored, immediately faulted, lost.
+  //
+  // three.js calls preventDefault() on the loss event, so restoration is
+  // already possible and it re-uploads scene resources itself. What was
+  // missing is dropping OUR stale handles, which must happen without touching
+  // the dead context.
+  _bindContextEvents() {
+    const canvas = this.renderer && this.renderer.domElement;
+    if (!canvas || this._contextBound) return;
+    this._contextBound = true;
+    canvas.addEventListener('webglcontextlost', () => {
+      this._contextLost = true;
+      this._contextLosses++;
+      // Discard, never delete: the objects belong to a context that is gone,
+      // and calling deleteQuery on them is one more invalid operation.
+      this._gpu = { supported: false, status: 'context-lost', ms: null,
+        ext: null, active: null, pending: [] };
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this._contextLost = false;
+      // If the context has died repeatedly, stop timing. GPU timer queries are
+      // a diagnostic; they are not worth a chance of taking the renderer down
+      // with them, and a machine that has lost the context twice has told us
+      // something about its driver.
+      if (this._contextLosses >= 2) {
+        this._gpu = { supported: false, status: 'disabled-after-context-loss',
+          ms: null, ext: null, active: null, pending: [] };
+        return;
+      }
+      this._initGpuTimer();
+    });
+  },
+
+  _lost() {
+    if (this._contextLost) return true;
+    const gl = this.renderer && this.renderer.getContext();
+    return !gl || gl.isContextLost();
+  },
+
   _initGpuTimer() {
     const gl = this.renderer && this.renderer.getContext();
-    const ext = gl && gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    if (!gl || gl.isContextLost()) {
+      this._gpu = { supported: false, status: 'context-lost', ms: null, ext: null, active: null, pending: [] };
+      return;
+    }
+    const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
     this._gpu = { supported: !!ext, status: ext ? 'pending' : 'unsupported',
       ms: null, ext, active: null, pending: [] };
   },
 
   _pollGpuTimer() {
     const gpu = this._gpu;
-    if (!gpu.supported) return;
+    if (!gpu.supported || !gpu.ext || this._lost()) return;
     const gl = this.renderer.getContext();
     if (gl.getParameter(gpu.ext.GPU_DISJOINT_EXT)) {
       for (const q of gpu.pending) gl.deleteQuery(q);
@@ -289,10 +346,14 @@ const R3 = {
 
   render(onBoundary) {
     if (!this.ready) return;
+    // Drawing into a dead context produces nothing but errors, and the errors
+    // are what keep killing it. Skip the frame; the restore handler will bring
+    // the renderer back.
+    if (this._lost()) return;
     this.updateCamera();
     this._pollGpuTimer();
     const gl = this.renderer.getContext(), gpu = this._gpu;
-    if (gpu.supported && !gpu.active && gpu.pending.length < 2) {
+    if (gpu.supported && gpu.ext && !gpu.active && gpu.pending.length < 2) {
       gpu.active = gl.createQuery();
       gl.beginQuery(gpu.ext.TIME_ELAPSED_EXT, gpu.active);
     }
@@ -316,7 +377,7 @@ const R3 = {
     }
     this._frameCounters = this._counterSnapshot();
     if (onBoundary) onBoundary('frame', this._frameCounters);
-    if (gpu.active) {
+    if (gpu.active && gpu.ext && !this._lost()) {
       gl.endQuery(gpu.ext.TIME_ELAPSED_EXT);
       gpu.pending.push(gpu.active); gpu.active = null;
     }
@@ -355,7 +416,8 @@ const R3 = {
       grade: gradeActive,
       lightBudget: this.maxLights,
       gpu: { supported: this._gpu.supported, status: this._gpu.status,
-        ms: this._gpu.ms === null ? null : +this._gpu.ms.toFixed(3) },
+        ms: this._gpu.ms === null ? null : +this._gpu.ms.toFixed(3),
+        contextLosses: this._contextLosses },
       objects: this.scene ? this.scene.children.length : 0,
     };
   },

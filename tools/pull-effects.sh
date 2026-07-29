@@ -143,5 +143,19 @@ if [ "$fail" -gt 0 ]; then
   printf '\n  Re-run to retry just those, e.g.:\n    ./tools/pull-effects.sh %s\n' "${failed[0]%% *}"
   exit 1
 fi
-printf '\n  Next: commit assets/effects/, then in the game console:\n'
+# Same contract as pull-models.sh: nothing leaves this script holding a live
+# CDN reference or a frame-postMessage channel. Printing a reminder instead of
+# scrubbing is how 192 payloads silently reverted once already.
+if [ "${SANITIZE:-1}" = "1" ] && [ "$ok" -gt 0 ]; then
+  printf '\n'
+  if node "$(dirname "$0")/sanitize-payloads.js" "$OUT"; then :; else
+    printf '\n  SANITISE FAILED — the payloads on disk still reach for a CDN.\n'
+    printf '  Do not open them in a browser. Re-run: node tools/sanitize-payloads.js %s\n' "$OUT"
+    exit 1
+  fi
+fi
+
+printf '\n  Next:\n'
+printf '    node tools/audit-assets.js %s\n' "$OUT"
+printf '    commit assets/effects/, then in the game console:\n'
 printf '    await Assets.api.ingestLocal("assets/effects/index.json")\n'
