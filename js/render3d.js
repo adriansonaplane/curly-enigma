@@ -12,14 +12,21 @@
 
 const R3 = {
   PROFILE_SESSION_KEY: 'diabloid.rendererProfile',
+  AUTHORED_MODELS_KEY: 'diabloid.authoredModels',
   PROFILES: {
     default: { antialias: true, dprCap: 2, renderScaleCap: 1,
-      grading: true, maxLights: 12, reducedLighting: false, pointLightShadows: true },
+      grading: true, maxLights: 12, reducedLighting: false, pointLightShadows: true, authoredModels: true },
     conservative: { antialias: false, dprCap: 1, renderScaleCap: 0.75,
-      grading: false, maxLights: 6, reducedLighting: true, pointLightShadows: false },
+      grading: false, maxLights: 6, reducedLighting: true, pointLightShadows: false, authoredModels: false },
   },
   profileName: 'default',
   profile: null,
+  authoredModels: true,
+  setAuthoredModels(enabled) {
+    this.authoredModels = enabled !== false;
+    try { localStorage.setItem(this.AUTHORED_MODELS_KEY, JSON.stringify(this.authoredModels)); } catch (_) {}
+    return this.authoredModels;
+  },
   selectProfile(name) {
     this.profileName = this.PROFILES[name] ? name : 'default';
     this.profile = this.PROFILES[this.profileName];
@@ -108,6 +115,11 @@ const R3 = {
     let storedProfile = 'default';
     try { storedProfile = sessionStorage.getItem(this.PROFILE_SESSION_KEY) || 'default'; } catch (_) {}
     const profile = this.selectProfile(storedProfile);
+    this.authoredModels = profile.authoredModels !== false;
+    try {
+      const storedModels = localStorage.getItem(this.AUTHORED_MODELS_KEY);
+      if (storedModels !== null) this.authoredModels = JSON.parse(storedModels) !== false;
+    } catch (_) {}
     const attempts = this.profileName === 'default' ? [
       { antialias: profile.antialias, powerPreference: 'high-performance' },
       { antialias: false, powerPreference: null },
@@ -503,6 +515,7 @@ const R3 = {
     const gradeActive = !!(this.gradeEnabled && this.grade && this._postMat);
     return {
       profile: this.profileName,
+      authoredModels: this.authoredModels,
       reducedLighting: !!(this.profile && this.profile.reducedLighting),
       pointLightShadows: !!(this.profile && this.profile.pointLightShadows),
       mode: this.mode, yaw: +this.yaw.toFixed(3), pitch: +this.pitch.toFixed(3),

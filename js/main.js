@@ -835,10 +835,14 @@ function showRendererRecovery() {
   message.innerHTML = `<div style="max-width:680px"><h1 style="color:#d88b55">Graphics could not start</h1>
     <p>Reload the page or close other GPU-heavy tabs. If this continues, update your graphics driver, try disabling hardware acceleration, or select Safe graphics mode.</p>
     <pre id="renderer-init-diagnostic" style="max-width:680px;overflow:auto;text-align:left;white-space:pre-wrap;font:12px/1.4 monospace;color:#bdab97"></pre>
+    <label style="display:block;margin:16px"><input id="renderer-fallback-models" type="checkbox"> Force fallback models</label>
     <button id="renderer-reload" class="big-btn">RELOAD</button>
     <button id="renderer-safe-mode" class="big-btn dark">SAFE GRAPHICS MODE</button></div>`;
   document.body.appendChild(message);
   document.getElementById('renderer-init-diagnostic').textContent = JSON.stringify(diagnostic, null, 2);
+  const fallbackModels = document.getElementById('renderer-fallback-models');
+  fallbackModels.checked = !R3.authoredModels;
+  fallbackModels.addEventListener('change', () => R3.setAuthoredModels(!fallbackModels.checked));
   document.getElementById('renderer-reload').addEventListener('click', () => location.reload());
   document.getElementById('renderer-safe-mode').addEventListener('click', () => {
     try { sessionStorage.setItem(R3.PROFILE_SESSION_KEY, 'conservative'); } catch (_) {}

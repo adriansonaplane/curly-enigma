@@ -10,7 +10,8 @@ const WUI = {
   set: null, keymap: null, layout: {},
   DEF_SET: {
     vol: 0.5, mute: false,
-    quality: 'auto', renderScale: 1, fpsLimit: 0, fog: true, shafts: true, grade: true, fps: false,
+    quality: 'auto', renderScale: 1, fpsLimit: 0, authoredModels: true,
+    fog: true, shafts: true, grade: true, fps: false,
     mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
     ctIn: true, ctOut: true, bubbles: true, physics: true,
@@ -56,6 +57,10 @@ const WUI = {
   // ================= INIT =================
   init() {
     const savedSet = this._load(this.SETK) || {};
+    // The recovery panel runs before WUI exists, so its standalone startup
+    // preference supplies the default for saves created before this option.
+    if (!Object.prototype.hasOwnProperty.call(savedSet, 'authoredModels'))
+      savedSet.authoredModels = R3.authoredModels;
     const hadRetiredVideoSettings = 'ao' in savedSet || 'reflections' in savedSet;
     delete savedSet.ao;
     delete savedSet.reflections;
@@ -981,6 +986,13 @@ const WUI = {
     });
     body.appendChild(frameLimit);
 
+    this.wsToggle(body, 'Use authored models',
+      'Load curated baked scenes instead of the built-in procedural fallback models', 'authoredModels',
+      v => {
+        R3.setAuthoredModels(v);
+        if (G.map) Props3.build(G.map);
+      });
+
     const mood = document.createElement('div');
     mood.className = 'ws-row';
     mood.innerHTML = `<span class="ws-label">Lighting mood<span class="ws-hint">Spooky drops the ambient light and lets torches, fires and glowing growths do the work</span></span>
@@ -1164,6 +1176,7 @@ const WUI = {
     Render.mood = s.mood || 'spooky';
     Render.heroLightMul = U.clamp((s.heroLight === undefined ? 42 : s.heroLight) / 100, 0, 1);
     Render.showFps = !!s.fps;
+    R3.setAuthoredModels(s.authoredModels !== false);
     Physics.enabled = s.physics !== false;
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
