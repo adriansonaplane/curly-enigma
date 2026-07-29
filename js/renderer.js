@@ -18,6 +18,7 @@ const Render = {
   W: 0, H: 0, dpr: 1,
   mmCv: null, mmCtx: null,
   exploreT: 0,
+  _minimapYaw: NaN, _minimapDir: NaN, _minimapX: NaN, _minimapY: NaN,
 
   // settings the UI writes into; forwarded to the 3D layer on each frame
   fx: {},
@@ -303,14 +304,19 @@ const Render = {
 
     // explored fog for the minimap
     this.exploreT -= dt;
+    let minimapDirty = this._minimapYaw !== R3.yaw || this._minimapDir !== pl.dir
+      || this._minimapX !== pl.x || this._minimapY !== pl.y;
     if (this.exploreT <= 0) {
       this.exploreT = 0.25;
       const R = 9;
       for (let y = Math.max(0, Math.floor(pl.y - R)); y < Math.min(map.h, pl.y + R); y++)
         for (let x = Math.max(0, Math.floor(pl.x - R)); x < Math.min(map.w, pl.x + R); x++)
           if (U.dist(x + 0.5, y + 0.5, pl.x, pl.y) < R) map.explored[y * map.w + x] = 1;
-      this.drawMinimap();
+      minimapDirty = true;
     }
+    // Camera-up maps must respond in the same frame as an orbit or a turn.
+    // Position is included so the player remains exactly centred while moving.
+    if (minimapDirty) this.drawMinimap();
 
     // ---------- 3D pass ----------
     this.activeLights = World3.updateLights(t, pl.x, pl.y);
@@ -513,16 +519,35 @@ const Render = {
     ctx.restore();
   },
 
-  // The minimap was always a plain 2D top-down draw on its own canvas, so it
-  // is carried over unchanged — it never had anything to do with the
-  // isometric projection.
+  // Camera-up, player-centred minimap. World space is rotated by -R3.yaw, so
+  // the top of this map always agrees with the top of the game camera. The
+  // screen-fixed hero arrow compensates by the same angle and therefore still
+  // describes the hero's world heading.
   drawMinimap() {
     const map = G.map, pl = G.player, m = this.mmCtx;
     if (!m || !map || !pl) return;
-    const S = 220;
+    const S = 220, C = S / 2, R = C - 6, sc = 9;
+    const yaw = Number.isFinite(R3.yaw) ? R3.yaw : (Cam.yaw || 0);
+    this._minimapYaw = yaw; this._minimapDir = pl.dir;
+    this._minimapX = pl.x; this._minimapY = pl.y;
     m.clearRect(0, 0, S, S);
-    const sc = S / Math.max(map.w, map.h);
+
+    // Frame effects remain in screen space and are not allowed to drift with
+    // the dungeon transform.
     m.save();
+    m.beginPath(); m.arc(C, C, R, 0, Math.PI * 2); m.clip();
+    m.fillStyle = 'rgba(5,7,10,0.94)'; m.fillRect(0, 0, S, S);
+    m.strokeStyle = 'rgba(190,205,210,0.055)'; m.lineWidth = 1;
+    for (let p = C % sc; p < S; p += sc) {
+      m.beginPath(); m.moveTo(p, 0); m.lineTo(p, S); m.stroke();
+      m.beginPath(); m.moveTo(0, p); m.lineTo(S, p); m.stroke();
+    }
+
+    // Every world marker uses this one transform: centre, inverse camera yaw,
+    // tile scale, then player translation. It naturally handles map edges by
+    // showing empty space rather than pulling the player away from centre.
+    m.save();
+    m.translate(C, C); m.rotate(-yaw); m.scale(sc, sc); m.translate(-pl.x, -pl.y);
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const i = y * map.w + x;
@@ -535,21 +560,47 @@ const Render = {
         else if (map.haz[i] === HAZ.WATER) m.fillStyle = 'rgba(40,90,140,0.8)';
         else if (isVent(map.haz[i])) m.fillStyle = U.rgba(VENT_KINDS[map.haz[i]].color, 0.8);
         else m.fillStyle = 'rgba(52,48,40,0.8)';
-        m.fillRect(x * sc, y * sc, Math.ceil(sc), Math.ceil(sc));
+        m.fillRect(x, y, 1.04, 1.04);
       }
     }
+    const exploredAt = (x, y) => {
+      x = Math.floor(x); y = Math.floor(y);
+      return x >= 0 && y >= 0 && x < map.w && y < map.h && map.explored[y * map.w + x];
+    };
     for (const mo of G.monsters) {
       if (mo.dead) continue;
-      if (!map.explored[Math.floor(mo.y) * map.w + Math.floor(mo.x)]) continue;
+      if (!exploredAt(mo.x, mo.y)) continue;
       m.fillStyle = mo.ally ? '#6be26b' : mo.boss ? '#ff5a3c' : mo.rank === 'elite' ? '#ffd94f' : '#c0392b';
-      m.fillRect(mo.x * sc - 1.5, mo.y * sc - 1.5, 3, 3);
+      m.fillRect(mo.x - 0.22, mo.y - 0.22, 0.44, 0.44);
     }
-    for (const n of G.npcs) { m.fillStyle = '#ffe9a8'; m.fillRect(n.x * sc - 2, n.y * sc - 2, 4, 4); }
+    for (const n of G.npcs) if (exploredAt(n.x, n.y)) {
+      m.fillStyle = '#ffe9a8'; m.fillRect(n.x - 0.25, n.y - 0.25, 0.5, 0.5);
+    }
     const ppM = G.portalOnMap(map);
-    if (ppM) { m.fillStyle = '#4f8fff'; m.fillRect(ppM.x * sc - 2.5, ppM.y * sc - 2.5, 5, 5); }
-    if (map.waypoint) { m.fillStyle = '#8fc8ff'; m.fillRect(map.waypoint.x * sc - 2.5, map.waypoint.y * sc - 2.5, 5, 5); }
-    m.fillStyle = '#fff';
-    m.fillRect(pl.x * sc - 2, pl.y * sc - 2, 4, 4);
+    if (ppM && exploredAt(ppM.x, ppM.y)) {
+      m.fillStyle = '#4f8fff'; m.fillRect(ppM.x - 0.32, ppM.y - 0.32, 0.64, 0.64);
+    }
+    if (map.waypoint && exploredAt(map.waypoint.x, map.waypoint.y)) {
+      m.fillStyle = '#8fc8ff';
+      m.fillRect(map.waypoint.x - 0.32, map.waypoint.y - 0.32, 0.64, 0.64);
+    }
     m.restore();
+
+    // Fade only the rim; unlike the world layer this radial gradient is stable
+    // while the camera rotates.
+    const fade = m.createRadialGradient(C, C, R * 0.72, C, C, R);
+    fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,0.78)');
+    m.fillStyle = fade; m.fillRect(0, 0, S, S);
+    m.restore();
+
+    // Hero heading is world radians (0 points right in canvas/world space).
+    m.save(); m.translate(C, C); m.rotate((Number.isFinite(pl.dir) ? pl.dir : 0) - yaw);
+    m.beginPath(); m.moveTo(9, 0); m.lineTo(-6, -6); m.lineTo(-3, 0);
+    m.lineTo(-6, 6); m.closePath();
+    m.fillStyle = '#fff7cf'; m.shadowColor = '#ffd36a'; m.shadowBlur = 6; m.fill();
+    m.strokeStyle = '#241500'; m.lineWidth = 1.5; m.stroke(); m.restore();
+
+    m.beginPath(); m.arc(C, C, R, 0, Math.PI * 2);
+    m.strokeStyle = 'rgba(151,126,72,0.95)'; m.lineWidth = 3; m.stroke();
   },
 };
