@@ -19,6 +19,36 @@ const GEOMETRIES = new Set(['BoxGeometry', 'CylinderGeometry', 'SphereGeometry',
   'TorusGeometry', 'IcosahedronGeometry', 'OctahedronGeometry',
   'DodecahedronGeometry', 'TetrahedronGeometry', 'LatheGeometry']);
 
+// The checked-in index is deliberately only a small sample, while developers
+// may have the complete catalogue payloads in this directory. Treat the index
+// as metadata, not as the authority for what exists: a branch switch must not
+// make valid, locally present models disappear from the next compile.
+function discoverEntries(src = SRC) {
+  const indexFile = path.join(src, 'index.json');
+  const index = fs.existsSync(indexFile)
+    ? JSON.parse(fs.readFileSync(indexFile, 'utf8')) : { entries: [] };
+  const bySlug = new Map();
+  for (const entry of index.entries || []) {
+    if (!entry || typeof entry.slug !== 'string' || typeof entry.meta !== 'string') continue;
+    if (path.basename(entry.meta) !== entry.meta || !fs.existsSync(path.join(src, entry.meta))) continue;
+    bySlug.set(entry.slug, entry);
+  }
+
+  for (const meta of fs.readdirSync(src).filter(name => name !== 'index.json' && name.endsWith('.json')).sort()) {
+    let doc;
+    try { doc = JSON.parse(fs.readFileSync(path.join(src, meta), 'utf8')); }
+    catch (e) { continue; } // compile() reports malformed indexed payloads; unrelated JSON is ignored.
+    if (!doc || typeof doc.slug !== 'string' || !doc.html || !doc.spec) continue;
+    const slug = doc.slug;
+    if (!/^[a-z0-9-]+$/.test(slug)) continue;
+    const existing = bySlug.get(slug);
+    if (existing && existing.meta !== meta)
+      throw new Error(`duplicate model slug ${slug}: ${existing.meta} and ${meta}`);
+    if (!existing) bySlug.set(slug, { slug, meta, html: `${slug}.html` });
+  }
+  return { entries: [...bySlug.values()], indexed: (index.entries || []).length };
+}
+
 function stable(value) {
   if (Array.isArray(value)) return value.map(stable);
   if (!value || typeof value !== 'object') return value;
@@ -318,10 +348,12 @@ function compile(entry) {
     droppedDecals: scene.dropped.length || undefined });
 }
 
-(async () => {
-  const index = JSON.parse(fs.readFileSync(path.join(SRC, 'index.json'), 'utf8'));
+async function main() {
+  const discovered = discoverEntries();
   const wanted = new Set(process.argv.slice(2).filter(a => !a.startsWith('--')));
-  const entries = index.entries.filter(e => !wanted.size || wanted.has(e.slug)).sort((a, b) => a.slug.localeCompare(b.slug));
+  const entries = discovered.entries.filter(e => !wanted.size || wanted.has(e.slug)).sort((a, b) => a.slug.localeCompare(b.slug));
+  if (discovered.entries.length > discovered.indexed)
+    console.log(`discovered ${discovered.entries.length - discovered.indexed} model(s) present on disk but absent from index.json`);
   fs.mkdirSync(OUT, { recursive: true });
   const manifestEntries = [], texturedModels = [], failures = [];
     for (const entry of entries) {
@@ -360,4 +392,8 @@ function compile(entry) {
     console.warn('  Inspect before shipping: a dropped alpha map turns a soft decal into a solid shape.');
   }
   if (failures.length) process.exitCode = 1;
-})().catch(e => { console.error(e.stack || e); process.exit(1); });
+}
+
+module.exports = { discoverEntries };
+if (require.main === module)
+  main().catch(e => { console.error(e.stack || e); process.exit(1); });
