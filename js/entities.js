@@ -129,6 +129,7 @@ const Ent = {
 
     pl.mp -= cost;
     this._src = sk.name; // damage-meter attribution
+    const srcName = sk.name;
     pl.lastCastArch = sk.arch;
     if (sk.cd) pl.cds[skId] = sk.cd;
     pl.gcd = sk.wd ? 1 / pl.derived.atkRate : 0.38;
@@ -153,7 +154,7 @@ const Ent = {
             if (sk.flat) dmg += U.rf(U.rand, sk.flat[0], sk.flat[1]) * (1 + 0.2 * (lvl - 1));
             const crit = U.chance(U.rand, d.critCh / 100);
             if (crit) dmg *= d.critDmg;
-            this.damageMonster(m, dmg, sk.elem, { crit, from: pl });
+            this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
             if (sk.dot) this.applyDebuff(m, { dot: sk.dot * (1 + 0.2 * (lvl - 1)), dotElem: sk.elem === 'phys' ? 'pois' : sk.elem }, 4);
             if (sk.stun) m.stunT = Math.max(m.stunT, sk.stun);
             if (sk.slowHit) this.applyDebuff(m, { slow: sk.slowHit }, 2.5);
@@ -176,7 +177,7 @@ const Ent = {
           let dmg = sk.wd ? this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100) + elemFlat : this.rollSpellDmg(pl, sk, lvl);
           const crit = U.chance(U.rand, d.critCh / 100);
           if (crit) dmg *= d.critDmg;
-          this.damageMonster(m, dmg, sk.elem, { crit, from: pl });
+          this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
           if (sk.stun) m.stunT = Math.max(m.stunT, sk.stun);
         }
         FX.ring(pl.x, pl.y, radius, ELEM[sk.elem].color);
@@ -199,7 +200,7 @@ const Ent = {
             dmg, elem: elems ? elems[i % 3] : sk.elem, ally: true, from: pl, r: 0.3,
             ttl: 2.2, pierce: sk.pierce || 0, explodeR: sk.explodeR || 0,
             homing: sk.homing, wobble: sk.wobble, orb: sk.orb, orbT: 0, orbRate: sk.orbRate,
-            slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: sk.orb ? 'orb' : 'bolt',
+            slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: sk.orb ? 'orb' : 'bolt', srcName,
           });
         }
         break;
@@ -214,7 +215,7 @@ const Ent = {
           G.projs.push({
             x: pl.x, y: pl.y, vx: Math.cos(a) * sk.speed, vy: Math.sin(a) * sk.speed,
             dmg, elem: sk.elem, ally: true, from: pl, r: 0.3, ttl: 1.1,
-            slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: 'bolt',
+            slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: 'bolt', srcName,
           });
         }
         FX.ring(pl.x, pl.y, 1.2, ELEM[sk.elem].color);
@@ -235,7 +236,7 @@ const Ent = {
               let dmg = this.rollSpellDmg(pl, sk, lvl);
               const crit = U.chance(U.rand, d.critCh / 100);
               if (crit) dmg *= d.critDmg;
-              this.damageMonster(m, dmg, sk.elem, { crit, from: pl });
+              this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
               if (sk.slowHit) this.applyDebuff(m, { slow: sk.slowHit }, 2.5);
               if (sk.healPct) pl.hp = Math.min(d.maxHp, pl.hp + dmg * sk.healPct / 100);
             }
@@ -250,7 +251,7 @@ const Ent = {
         G.pending.push({
           x: mx, y: my, t: sk.delay || 0.8, radius: sk.radius || 2.5,
           dmg: this.rollSpellDmg(pl, sk, lvl), elem: sk.elem, ally: true, from: pl,
-          linger: sk.linger || 0, lingerDps: sk.linger ? this.rollSpellDmg(pl, sk, lvl) * 0.25 : 0,
+          linger: sk.linger || 0, lingerDps: sk.linger ? this.rollSpellDmg(pl, sk, lvl) * 0.25 : 0, srcName,
         });
         break;
       }
@@ -260,7 +261,7 @@ const Ent = {
         G.projs.push({
           x: pl.x, y: pl.y, vx: Math.cos(ang) * sk.speed, vy: Math.sin(ang) * sk.speed,
           dmg: this.rollSpellDmg(pl, sk, lvl), elem: sk.elem, ally: true, from: pl,
-          r: 0.35, ttl: 1.6, jumps, kind: 'bolt', crit: U.chance(U.rand, d.critCh / 100),
+          r: 0.35, ttl: 1.6, jumps, kind: 'bolt', crit: U.chance(U.rand, d.critCh / 100), srcName,
         });
         break;
       }
@@ -296,7 +297,7 @@ const Ent = {
         G.storms.push({
           x: sx2, y: sy2, radius: sk.radius || 5, elem: sk.elem, ally: true, from: pl,
           strikes: sk.strikes || 10, interval: (sk.dur || 4) / (sk.strikes || 10), t: 0,
-          dmg: this.rollSpellDmg(pl, sk, lvl), left: sk.strikes || 10,
+          dmg: this.rollSpellDmg(pl, sk, lvl), left: sk.strikes || 10, srcName,
         });
         break;
       }
@@ -346,7 +347,7 @@ const Ent = {
             let dmg = this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100) + elemFlat;
             const crit = U.chance(U.rand, d.critCh / 100);
             if (crit) dmg *= d.critDmg;
-            this.damageMonster(m, dmg, sk.elem, { crit, from: pl });
+            this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
           }
           FX.ring(pl.x, pl.y, sk.radius || 2, ELEM[sk.elem].color);
           G.shake += 6;
@@ -386,7 +387,7 @@ const Ent = {
       G.projs.push({
         x: pl.x, y: pl.y, vx: Math.cos(pl.dir) * 14, vy: Math.sin(pl.dir) * 14,
         dmg, elem: caster ? 'arc' : 'phys', ally: true, from: pl, r: 0.28, ttl: 1.8,
-        crit: U.chance(U.rand, d.critCh / 100), kind: caster ? 'orb' : 'arrow',
+        crit: U.chance(U.rand, d.critCh / 100), kind: caster ? 'orb' : 'arrow', srcName: 'Attack',
       });
     } else {
       sfx('swing');
@@ -398,7 +399,7 @@ const Ent = {
         let dmg = this.rollWeaponDmg(pl, 1.35) + flat;
         const crit = U.chance(U.rand, d.critCh / 100);
         if (crit) dmg *= d.critDmg;
-        this.damageMonster(m, dmg, 'phys', { crit, from: pl });
+        this.damageMonster(m, dmg, 'phys', { crit, from: pl, srcName: 'Attack' });
         any = true;
       }
       FX.slash(pl.x, pl.y, pl.dir, 1.7, '#cfcfcf');
@@ -604,7 +605,7 @@ const Ent = {
     if (!opts.hostile || opts.both) {
       for (const m of G.monsters) {
         if (m.ally || m.dead) continue;
-        if (U.dist(x, y, m.x, m.y) < r + m.size * 0.3) this.damageMonster(m, dmg, elem, { from: opts.from });
+        if (U.dist(x, y, m.x, m.y) < r + m.size * 0.3) this.damageMonster(m, dmg, elem, { from: opts.from, srcName: opts.srcName });
       }
     }
   },
@@ -950,12 +951,12 @@ const Ent = {
       if (p.orbT <= 0) {
         p.orbT = p.orbRate || 0.09;
         const a = U.rand() * Math.PI * 2;
-        G.projs.push({ x: p.x, y: p.y, vx: Math.cos(a) * 9, vy: Math.sin(a) * 9, dmg: p.dmg * 0.45, elem: p.elem, ally: p.ally, from: p.from, r: 0.22, ttl: 0.5, kind: 'bolt', slowHit: 0.3 });
+        G.projs.push({ x: p.x, y: p.y, vx: Math.cos(a) * 9, vy: Math.sin(a) * 9, dmg: p.dmg * 0.45, elem: p.elem, ally: p.ally, from: p.from, r: 0.22, ttl: 0.5, kind: 'bolt', slowHit: 0.3, srcName: p.srcName });
       }
     }
     const nx = p.x + p.vx * dt, ny = p.y + p.vy * dt;
     if (Dungeon.isWall(G.map, Math.floor(nx), Math.floor(ny))) {
-      if (p.explodeR) this.explode(p.x, p.y, p.explodeR, [p.dmg * 0.9, p.dmg * 1.1], p.elem, { hostile: !p.ally, from: p.from });
+      if (p.explodeR) this.explode(p.x, p.y, p.explodeR, [p.dmg * 0.9, p.dmg * 1.1], p.elem, { hostile: !p.ally, from: p.from, srcName: p.srcName });
       else FX.spark(p.x, p.y, ELEM[p.elem].color, 3);
       p.dead = true; return;
     }
@@ -987,7 +988,7 @@ const Ent = {
               return; // keep flying to next target
             }
           }
-          if (p.explodeR) this.explode(p.x, p.y, p.explodeR, [p.dmg * 0.8, p.dmg * 1.05], p.elem, { from: p.from });
+          if (p.explodeR) this.explode(p.x, p.y, p.explodeR, [p.dmg * 0.8, p.dmg * 1.05], p.elem, { from: p.from, srcName: p.srcName });
           if (p.pierce && p.pierce > 0) { p.pierce--; return; }
           p.dead = true; return;
         }
@@ -1032,8 +1033,8 @@ const Ent = {
       const pd = G.pending[i];
       pd.t -= dt;
       if (pd.t <= 0) {
-        this.explode(pd.x, pd.y, pd.radius, [pd.dmg * 0.9, pd.dmg * 1.1], pd.elem, pd.ally ? { from: pd.from } : { hostile: true });
-        if (pd.linger) G.grounds.push({ x: pd.x, y: pd.y, r: pd.radius, dps: pd.lingerDps, elem: pd.elem, t: pd.linger, ally: pd.ally, tick: 0 });
+        this.explode(pd.x, pd.y, pd.radius, [pd.dmg * 0.9, pd.dmg * 1.1], pd.elem, pd.ally ? { from: pd.from, srcName: pd.srcName } : { hostile: true });
+        if (pd.linger) G.grounds.push({ x: pd.x, y: pd.y, r: pd.radius, dps: pd.lingerDps, elem: pd.elem, t: pd.linger, ally: pd.ally, from: pd.from, tick: 0, srcName: pd.srcName });
         G.pending.splice(i, 1);
       }
     }
@@ -1050,7 +1051,7 @@ const Ent = {
         if (s.ally) {
           for (const m of G.monsters) {
             if (m.ally || m.dead) continue;
-            if (U.dist(sx, sy, m.x, m.y) < 1.4 + m.size * 0.3) this.damageMonster(m, U.rf(U.rand, dmgR[0], dmgR[1]), s.elem, { from: s.from });
+            if (U.dist(sx, sy, m.x, m.y) < 1.4 + m.size * 0.3) this.damageMonster(m, U.rf(U.rand, dmgR[0], dmgR[1]), s.elem, { from: s.from, srcName: s.srcName });
           }
         } else {
           if (U.dist(sx, sy, pl.x, pl.y) < 1.5) this.damagePlayer(U.rf(U.rand, dmgR[0], dmgR[1]), s.elem, null);
@@ -1068,7 +1069,7 @@ const Ent = {
         if (gr.ally) {
           for (const m of G.monsters) {
             if (m.ally || m.dead) continue;
-            if (U.dist(gr.x, gr.y, m.x, m.y) < gr.r + m.size * 0.3) this.damageMonster(m, gr.dps * 0.4, gr.elem, {});
+            if (U.dist(gr.x, gr.y, m.x, m.y) < gr.r + m.size * 0.3) this.damageMonster(m, gr.dps * 0.4, gr.elem, { from: gr.from, srcName: gr.srcName });
           }
         } else if (U.dist(gr.x, gr.y, pl.x, pl.y) < gr.r) this.damagePlayer(gr.dps * 0.4, gr.elem, null);
       }
