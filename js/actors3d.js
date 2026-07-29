@@ -1,13 +1,12 @@
 // ============ DIABLOID: actors3d.js — monsters & the hero as 3D rigs ============
 'use strict';
 
-// The catalogue gave us 17 monster models against 35 monsters and 5 bosses, so
-// most of the bestiary has no art. Rather than let two thirds of it fall back
-// to placeholders, every body archetype is built here from primitives — the
-// same technique the catalogue's own models use (fused spheres and cones), and
-// the same six archetypes the 2D sprite baker already drove off. Each monster
-// keeps the silhouette, palette and scale it has today; the 17 mapped ones get
-// swapped for real models as those land, one at a time, without touching this.
+// The catalogue covers a minority of the bestiary, so every body archetype is
+// built here from primitives — the same technique the catalogue's own models
+// use (fused spheres and cones), and the same six archetypes the 2D sprite
+// baker already drove off. Each monster keeps the silhouette, palette and
+// scale it has today; a mapped species swaps to its authored model as that
+// lands, one at a time, without touching any of this.
 //
 // Geometry and materials are shared per monster kind. A room of twenty
 // skeletons is twenty transforms over one set of buffers, not twenty rigs.
@@ -15,17 +14,46 @@
 const Actors3 = {
   _geo: null,
   _mats: Object.create(null),     // kind -> { main, dark, eye }
-  // Authored actors are deliberately opt-in. These four are the comparison
-  // set (humanoid, brute, non-humanoid and boss); animated silhouettes such as
-  // spiders, bats, skeletons and serpents stay procedural until their compiled
-  // scenes contain a skeleton we can actually drive.
+  // Authored models replace the procedural rig for a species when the compiled
+  // catalogue has one. Every entry is `animation: 'rigid'`: the model is a
+  // single body driven by root motion, so species whose read depends on limb
+  // or wing articulation — spiders, bats, serpents, fallen — stay procedural
+  // until their compiled scenes carry a skeleton we can actually drive.
+  //
+  // `height` is the world height of a size-1.0 member of the family. `def.size`
+  // and the boss multiplier scale from there, so a family's own proportions
+  // still apply and a Slag Ogre stays larger than a Gutter Ratman.
   MODEL_MAP: {
-    zombie:   { slot: 'mon_zombie',   slug: 'ragm-zombie',    animation: 'rigid', height: 1.5 },
-    golem:    { slug: 'ragm-golem',                         animation: 'rigid', height: 1.55 },
-    exploder: { slug: 'ragm-bloatling',                     animation: 'rigid', height: 0.85 },
-    karghul:  { slug: 'ragm-furnace-tyrant',                animation: 'rigid', height: 1.55, boss: true },
+    // humanoid
+    zombie:    { slot: 'mon_zombie', slug: 'ragm-zombie', animation: 'rigid', height: 1.5 },
+    ghoul:     { slug: 'ragm-ghoul',          animation: 'rigid', height: 1.5 },
+    ratman:    { slug: 'ragm-ratman',         animation: 'rigid', height: 1.45 },
+    mummy:     { slug: 'ragm-mummy',          animation: 'rigid', height: 1.5 },
+    necro:     { slug: 'ragm-necromancer',    animation: 'rigid', height: 1.6 },
+    lizardman: { slug: 'ragm-lizardman',      animation: 'rigid', height: 1.6 },
+    imp:       { slug: 'ragm-volcanic-imp',   animation: 'rigid', height: 1.3 },
+    // skeletal
+    skeleton:  { slug: 'ragm-skeleton',       animation: 'rigid', height: 1.5 },
+    skelmage:  { slug: 'ragm-skeletal-mage',  animation: 'rigid', height: 1.55 },
+    lich:      { slug: 'ragm-lich-lord',      animation: 'rigid', height: 1.65 },
+    // brute
+    troll:     { slug: 'ragm-troll',          animation: 'rigid', height: 1.55 },
+    ogre:      { slug: 'ragm-ogre',           animation: 'rigid', height: 1.55 },
+    cyclops:   { slug: 'ragm-cyclops',        animation: 'rigid', height: 1.55 },
+    ettin:     { slug: 'ragm-ettin',          animation: 'rigid', height: 1.6 },
+    // incorporeal — `def.fly` keeps the hover; see the authored branch of animate()
+    wraith:    { slug: 'ragm-wraith',         animation: 'rigid', height: 1.6 },
+    // Absent from the compiled catalogue as of 2026-07-29. These three resolve
+    // to a 404 and fall back to the procedural rig, which is correct behaviour
+    // — but it went unnoticed for three PRs because the rejection was swallowed
+    // by an empty catch. The slugs stay as the intended targets if the models
+    // are ever pulled; the miss is now reported in stats().modelMisses.
+    golem:     { slug: 'ragm-golem',          animation: 'rigid', height: 1.55 },
+    exploder:  { slug: 'ragm-bloatling',      animation: 'rigid', height: 0.85 },
+    karghul:   { slug: 'ragm-furnace-tyrant', animation: 'rigid', height: 1.55, boss: true },
   },
   _models: Object.create(null),   // slug -> Promise<immutable normalized template>
+  _modelMisses: Object.create(null), // slug -> why the authored model never arrived
   _staticGeometry: Object.create(null), // archetype/variant -> material-key geometries
   pool: [],                       // live actor rigs
   crowd: [],                      // town NPCs and townsfolk, same rigs, no combat
@@ -93,32 +121,98 @@ const Actors3 = {
     return new THREE[type](opts);
   },
 
+  // Every geometry the model compiler is allowed to emit, and the constructor
+  // argument order for each. This list used to carry six of the thirteen, so a
+  // compiled scene using a lathe, a ring or a polyhedron threw
+  // `unsupported geometry` at load and the monster silently reverted to its
+  // procedural rig. Keep it in step with GEOMETRIES in tools/compile-models.js:
+  // the two describe the same contract from opposite ends, and
+  // tests/node/model-contract.js fails if they drift.
+  GEOMETRY_ARGS: {
+    BoxGeometry: ['width', 'height', 'depth', 'widthSegments', 'heightSegments', 'depthSegments'],
+    SphereGeometry: ['radius', 'widthSegments', 'heightSegments', 'phiStart', 'phiLength', 'thetaStart', 'thetaLength'],
+    CylinderGeometry: ['radiusTop', 'radiusBottom', 'height', 'radialSegments', 'heightSegments', 'openEnded', 'thetaStart', 'thetaLength'],
+    ConeGeometry: ['radius', 'height', 'radialSegments', 'heightSegments', 'openEnded', 'thetaStart', 'thetaLength'],
+    PlaneGeometry: ['width', 'height', 'widthSegments', 'heightSegments'],
+    CircleGeometry: ['radius', 'segments', 'thetaStart', 'thetaLength'],
+    RingGeometry: ['innerRadius', 'outerRadius', 'thetaSegments', 'phiSegments', 'thetaStart', 'thetaLength'],
+    TorusGeometry: ['radius', 'tube', 'radialSegments', 'tubularSegments', 'arc'],
+    IcosahedronGeometry: ['radius', 'detail'],
+    OctahedronGeometry: ['radius', 'detail'],
+    DodecahedronGeometry: ['radius', 'detail'],
+    TetrahedronGeometry: ['radius', 'detail'],
+    LatheGeometry: ['points', 'segments', 'phiStart', 'phiLength'],
+  },
+
+  _primitive(gd, slug) {
+    const Ctor = gd && THREE[gd.type], order = gd && this.GEOMETRY_ARGS[gd.type];
+    if (typeof Ctor !== 'function' || !order || !gd.parameters)
+      throw new Error('unsupported geometry ' + ((gd && gd.type) || '?') + ' in ' + slug);
+    const a = gd.parameters;
+    // A missing key passes `undefined`, which is exactly how three.js reaches
+    // its own default. The lathe profile is the one parameter the scene
+    // contract stores structurally, as [x, y] pairs.
+    return new Ctor(...order.map(k => k === 'points'
+      ? (a.points || []).map(q => new THREE.Vector2(q[0], q[1]))
+      : a[k]));
+  },
+
   // Compiled scenes contain primitives only. Geometry and base materials are
   // created once per slug and never mutated or disposed by actor retirement.
+  //
+  // The parts are merged by material. Every authored actor is `rigid` — it
+  // moves as one body under root motion — so all of its parts are static and
+  // the whole model collapses to one draw call per material. That matters more
+  // than it sounds: an authored model is 13-27 primitives, and build() already
+  // merges the static parts of a procedural archetype. Cloning the parts
+  // straight through would have traded a merged rig for two dozen loose meshes
+  // and made draw calls worse on the very species we replaced to improve them.
+  //
+  // A mesh named in doc.animations is exempt and stays individually
+  // addressable. Nothing drives those for actors today, but merging them away
+  // would quietly delete the capability rather than leave it unused.
   _compileModel(doc, slug) {
     if (!doc || doc.format !== 'diabloid-primitive-scene' || !Array.isArray(doc.meshes) || !doc.meshes.length)
       throw new Error('invalid compiled monster model ' + slug);
     if (doc.coordinateSystem !== 'right-handed-y-up') throw new Error('unsupported coordinates for ' + slug);
     const materials = (doc.materials || []).map(d => this._material(d));
+    const animated = new Set((doc.animations || []).map(a => a.mesh));
     const root = new THREE.Group();
-    for (const p of doc.meshes) {
-      const gd = p.geometry || {}, Ctor = THREE[gd.type];
-      if (typeof Ctor !== 'function' || !gd.parameters) throw new Error('unsupported geometry in ' + slug);
-      const a = gd.parameters, order = {
-        BoxGeometry: ['width', 'height', 'depth', 'widthSegments', 'heightSegments', 'depthSegments'],
-        SphereGeometry: ['radius', 'widthSegments', 'heightSegments', 'phiStart', 'phiLength', 'thetaStart', 'thetaLength'],
-        CylinderGeometry: ['radiusTop', 'radiusBottom', 'height', 'radialSegments', 'heightSegments', 'openEnded', 'thetaStart', 'thetaLength'],
-        ConeGeometry: ['radius', 'height', 'radialSegments', 'heightSegments', 'openEnded', 'thetaStart', 'thetaLength'],
-        PlaneGeometry: ['width', 'height', 'widthSegments', 'heightSegments'],
-        TorusGeometry: ['radius', 'tube', 'radialSegments', 'tubularSegments', 'arc'],
-      }[gd.type];
-      if (!order) throw new Error('unsupported geometry ' + gd.type);
-      const mesh = new THREE.Mesh(new Ctor(...order.map(k => a[k])), materials[p.material] || materials[0]);
-      if (p.position) mesh.position.fromArray(p.position);
-      if (p.rotation) mesh.rotation.fromArray(p.rotation);
-      if (p.scale) mesh.scale.fromArray(p.scale);
+    const add = (geometry, material) => {
+      const mesh = new THREE.Mesh(geometry, material || materials[0]);
       mesh.castShadow = true; mesh.receiveShadow = false;
-      root.add(mesh);
+      root.add(mesh); return mesh;
+    };
+    const buckets = new Map();
+    doc.meshes.forEach((p, i) => {
+      const geometry = this._primitive(p.geometry, slug);
+      if (animated.has(i)) {
+        const mesh = add(geometry, materials[p.material]);
+        if (p.position) mesh.position.fromArray(p.position);
+        if (p.rotation) mesh.rotation.fromArray(p.rotation);
+        if (p.scale) mesh.scale.fromArray(p.scale);
+        return;
+      }
+      const key = p.material || 0;
+      if (!buckets.has(key)) buckets.set(key, []);
+      // Baking the transform into the vertices is what lets the parts merge at
+      // all; the merged mesh then sits at the identity and every part keeps the
+      // place the compiler measured for it.
+      buckets.get(key).push(this._transformGeometry(geometry, p));
+      geometry.dispose();
+    });
+    for (const key of [...buckets.keys()].sort((a, b) => a - b)) {
+      const parts = buckets.get(key);
+      try {
+        add(this._mergeGeometries(parts), materials[key]);
+        for (const g of parts) g.dispose();
+      } catch (e) {
+        // Mismatched attribute layouts are the only way this fails. Draw the
+        // parts separately rather than lose the model: their transforms are
+        // already baked, so they land in the right places either way.
+        for (const g of parts) add(g, materials[key]);
+        root.userData.unmergedMaterials = (root.userData.unmergedMaterials || 0) + 1;
+      }
     }
     root.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(root), extent = new THREE.Vector3();
@@ -130,6 +224,8 @@ const Actors3 = {
     root.userData.sourceHeight = extent.y / units;
     root.userData.minY = box.min.y;
     root.userData.unitsPerMetre = units;
+    root.userData.sourceMeshes = doc.meshes.length;
+    root.userData.drawMeshes = root.children.length;
     return root;
   },
 
@@ -145,11 +241,16 @@ const Actors3 = {
     return this._models[spec.slug];
   },
 
-  instanceModel(template, spec, def) {
+  // `size` is the caller's composed scale — def.size times the boss multiplier
+  // — and must be the same value build() is given. Deriving it from def.size
+  // alone here left an authored boss 1.3x smaller than the procedural rig it
+  // replaced, which no boss had yet hit only because the one boss in MODEL_MAP
+  // resolves to a slug the catalogue does not contain.
+  instanceModel(template, spec, def, size) {
     // Object3D.clone creates only the mutable hierarchy; geometry and base
     // materials remain shared. No authored material is mutated per instance.
     const model = template.clone(true), rig = new THREE.Group();
-    const size = def.size || 1;
+    if (size === undefined) size = def.size || 1;
     const scale = spec.height * size / template.userData.sourceHeight;
     model.scale.setScalar(scale / template.userData.unitsPerMetre);
     model.position.y = -template.userData.minY * scale / template.userData.unitsPerMetre;
@@ -162,6 +263,8 @@ const Actors3 = {
     rig.userData.animation = spec.animation;
     rig.userData.modelSlug = spec.slug;
     rig.userData.targetHeight = spec.height * size;
+    // Carried so the authored branch of animate() can keep a flier flying.
+    rig.userData.fly = !!def.fly;
     return rig;
   },
 
@@ -321,7 +424,12 @@ const Actors3 = {
     // root motion; they are not substituted for limb-dependent species.
     if (d.authored) {
       const attack = a.attackT > 0 ? Math.sin((1 - a.attackT / 0.3) * Math.PI) : 0;
-      rig.position.y = moving ? Math.abs(Math.sin(w)) * 0.035 : Math.sin(t * 1.7 + (a._phase || 0)) * 0.012;
+      // A flying species has to keep flying when it gets an authored body. The
+      // procedural path hovers off `d.fly` further down; without the same term
+      // here a wraith would swap to its model and settle onto the floor.
+      rig.position.y = d.fly ? 0.55 + Math.sin(t * 2.2 + (a._phase || 0)) * 0.12
+        : moving ? Math.abs(Math.sin(w)) * 0.035
+        : Math.sin(t * 1.7 + (a._phase || 0)) * 0.012;
       rig.rotation.x = -attack * 0.12;
       return;
     }
@@ -373,9 +481,19 @@ const Actors3 = {
       visibleActors++;
       owner._rig.traverse(node => { if (node.isMesh && node.visible) actorMeshes++; });
     }
+    let authoredActors = 0, authoredMeshes = 0;
+    for (const owner of this.pool.concat(this.crowd)) {
+      const rig = owner._rig;
+      if (!rig || !rig.visible || !rig.userData.authored) continue;
+      authoredActors++;
+      rig.traverse(node => { if (node.isMesh && node.visible) authoredMeshes++; });
+    }
     return Object.assign({}, out, {
       visibleActors, actorMeshes,
+      authoredActors, authoredMeshes,
       mergedArchetypes: Object.keys(this._staticGeometry).length,
+      // Non-empty means a mapped species is silently wearing its fallback.
+      modelMisses: Object.assign({}, this._modelMisses),
     });
   },
 
@@ -407,16 +525,24 @@ const Actors3 = {
         // Start the authored request before constructing the visible fallback.
         // Keeping that fallback during I/O avoids invisible/untargetable actors.
         const requested = spec && this.requestModel(spec);
-        m._rig = this.build(def.body, id, def.pal, (def.size || 1) * (m.boss ? 1.3 : 1));
+        const size = (def.size || 1) * (m.boss ? 1.3 : 1);
+        m._rig = this.build(def.body, id, def.pal, size);
         m._phase = (m.x * 7.3 + m.y * 3.1) % 6.28;
         R3.scene.add(m._rig);
         this.pool.push(m);
         if (requested) requested.then(template => {
           if (!m._rig || this.pool.indexOf(m) < 0) return;
-          const authored = this.instanceModel(template, spec, def);
+          const authored = this.instanceModel(template, spec, def, size);
           authored.position.copy(m._rig.position); authored.rotation.copy(m._rig.rotation);
           R3.scene.remove(m._rig); m._rig = authored; R3.scene.add(authored);
-        }).catch(() => { /* the already-created build() rig is the fallback */ });
+        }).catch(err => {
+          // The build() rig is the fallback and the game carries on, which is
+          // right — but record WHY. Three MODEL_MAP entries pointed at slugs
+          // that were never in the catalogue and survived three PRs precisely
+          // because this catch was empty. A fallback is a decision; a silent
+          // fallback is an absence of one.
+          this._modelMisses[spec.slug] = (err && err.message) || String(err);
+        });
       }
       const r = m._rig;
       r.position.x = m.x; r.position.z = m.y;
