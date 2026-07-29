@@ -253,6 +253,8 @@ const World3 = {
     }
 
     if (this.hero) {
+      // Shadow quality can change at runtime under the governor/settings.
+      this.hero.castShadow = R3.shadows;
       const pl = G.player;
       const rad = pl && pl.derived ? pl.derived.lightRad : 7;
       this.hero.position.set(px, 1.4, pz);

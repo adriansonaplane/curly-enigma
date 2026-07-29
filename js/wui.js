@@ -1341,8 +1341,13 @@ const WUI = {
       const el = document.getElementById('wui-fps');
       if (el && this.set.fps) {
         const cap = Number(this.set.fpsLimit) || 0;
+        const diag = R3.stats(), gpu = diag.gpu;
+        const gpuText = gpu.supported
+          ? (gpu.ms === null ? 'GPU pending' : 'GPU ' + gpu.ms.toFixed(1) + ' ms')
+          : 'GPU unsupported';
         el.textContent = Math.round(this._fpsN / this._fpsT) + ' fps · ' + (cap ? cap + ' cap' : 'display') + ' · ' +
-          (Render.quality === 'low' ? 'low' : 'high') + ' quality';
+          (Render.quality === 'low' ? 'low' : 'high') + ' quality · CPU update ' +
+          Render.cpuUpdateMs.toFixed(1) + ' ms · CPU submit ' + Render.cpuRenderMs.toFixed(1) + ' ms · ' + gpuText;
       }
       this._fpsN = 0; this._fpsT = 0;
     }
