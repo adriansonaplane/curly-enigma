@@ -14,7 +14,7 @@ const QuestState = (() => {
   const quests = [];
 
   const objective = (id, type, need, text, extra = {}) => ({ id, type, need, text, ...extra });
-  const add = q => quests.push({ ...q, objectives: q.objectives || [[objective('primary', q.type, q.need, q.desc,
+  const add = q => quests.push({ faction: ({ elder: 'haven', healer: 'light', smith: 'ironsong', gambler: 'haven' })[q.giverNpc || 'elder'], reputation: 150, ...q, objectives: q.objectives || [[objective('primary', q.type, q.need, q.desc,
     q.act === undefined ? {} : { act: q.act })]], rewards: q.rewards || { gold: q.gold || 0, xp: q.xp || 0 },
     giverNpc: q.giverNpc || 'elder', turnInNpc: q.turnInNpc || q.giverNpc || 'elder',
     prerequisites: q.prerequisites || [], branches: q.branches || [], consequenceHooks: q.consequenceHooks || [] });

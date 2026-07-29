@@ -97,6 +97,11 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .tt-synergy div { color:#8fae69; }
 
 .shop-list { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+.rep-grid { display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:10px }
+.rep-card { padding:12px;background:#100c07;border:1px solid #4b391d;border-radius:7px }
+.rep-name { font-size:16px }.rep-name b { float:right;font-size:12px;text-transform:uppercase }
+.rep-score { margin:6px 0;color:#c9b98d }.rep-track { height:7px;background:#251b0d;border-radius:5px;overflow:hidden }.rep-track i { display:block;height:100% }
+.rep-card p,.rep-card small { color:#8f8265;line-height:1.45 }
 .npc-line { font-style:italic; color:#b3a077; text-align:center; margin:8px 0 14px; font-size:14px; line-height:1.5; }
 .npc-opts { display:flex; flex-direction:column; gap:8px; }
 .npc-opts button, .menu-list button { padding:10px; background:#1c1309; color:#e0cd94; border:2px solid #57431f; border-radius:7px; font-size:15px; cursor:pointer; letter-spacing:1px; }

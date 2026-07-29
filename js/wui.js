@@ -16,7 +16,7 @@ const WUI = {
     mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
     ctIn: true, ctOut: true, bubbles: true, physics: true,
-    fPlayer: true, fParty: true, fTarget: true, fBuffs: true, fChat: true, fDps: true, fTracker: true,
+    fPlayer: true, fParty: true, fPets: true, fTarget: true, fBuffs: true, fChat: true, fDps: true, fTracker: true,
     fFriends: true, fGuild: true, fBar2: false, fCombatLog: true,
     theme: 'gold',
   },
@@ -240,6 +240,7 @@ const WUI = {
     // frames
     const player = mk('wui-player', 'wui-frame wui-unit', '');
     const party = mk('wui-party', 'wui-frame', '');
+    const pets = mk('wui-pets', 'wui-frame', '');
     const target = mk('wui-target', 'wui-frame wui-unit', '');
     const buffs = mk('wui-bufftray', 'wui-frame', '');
     const ctIn = mk('wui-ct-in', 'wui-frame wui-ct', '');
@@ -269,7 +270,8 @@ const WUI = {
 
     const W = innerWidth, H = innerHeight;
     this.regFrame('player', player, 'Player Frame', 14, 14);
-    this.regFrame('party', party, 'Party (Minions)', 14, 122);
+    this.regFrame('party', party, 'Party', 14, 122);
+    this.regFrame('pets', pets, 'Pets & Minions', 226, 122);
     this.regFrame('target', target, 'Target Frame', W / 2 - 130, 96);
     this.regFrame('buffs', buffs, 'Buffs & Auras', W - 250 - 350, 16);
     this.regFrame('ctin', ctIn, 'Incoming Combat Text', W / 2 - 350, H / 2 - 300);
@@ -301,13 +303,14 @@ const WUI = {
       btns.insertBefore(b, document.getElementById('btn-mute'));
     };
     addBtn('J', 'Quest Log (' + this.keyLabel('quests') + ')', () => UI.toggle('quests'));
+    addBtn('R', 'Faction Reputation', () => UI.toggle('reputation'));
     addBtn('U', 'Social (' + this.keyLabel('social') + ')', () => UI.toggle('social'));
     addBtn('G', 'Guild (' + this.keyLabel('guildp') + ')', () => UI.toggle('guild'));
     addBtn('⚙', 'Settings (' + this.keyLabel('settings') + ')', () => UI.toggle('settings'));
 
     // panels
     document.getElementById('panels').insertAdjacentHTML('beforeend',
-      '<div id="panel-settings" class="panel wide hidden"></div><div id="panel-quests" class="panel hidden"></div>' +
+      '<div id="panel-settings" class="panel wide hidden"></div><div id="panel-quests" class="panel hidden"></div><div id="panel-reputation" class="panel wide hidden"></div>' +
       '<div id="panel-social" class="panel hidden"></div><div id="panel-guild" class="panel hidden"></div>');
 
     // edit banner
@@ -787,22 +790,40 @@ const WUI = {
 
   updatePartyFrame() {
     const el = document.getElementById('wui-party');
-    const minions = G.monsters.filter(m => m.ally && !m.dead);
-    if (!minions.length) { el.innerHTML = ''; return; }
-    let h = '<div id="wui-party-title">PARTY — YOUR SERVANTS</div>';
-    for (const m of minions.slice(0, 6)) {
-      h += `<div class="wui-unit" data-fam="${m.fam}"><div class="wu-row">
-        <div class="wu-portrait"></div>
-        <div class="wu-body">
-          <div class="wu-name">${U.esc(m.name || m.fam)}</div>
-          ${this.bar('wb-hp', m.hp / m.maxHp, Math.ceil(m.hp) + ' / ' + Math.ceil(m.maxHp))}
-          ${m.ttl !== undefined ? this.bar('wb-ttl', m.ttl / (m.maxTtl || 60), '') : ''}
-        </div></div></div>`;
+    if (typeof Party === 'undefined') return;
+    const members = Party.all();
+    let h = '<div class="wui-frame-title">PARTY</div>';
+    for (const m of members) {
+      const state = m.dead ? 'DEAD' : !m.online ? 'OFFLINE' : m.range > 30 ? 'OUT OF RANGE' : m.range ? m.range.toFixed(0) + 'm' : 'YOU';
+      const cls = (CLASSES.find(c => c.id === m.cls) || {}).name || m.cls;
+      const effects = (m.effects || []).map(e => `<span class="wu-ico" style="color:${e.color};border-color:${e.color}" title="${U.esc(e.name)}">${e.icon}<span class="wi-t">${Math.ceil(e.t)}</span></span>`).join('');
+      h += `<div class="wui-unit party-unit${Target.current && Target.current.partyMember && Target.current.id === m.id ? ' targeted' : ''}${m.dead ? ' dead' : ''}${!m.online ? ' offline' : ''}"><div class="wu-row"><div class="wu-portrait"></div><div class="wu-body">
+        <div class="wu-name">${Party.leaderId === m.id ? '<span title="Party leader">♛</span> ' : m.assistant ? '<span title="Party assistant">◆</span> ' : ''}${U.esc(m.name)} <span class="wu-lvl">${m.lvl}</span></div>
+        <div class="party-meta"><span class="party-role role-${m.role}">${m.role}</span> · ${U.esc(cls)} <span class="party-state">${state}</span></div>
+        ${this.bar('wb-hp', m.hp / m.maxHp, Math.ceil(m.hp) + ' / ' + Math.ceil(m.maxHp))}${this.bar('wb-mp', m.resource / m.maxResource, Math.ceil(m.resource) + ' / ' + Math.ceil(m.maxResource))}
+        ${effects ? `<div class="wu-status">${effects}</div>` : ''}<div class="party-actions"><button data-act="target">Target</button>${m.id !== 'player' ? '<button data-act="whisper">Whisper</button><button data-act="assist">Assistant</button><button data-act="promote">Leader</button><button data-act="remove">Remove</button>' : ''}</div>
+      </div></div></div>`;
     }
-    if (minions.length > 6) h += `<div class="wui-mini-title">+${minions.length - 6} more…</div>`;
     el.innerHTML = h;
-    const units = el.querySelectorAll('.wui-unit');
-    minions.slice(0, 6).forEach((m, i) => units[i].querySelector('.wu-portrait').appendChild(this.portrait(m.fam)));
+    el.querySelectorAll('.party-unit').forEach((unit, i) => {
+      const m = members[i]; unit.querySelector('.wu-portrait').appendChild(this.portrait(m.cls));
+      unit.addEventListener('click', e => { const act = e.target.dataset.act;
+        if (act === 'target') Party.target(m); else if (act === 'whisper') Party.whisper(m);
+        else if (act === 'assist') Party.toggleAssistant(m); else if (act === 'promote') Party.promote(m);
+        else if (act === 'remove') Party.remove(m); else if (!e.target.closest('button')) Party.target(m);
+      });
+    });
+  },
+
+  updatePetsFrame() {
+    const el = document.getElementById('wui-pets');
+    const pets = G.monsters.filter(m => m.ally && !m.dead);
+    if (!pets.length) { el.innerHTML = ''; return; }
+    let h = '<div class="wui-frame-title">PETS & MINIONS</div>';
+    for (const m of pets.slice(0, 6)) h += `<div class="wui-unit"><div class="wu-row"><div class="wu-portrait"></div><div class="wu-body"><div class="wu-name">${U.esc(m.name || m.fam)}</div>${this.bar('wb-hp', m.hp / m.maxHp, Math.ceil(m.hp) + ' / ' + Math.ceil(m.maxHp))}${m.ttl !== undefined ? this.bar('wb-ttl', m.ttl / (m.maxTtl || 60), '') : ''}</div></div></div>`;
+    if (pets.length > 6) h += `<div class="wui-mini-title">+${pets.length - 6} more…</div>`;
+    el.innerHTML = h;
+    el.querySelectorAll('.wui-unit').forEach((unit, i) => unit.querySelector('.wu-portrait').appendChild(this.portrait(pets[i].fam)));
   },
 
   monsterStatus(m) {
@@ -1066,6 +1087,18 @@ const WUI = {
   },
 
   // ================= QUESTS =================
+  renderReputation() {
+    const p = UI.panel('reputation'), state = G.player.reputation;
+    UI.head(p, 'FACTIONS & REPUTATION');
+    p.insertAdjacentHTML('beforeend', '<div class="npc-line">Your deeds open doors, change prices, and make enemies. Reputation is bounded from −6,000 to +6,000.</div>' +
+      '<div class="rep-grid">' + Factions.definitions.map(f => {
+        const score = Factions.value(state, f.id), tier = Factions.tier(score), next = Factions.nextTier(score);
+        const pct = (score - Factions.MIN) / (Factions.MAX - Factions.MIN) * 100;
+        const rivals = f.rivals.map(id => Factions.byId[id].name).join(', ');
+        return `<section class="rep-card"><div class="rep-name" style="color:${f.color}">${U.esc(f.name)} <b>${U.esc(tier.name)}</b></div><div class="rep-score">${score > 0 ? '+' : ''}${U.fmt(score)} / ${U.fmt(Factions.MAX)}</div><div class="rep-track"><i style="width:${pct}%;background:${f.color}"></i></div><p>${U.esc(f.description)}</p><small>Rivals: ${U.esc(rivals)}${next ? ` · Next tier at ${U.fmt(next.min)}` : ' · Maximum standing'}<br>${Factions.isHostile(state, f.id) ? '⚠ Hostile: services and access denied' : `Vendor rate: ${Math.round(Factions.price(100, state, f.id))}%`}</small></section>`;
+      }).join('') + '</div>');
+  },
+
   QUESTS: QuestState.quests,
 
   questAvailable(q) {
@@ -1106,6 +1139,7 @@ const WUI = {
     });
     if (!reward) return;
     G.player.gold += reward.gold || 0;
+    if (q.faction) Factions.change(G.player.reputation, q.faction, q.reputation || 0);
     if (reward.xp) G.awardXp(Math.round(reward.xp));
     sfx('shrine');
     UI.announce(`Quest complete: ${q.name}`, '#6be26b', 3000);
@@ -1145,7 +1179,7 @@ const WUI = {
         <div class="q-name">${U.esc(q.name)}<span class="q-tag">${U.esc(state.toUpperCase())}</span></div>
         <div class="q-desc">${U.esc(q.desc)}</div>
         <div class="q-prog">${U.fmt(prog)} / ${U.fmt(q.need)}<span class="q-bar"><i style="width:${Math.round(prog / q.need * 100)}%"></i></span></div>
-        <div class="q-gold">${U.esc(q.giverNpc)} → ${U.esc(q.turnInNpc)} · Reward: ${U.fmt(q.rewards.gold)} gold${q.rewards.xp ? ' · ' + U.fmt(Math.round(q.rewards.xp)) + ' xp' : ''}</div>
+        <div class="q-gold">${U.esc(q.giverNpc)} → ${U.esc(q.turnInNpc)} · Reward: ${U.fmt(q.rewards.gold)} gold${q.rewards.xp ? ' · ' + U.fmt(Math.round(q.rewards.xp)) + ' xp' : ''}${q.faction ? ` · +${q.reputation} ${U.esc(Factions.byId[q.faction].name)}` : ''}</div>
         ${state === QuestState.STATES.OFFERED ? (q.branches.length
           ? q.branches.map(branch => `<button onclick="WUI.acceptQuest('${q.id}','${branch.id}')">${U.esc(branch.label)}</button>`).join('')
           : `<button onclick="WUI.acceptQuest('${q.id}')">Accept</button>`) : ''}
@@ -1434,7 +1468,8 @@ const WUI = {
     row2.appendChild(btn2);
     body.appendChild(row2);
     this.wsToggle(body, 'Player frame', '', 'fPlayer');
-    this.wsToggle(body, 'Party frame (minions)', '', 'fParty');
+    this.wsToggle(body, 'Party frame', 'Player party members', 'fParty');
+    this.wsToggle(body, 'Pets & minions frame', 'Summoned combat allies', 'fPets');
     this.wsToggle(body, 'Target frame', '', 'fTarget');
     this.wsToggle(body, 'Buff tray', 'Blessings and skill auras with timers', 'fBuffs');
     this.wsToggle(body, 'Chat window', '', 'fChat');
@@ -1602,7 +1637,7 @@ const WUI = {
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
     // frames
-    const vis = { player: s.fPlayer, party: s.fParty, target: s.fTarget, buffs: s.fBuffs, chat: s.fChat, dps: s.fDps, tracker: s.fTracker, friends: s.fFriends, guildf: s.fGuild, bar2: s.fBar2, cl: s.fCombatLog };
+    const vis = { player: s.fPlayer, party: s.fParty, pets: s.fPets, target: s.fTarget, buffs: s.fBuffs, chat: s.fChat, dps: s.fDps, tracker: s.fTracker, friends: s.fFriends, guildf: s.fGuild, bar2: s.fBar2, cl: s.fCombatLog };
     for (const id in vis) {
       const f = this.frames[id];
       if (f) f.el.classList.toggle('wui-hidden', !vis[id]);
@@ -1741,6 +1776,7 @@ const WUI = {
       _open(name);
       if (name === 'settings') self.renderSettings();
       if (name === 'quests') self.renderQuests();
+      if (name === 'reputation') self.renderReputation();
     };
   },
 
@@ -1829,6 +1865,7 @@ const WUI = {
       if (this.set.fPlayer) this.updatePlayerFrame();
       if (this.set.fTarget) this.updateTargetFrame();
       if (this.set.fParty) this.updatePartyFrame();
+      if (this.set.fPets) this.updatePetsFrame();
     }
     this._t2 += dt;
     if (this._t2 >= 0.25) {
