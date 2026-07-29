@@ -123,7 +123,7 @@ const Save = {
       lvl: pl.lvl, xp: pl.xp, stats: pl.stats, statPts: pl.statPts, skillPts: pl.skillPts,
       skills: pl.skills, hotbar: pl.hotbar, equip: pl.equip, inv: pl.inv,
       gold: pl.gold, potions: pl.potions, progress: pl.progress,
-      bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: Dialogue.migrate(pl.dialogue), reputation: Factions.migrate(pl.reputation),
+      bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: Dialogue.migrate(pl.dialogue), lore: Lore.migrate(pl.lore), reputation: Factions.migrate(pl.reputation),
       mercenary: this.migrateMercenary(pl.mercenary),
       kills: G.stats.kills, season: SEASON.current().num,
     };
@@ -190,6 +190,7 @@ const Game = {
       inv: new Array(48).fill(null),
       gold: 120, potions: { hp: 3, mp: 2 },
       dialogue: DialogueState.create(),
+      lore: Lore.create(),
       progress: { actUnlocked: 0, bossKilled: [false, false, false, false, false], abyssBest: 0 },
       mercenary: null,
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
@@ -212,7 +213,7 @@ const Game = {
       lvl: c.lvl, xp: c.xp, stats: c.stats, statPts: c.statPts, skillPts: c.skillPts,
       skills: c.skills || {}, cds: {}, buffs: [],
       hotbar: c.hotbar, equip: c.equip, inv: c.inv || new Array(48).fill(null),
-      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue), reputation: Factions.migrate(c.reputation || c.factions),
+      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue), lore: Lore.migrate(c.lore), reputation: Factions.migrate(c.reputation || c.factions),
       gold: c.gold, potions: c.potions, progress: c.progress,
       mercenary: Save.migrateMercenary(c.mercenary || c.merc),
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
@@ -226,6 +227,7 @@ const Game = {
   start(pl) {
     pl.quests = QuestState.migrate(pl.quests);
     pl.dialogue = Dialogue.migrate(pl.dialogue);
+    pl.lore = Lore.migrate(pl.lore);
     pl.reputation = Factions.migrate(pl.reputation);
     G.player = pl;
     Save.loadStash();
@@ -597,6 +599,7 @@ const Game = {
           UI.dmgNum(pr.x, pr.y, '+' + amt + 'g', '#ffd94f');
         }
         Physics.burst(pr.x, pr.y, 'cloth', 4, { speed: 1.4, size: 2 });
+        if (typeof WUI !== 'undefined') WUI.discoverLoreSource('prop', 'bookshelf', { location: map.name });
         break;
       }
       case 'fountain': {
