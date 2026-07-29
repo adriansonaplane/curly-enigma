@@ -37,6 +37,7 @@ const R3 = {
   W: 0, H: 0, cssW: 0, cssH: 0, renderW: 0, renderH: 0,
   dprCap: 2, renderScale: 1, effectivePixelRatio: 1,
   ready: false,
+  initializationStatus: { ok: false, status: 'not-initialized', code: 'not-initialized', phase: 'renderer' },
 
   // camera state, kept compatible with the old Cam prefs so saved settings
   // and the existing keybinds keep working
@@ -97,6 +98,7 @@ const R3 = {
 
   init(canvas) {
     if (typeof THREE === 'undefined') {
+      this.initializationStatus = { ok: false, status: 'initialization-error', code: 'three-unavailable', phase: 'renderer' };
       console.error('[R3] three.js not loaded');
       return false;
     }
@@ -104,9 +106,25 @@ const R3 = {
     let storedProfile = 'default';
     try { storedProfile = sessionStorage.getItem(this.PROFILE_SESSION_KEY) || 'default'; } catch (_) {}
     const profile = this.selectProfile(storedProfile);
-    this.renderer = new THREE.WebGLRenderer({
-      canvas, antialias: profile.antialias, alpha: false, powerPreference: 'high-performance',
-    });
+    try {
+      this.renderer = new THREE.WebGLRenderer({
+        canvas, antialias: profile.antialias, alpha: false, powerPreference: 'high-performance',
+      });
+    } catch (error) {
+      // A failed constructor may have touched the canvas before throwing. Do
+      // not leave any of our state looking usable to callers or recovery code.
+      this.renderer = null;
+      this.scene = this.cam = this.canvas = null;
+      this._target = this._postScene = this._postCam = this._postMat = null;
+      this.ready = false;
+      this.initializationStatus = {
+        ok: false, status: 'initialization-error',
+        code: 'webgl-renderer-construction-failed', phase: 'renderer',
+      };
+      const detail = error && error.message ? `: ${error.message}` : '';
+      console.error(`[R3] WebGL renderer initialization failed${detail}`);
+      return false;
+    }
     this.renderer.shadowMap.enabled = profile.pointLightShadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputEncoding = THREE.sRGBEncoding;
@@ -149,6 +167,7 @@ const R3 = {
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.ready = true;
+    this.initializationStatus = { ok: true, status: 'ready', code: 'ready', phase: 'renderer' };
     return true;
   },
 
