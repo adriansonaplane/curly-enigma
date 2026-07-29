@@ -10,7 +10,7 @@ const WUI = {
   set: null, keymap: null, layout: {},
   DEF_SET: {
     vol: 0.5, mute: false,
-    quality: 'auto', fog: true, shafts: true, ao: true, reflections: true, grade: true, fps: false,
+    quality: 'auto', fpsLimit: 0, fog: true, shafts: true, ao: true, reflections: true, grade: true, fps: false,
     mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
     ctIn: true, ctOut: true, bubbles: true, physics: true,
@@ -937,6 +937,21 @@ const WUI = {
     sel.addEventListener('change', () => { this.set.quality = sel.value; this.saveSet(); this.applySettings(); sfx('ui'); });
     body.appendChild(row);
 
+    const frameLimit = document.createElement('div');
+    frameLimit.className = 'ws-row';
+    frameLimit.innerHTML = `<span class="ws-label">FPS limit<span class="ws-hint">Display uses every browser animation frame</span></span>
+      <select><option value="0">Display / Uncapped</option><option value="30">30 FPS</option><option value="60">60 FPS</option><option value="90">90 FPS</option><option value="120">120 FPS</option></select>`;
+    const fsel = frameLimit.querySelector('select');
+    fsel.value = String(this.set.fpsLimit || 0);
+    fsel.addEventListener('change', () => {
+      this.set.fpsLimit = +fsel.value;
+      this.saveSet();
+      // Start the newly selected cadence at the next browser frame.
+      Game._last = 0;
+      sfx('ui');
+    });
+    body.appendChild(frameLimit);
+
     const mood = document.createElement('div');
     mood.className = 'ws-row';
     mood.innerHTML = `<span class="ws-label">Lighting mood<span class="ws-hint">Spooky drops the ambient light and lets torches, fires and glowing growths do the work</span></span>
@@ -1309,7 +1324,11 @@ const WUI = {
     this._fpsN++; this._fpsT += dt;
     if (this._fpsT >= 0.5) {
       const el = document.getElementById('wui-fps');
-      if (el && this.set.fps) el.textContent = Math.round(this._fpsN / this._fpsT) + ' fps · ' + (Render.quality === 'low' ? 'low' : 'high') + ' quality';
+      if (el && this.set.fps) {
+        const cap = Number(this.set.fpsLimit) || 0;
+        el.textContent = Math.round(this._fpsN / this._fpsT) + ' fps · ' + (cap ? cap + ' cap' : 'display') + ' · ' +
+          (Render.quality === 'low' ? 'low' : 'high') + ' quality';
+      }
       this._fpsN = 0; this._fpsT = 0;
     }
 

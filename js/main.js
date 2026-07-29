@@ -804,8 +804,18 @@ const Game = {
   _last: 0,
   loop(ts) {
     requestAnimationFrame(t => this.loop(t));
-    const dt = Math.min(0.05, (ts - this._last) / 1000 || 0.016);
-    this._last = ts;
+    const cap = WUI.set && Number(WUI.set.fpsLimit) || 0;
+    const interval = cap > 0 ? 1000 / cap : 0;
+    if (!this._last) this._last = ts - (interval || 16);
+
+    const elapsed = ts - this._last;
+    if (interval && elapsed < interval) return;
+
+    // Keep the fractional interval instead of resetting to `ts`; otherwise
+    // small requestAnimationFrame timing errors accumulate and lower the cap.
+    const acceptedAt = interval ? ts - (elapsed % interval) : ts;
+    const dt = Math.min(0.05, (acceptedAt - this._last) / 1000);
+    this._last = acceptedAt;
     if (G.state === 'game') {
       this.update(dt);
       Render.frame(dt, G.time);
