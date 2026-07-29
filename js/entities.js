@@ -834,7 +834,7 @@ const Ent = {
         }
         break;
       case 'caster':
-        if (m.abilityCd <= 0 && dist < 9) {
+        if (m.abilityCd <= 0 && dist < 9 && Ent.los(m.x, m.y, target.x, target.y)) {
           m.abilityCd = U.rf(U.rand, 2.6, 4); m.attackT = 0.35;
           if (U.chance(U.rand, 0.5)) this.hostileNova(m, m.elem, 8, U.rf(U.rand, m.dmgLo, m.dmgHi) * 0.8);
           else for (let i = -1; i <= 1; i++) {
@@ -856,7 +856,7 @@ const Ent = {
             FX.ring(m.x, m.y, 1.5, '#c07bff');
           }
         }
-        if (dist < 9 && m.atkCd <= 0) {
+        if (dist < 9 && m.atkCd <= 0 && Ent.los(m.x, m.y, target.x, target.y)) {
           m.atkCd = 2.4;
           G.projs.push({ x: m.x, y: m.y, vx: Math.cos(ang) * 8, vy: Math.sin(ang) * 8, dmg: U.rf(U.rand, m.dmgLo, m.dmgHi), elem: m.elem, ally: false, r: 0.3, ttl: 1.6, kind: 'orb' });
         }
