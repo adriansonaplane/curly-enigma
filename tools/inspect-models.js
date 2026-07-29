@@ -90,8 +90,16 @@ function exactBounds(root) {
 // --- per-model report -------------------------------------------------------
 function inspect(file, slug) {
   const scene = JSON.parse(fs.readFileSync(file, 'utf8'));
-  let box, error = null;
-  try { box = exactBounds(Actors3._compileModel(scene, slug)); }
+  let box, error = null, draws = 0;
+  try {
+    const root = Actors3._compileModel(scene, slug);
+    // The compiled root's children ARE the draw calls: one merged mesh per
+    // material plus any animated part held out. Reading it off the real
+    // compile is the whole point — a count derived some other way is a second
+    // implementation waiting to disagree with the renderer.
+    draws = root.children.length;
+    box = exactBounds(root);
+  }
   catch (e) { error = (e && e.message) || String(e); }
 
   const empty = error || box.isEmpty();
@@ -123,7 +131,7 @@ function inspect(file, slug) {
   if (textureless) flags.push('TEXLOST:' + textureless);
 
   return {
-    slug, meshes: (scene.meshes || []).length, pivot: scene.pivot || null,
+    slug, meshes: (scene.meshes || []).length, draws, pivot: scene.pivot || null,
     size: size.map(n => +n.toFixed(3)),
     groundGap: +minY.toFixed(3),
     centreOffset: +Math.hypot(centre[0], centre[2]).toFixed(3),
@@ -154,12 +162,12 @@ const show = VERBOSE ? rows : flagged;
 console.log(`Inspected ${rows.length} compiled scenes in ${path.relative(ROOT, DIR)}\n`);
 if (!show.length) console.log('  nothing flagged — every model rests on the floor, centred and plausibly sized.\n');
 else {
-  console.log('  ' + 'slug'.padEnd(28) + 'meshes'.padStart(7) + '  ' +
+  console.log('  ' + 'slug'.padEnd(28) + 'meshes'.padStart(7) + 'draws'.padStart(7) + '  ' +
     'w x h x d'.padEnd(22) + 'floor'.padStart(8) + 'offset'.padStart(8) + '  flags');
-  console.log('  ' + '-'.repeat(96));
+  console.log('  ' + '-'.repeat(104));
   for (const r of show) {
     const dim = r.size.map(n => n.toFixed(2)).join(' x ');
-    console.log('  ' + r.slug.padEnd(28) + String(r.meshes).padStart(7) + '  ' +
+    console.log('  ' + r.slug.padEnd(28) + String(r.meshes).padStart(7) + String(r.draws).padStart(7) + '  ' +
       dim.padEnd(22) + r.groundGap.toFixed(3).padStart(8) +
       r.centreOffset.toFixed(3).padStart(8) + '  ' + r.flags.join(' '));
   }
@@ -173,7 +181,14 @@ for (const r of rows) pivots[r.pivot || '(none)'] = (pivots[r.pivot || '(none)']
 console.log('\n' + '-'.repeat(60));
 console.log(`  models         : ${rows.length}`);
 console.log(`  flagged        : ${flagged.length}`);
-console.log(`  total meshes   : ${rows.reduce((n, r) => n + r.meshes, 0)}`);
+const prim = rows.reduce((n, r) => n + r.meshes, 0);
+const draws = rows.reduce((n, r) => n + r.draws, 0);
+console.log(`  primitives     : ${prim}`);
+// What the renderer will actually issue. This is the number the merge and the
+// material dedup exist to move, so it belongs next to the placement report
+// rather than in a shell one-liner someone has to retype correctly.
+console.log(`  draw calls     : ${draws}` +
+  (prim ? `  (${(100 * (1 - draws / prim)).toFixed(1)}% fewer than one per primitive)` : ''));
 console.log(`  pivot labels   : ${JSON.stringify(pivots)}`);
 const contradictory = rows.filter(r => /bottom/i.test(r.pivot || '') &&
   (r.flags.includes('FLOATING') || r.flags.includes('SUNKEN')));
