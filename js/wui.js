@@ -11,7 +11,7 @@ const WUI = {
   DEF_SET: {
     vol: 0.5, mute: false,
     quality: 'auto', renderScale: 1, fpsLimit: 0, authoredModels: true, advancedEffects: true,
-    fog: true, shafts: true, grade: true, fps: false,
+    fog: false, shafts: true, grade: true, fps: false,
     mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
     ctIn: true, ctOut: true, bubbles: true, physics: true,
@@ -71,10 +71,16 @@ const WUI = {
     // This is a startup capability: GraphicsConfig is authoritative so a WUI
     // save from another profile cannot make the checkbox disagree with boot.
     savedSet.advancedEffects = typeof GraphicsConfig === 'undefined' || GraphicsConfig.current.advancedEffects !== false;
+    // An explicit WUI preference wins for backward compatibility. Otherwise,
+    // inherit the boot-time preference so the two persisted stores converge.
+    if (!Object.prototype.hasOwnProperty.call(savedSet, 'fog') && typeof GraphicsConfig !== 'undefined')
+      savedSet.fog = GraphicsConfig.current.fog !== false;
     const hadRetiredVideoSettings = 'ao' in savedSet || 'reflections' in savedSet;
     delete savedSet.ao;
     delete savedSet.reflections;
     this.set = Object.assign({}, this.DEF_SET, savedSet);
+    if (typeof GraphicsConfig !== 'undefined' && GraphicsConfig.current.fog !== this.set.fog)
+      GraphicsConfig.save(Object.assign({}, GraphicsConfig.current, { fog: this.set.fog }));
     const savedKeys = this._load(this.SETK + '_keys') || {};
     if (savedKeys.camMode && !savedKeys.camPreset) savedKeys.camPreset = savedKeys.camMode;
     delete savedKeys.camMode;
@@ -1062,7 +1068,7 @@ const WUI = {
   // toggle until its renderer state exists and the browser contract test can
   // observe it changing.
   VIDEO_TOGGLES: [
-    { key: 'fog', label: 'Atmospheric fog', hint: 'Drifting fog banks', state: 'fx.fog' },
+    { key: 'fog', label: 'Atmospheric / volumetric fog', hint: 'Drifting fog banks, separate from Volumetric god rays', state: 'fx.fog' },
     { key: 'shafts', label: 'Volumetric god rays', hint: 'Light shafts from the ceiling', state: 'fx.shafts' },
     { key: 'grade', label: 'Color grading & vignette', hint: 'Per-zone cinematic tinting', state: 'fx.grade' },
     { key: 'fps', label: 'FPS counter', hint: '', state: 'showFps' },
@@ -1251,7 +1257,10 @@ const WUI = {
     hl.appendChild(hi);
     body.appendChild(hl);
     for (const toggle of this.VIDEO_TOGGLES)
-      this.wsToggle(body, toggle.label, toggle.hint, toggle.key);
+      this.wsToggle(body, toggle.label, toggle.hint, toggle.key, toggle.key === 'fog' ? value => {
+        if (typeof GraphicsConfig !== 'undefined')
+          GraphicsConfig.save(Object.assign({}, GraphicsConfig.current, { fog: value }));
+      } : null);
   },
 
   tabInterface(body) {
