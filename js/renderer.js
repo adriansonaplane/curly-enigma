@@ -25,6 +25,7 @@ const Render = {
   mood: 'spooky',
   heroLightMul: 0.42,
   renderScale: 1, targetFps: 60,
+  showFps: false,
   _fpsN: 0, _fpsT: 0, _qualityStep: 0, _headroomWindows: 0,
   _mapBuilt: null,
   _shadows: null,
