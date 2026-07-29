@@ -11,6 +11,17 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 #announce { position:absolute; top:22%; left:50%; transform:translateX(-50%); font-size:30px; color:#ffd77a; text-shadow:0 0 18px #a33d00,0 2px 6px #000; opacity:0; transition:opacity .4s; text-align:center; letter-spacing:3px; white-space:nowrap; }
 #announce.show { opacity:1; }
 #minimap { position:absolute; top:12px; right:12px; border:0; border-radius:50%; background:rgba(4,4,8,.72); box-shadow:0 0 18px #000,0 0 7px rgba(142,111,53,.35); }
+#map-overlay { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(76vw,760px); height:min(76vh,600px); z-index:24; pointer-events:auto; border:2px solid #735b2c; border-radius:8px; overflow:hidden; background:#05070a; box-shadow:0 0 70px #000; }
+#map-overlay header { position:absolute; inset:0 0 auto; height:38px; z-index:2; display:flex; align-items:center; gap:14px; padding:0 12px; color:#e8d089; letter-spacing:2px; background:linear-gradient(rgba(26,18,8,.98),rgba(13,9,5,.88)); border-bottom:1px solid #59431d; }
+#map-overlay-zone { color:#8f8162; font-size:11px; letter-spacing:1px; flex:1; }
+#map-overlay-close { border:0; background:none; color:#a89261; font-size:24px; cursor:pointer; }
+#map-overlay-canvas { position:absolute; inset:38px 0 44px; width:100%; height:calc(100% - 82px); cursor:grab; }
+#map-overlay-canvas.dragging { cursor:grabbing; }
+.map-overlay-tools { position:absolute; z-index:2; left:0; right:0; bottom:0; height:44px; display:flex; align-items:center; gap:7px; padding:6px 10px; background:rgba(15,10,5,.96); border-top:1px solid #59431d; }
+.map-overlay-tools button { min-width:30px; height:27px; padding:0 8px; background:#21170b; color:#e8d089; border:1px solid #5d4926; border-radius:3px; cursor:pointer; }
+.map-overlay-tools span { color:#75694f; font-size:10px; }
+#map-overlay-legend { position:absolute; right:10px; top:49px; z-index:2; padding:7px 9px; border:1px solid rgba(115,91,44,.65); border-radius:3px; background:rgba(7,8,10,.78); font-size:10px; line-height:18px; }
+.map-legend-item { display:inline-block; margin-left:10px; white-space:nowrap; }.map-legend-dot { display:inline-block; width:8px; height:8px; margin-right:4px; border-radius:50%; box-shadow:0 0 3px #000; }
 
 #boss-bar { position:absolute; top:52px; left:50%; transform:translateX(-50%); width:520px; text-align:center; }
 #boss-name { font-size:15px; color:#ff9a7a; letter-spacing:2px; text-shadow:0 1px 3px #000; margin-bottom:3px; }

@@ -18,13 +18,15 @@ const WUI = {
     ctIn: true, ctOut: true, bubbles: true, physics: true,
     fPlayer: true, fParty: true, fPets: true, fTarget: true, fBuffs: true, fChat: true, fDps: true, fTracker: true,
     fFriends: true, fGuild: true, fBar2: false, fCombatLog: true,
+    mapOpacity: 82, mapZoom: 12, mapNorthUp: true,
+    mapEnemies: true, mapAllies: true, mapNpcs: true, mapTravel: true, mapQuests: true, mapLegend: true,
     theme: 'gold',
   },
   DEF_KEYS: {
     moveU: 'w', moveL: 'a', moveD: 's', moveR: 'd',
     potHp: 'q', potMp: 'e', portal: 't', mute: 'n', interact: 'f',
     inv: 'i', char: 'c', skills: 'k', ladder: 'l', quests: 'j', settings: 'o', chat: 'enter',
-    social: 'u', guildp: 'g',
+    social: 'u', guildp: 'g', map: 'm',
     camPreset: 'v', camRotL: '[', camRotR: ']', camIn: '+', camOut: '-',
     targetNext: 'tab', targetClear: 'x',
     slot1: '1', slot2: '2', slot3: '3', slot4: '4', slot5: '5',
@@ -39,6 +41,7 @@ const WUI = {
     ['inv', 'Inventory'], ['char', 'Character'], ['skills', 'Skill trees'], ['ladder', 'Season ladder'],
     ['quests', 'Quest log'], ['settings', 'Settings'], ['chat', 'Focus chat'],
     ['social', 'Social (friends)'], ['guildp', 'Guild panel'],
+    ['map', 'Toggle area map'],
     ['camPreset', 'Toggle camera preset'], ['camRotL', 'Rotate camera left'], ['camRotR', 'Rotate camera right'],
     ['camIn', 'Zoom in'], ['camOut', 'Zoom out'],
     ['targetNext', 'Target nearest enemy'], ['targetClear', 'Clear target'],
@@ -55,7 +58,7 @@ const WUI = {
   chatLines: [], chatTab: 'all', chatOpen: false,
   target: null, hover: null,
   playedT: 0, _t1: 0, _t2: 0, _t3: 0, _fpsN: 0, _fpsT: 0,
-  settingsTab: 0,
+  settingsTab: 0, mapOpen: false, mapPan: { x: 0, y: 0 },
 
   dps: {
     samples: [], inSamples: [], fight: null, lastOutT: -99,
@@ -95,6 +98,7 @@ const WUI = {
     document.querySelectorAll('.hot-slot:not(.potion)').forEach(e => e.remove());
 
     this.buildDom();
+    this.initMapOverlay();
     this.wrapEngine();
     this.applySettings();
     // Converge legacy WUI-only saves and boot storage through the same path
@@ -331,6 +335,39 @@ const WUI = {
       lockAllBtn.classList.toggle('active', !allLocked);
       sfx('ui');
     });
+  },
+
+  initMapOverlay() {
+    const panel = document.getElementById('map-overlay'), canvas = document.getElementById('map-overlay-canvas');
+    if (!panel || !canvas) return;
+    document.getElementById('map-overlay-close').addEventListener('click', () => this.toggleMap(false));
+    panel.querySelector('[data-map-action="zoom-in"]').addEventListener('click', () => this.changeMapZoom(2));
+    panel.querySelector('[data-map-action="zoom-out"]').addEventListener('click', () => this.changeMapZoom(-2));
+    panel.querySelector('[data-map-action="center"]').addEventListener('click', () => this.centerMap());
+    canvas.addEventListener('wheel', e => { e.preventDefault(); this.changeMapZoom(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+    let drag = null;
+    canvas.addEventListener('pointerdown', e => { drag = { x:e.clientX, y:e.clientY, px:this.mapPan.x, py:this.mapPan.y }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); });
+    canvas.addEventListener('pointermove', e => { if (!drag) return; const z=Number(this.set.mapZoom)||12; this.mapPan.x=drag.px-(e.clientX-drag.x)/z; this.mapPan.y=drag.py-(e.clientY-drag.y)/z; Render.drawMapOverlay(); });
+    const stop = () => { drag=null; canvas.classList.remove('dragging'); };
+    canvas.addEventListener('pointerup', stop); canvas.addEventListener('pointercancel', stop);
+    this.updateMapOverlay();
+  },
+
+  toggleMap(force) {
+    this.mapOpen = force === undefined ? !this.mapOpen : !!force;
+    const panel=document.getElementById('map-overlay'); if (!panel) return;
+    panel.classList.toggle('hidden', !this.mapOpen);
+    if (this.mapOpen) { this.updateMapOverlay(); requestAnimationFrame(() => Render.drawMapOverlay()); }
+  },
+
+  centerMap() { this.mapPan={x:0,y:0}; if (this.mapOpen) Render.drawMapOverlay(); },
+  changeMapZoom(delta) { this.set.mapZoom=U.clamp((Number(this.set.mapZoom)||12)+delta,5,28); this.saveSet(); if (this.mapOpen) Render.drawMapOverlay(); },
+  updateMapOverlay() {
+    const panel=document.getElementById('map-overlay'); if (!panel || !this.set) return;
+    panel.style.opacity=String(U.clamp(Number(this.set.mapOpacity)||82,25,100)/100);
+    const zone=document.getElementById('map-overlay-zone'); if (zone) zone.textContent=G.map ? (G.map.name || G.map.zone || '') : '';
+    const legend=document.getElementById('map-overlay-legend');
+    if (legend) { legend.classList.toggle('hidden', !this.set.mapLegend); legend.innerHTML=[['#fff7cf','Hero'],['#c0392b','Enemies'],['#6be26b','Allies'],['#ffe9a8','NPCs'],['#4f8fff','Travel'],['#ffd94f','Objective']].map(x=>`<span class="map-legend-item"><i class="map-legend-dot" style="background:${x[0]}"></i>${x[1]}</span>`).join(''); }
   },
 
   // ---------------- frame manager ----------------
@@ -1481,6 +1518,21 @@ const WUI = {
     this.wsToggle(body, 'Action bar 2', 'A second bar with its own bindable slots', 'fBar2');
     this.wsToggle(body, 'Chat & emote bubbles', 'Speech bubbles over characters in the world', 'bubbles');
 
+    this.settingsSection(body, 'Area map', 'Overlay presentation and shared marker filters');
+    const mapRow = (label, hint, control) => { const r=document.createElement('div'); r.className='ws-row'; r.innerHTML=`<span class="ws-label">${label}<span class="ws-hint">${hint}</span></span>`; r.appendChild(control); body.appendChild(r); };
+    const opacity=document.createElement('input'); opacity.type='range'; opacity.min=25; opacity.max=100; opacity.value=this.set.mapOpacity;
+    opacity.addEventListener('input',()=>{ this.set.mapOpacity=+opacity.value; this.saveSet(); this.updateMapOverlay(); }); mapRow('Map opacity','Transparency of the dedicated map panel',opacity);
+    const zoom=document.createElement('input'); zoom.type='range'; zoom.min=5; zoom.max=28; zoom.value=this.set.mapZoom;
+    zoom.addEventListener('input',()=>{ this.set.mapZoom=+zoom.value; this.saveSet(); if(this.mapOpen) Render.drawMapOverlay(); }); mapRow('Map zoom','Tile scale; mouse wheel also adjusts it',zoom);
+    const orientation=document.createElement('select'); orientation.innerHTML='<option value="north">North up</option><option value="camera">Camera relative</option>'; orientation.value=this.set.mapNorthUp?'north':'camera';
+    orientation.addEventListener('change',()=>{ this.set.mapNorthUp=orientation.value==='north'; this.saveSet(); if(this.mapOpen) Render.drawMapOverlay(); }); mapRow('Orientation','Keep north fixed or rotate with the camera',orientation);
+    this.wsToggle(body,'Show enemies','Hostile and elite markers','mapEnemies');
+    this.wsToggle(body,'Show allies','Minions and friendly combatants','mapAllies');
+    this.wsToggle(body,'Show NPCs','Explored non-player characters','mapNpcs');
+    this.wsToggle(body,'Show travel markers','Portals and waypoints','mapTravel');
+    this.wsToggle(body,'Show quest objectives','Active targets and turn-in locations','mapQuests');
+    this.wsToggle(body,'Show map legend','Marker key on the overlay','mapLegend',()=>this.updateMapOverlay());
+
     const trow = document.createElement('div');
     trow.className = 'ws-row';
     trow.innerHTML = '<span class="ws-label">UI Theme<span class="ws-hint">Recolors every frame, bar and panel border</span></span>';
@@ -1644,6 +1696,7 @@ const WUI = {
     }
     const fps = document.getElementById('wui-fps');
     if (fps) fps.style.display = Render.showFps ? 'block' : 'none';
+    this.updateMapOverlay();
     this.applyTheme();
   },
 
@@ -1787,6 +1840,7 @@ const WUI = {
     if (this.chatOpen) return false; // input element handles its own keys
     if (UI.openPanel === 'death') return true; // no hotkeys through the death screen
     if (k === 'escape') {
+      if (this.mapOpen) { this.toggleMap(false); return true; }
       if (this.pickup) { this.clearPickup(); return true; }
       if (this.editMode) { this.setEditMode(false); return true; }
       if (UI.openPanel && UI.openPanel !== 'death') { UI.closeAll(); return true; }
@@ -1803,6 +1857,7 @@ const WUI = {
     if (k === m.settings) { UI.toggle('settings'); return true; }
     if (k === m.social) { UI.toggle('social'); return true; }
     if (k === m.guildp) { UI.toggle('guild'); return true; }
+    if (k === m.map) { this.toggleMap(); return true; }
     if (k === m.interact) { Game.toggleLight(); return true; }
     if (k === m.targetNext) { Target.tabNext(); return true; }
     if (k === m.targetClear) { Target.clear(); return true; }
