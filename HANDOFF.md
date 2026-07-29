@@ -478,3 +478,102 @@ The successful 99/99 compile establishes model-root discovery, not final visual
 correctness. The next owner should run `node tools/validate-models.js`, inspect
 the generated RAGM scenes in-game (especially pivots, scale, materials and shadow
 decals), and only then treat the full compiled pack as shippable.
+
+## U6. 2026-07-29 — Authored monster models wired; corrections to §3
+
+Branch `claude/diablo-2-clone-game-dzbw4a`, commits `5562b58` and `b87713b`,
+based on `fedc868`. Execution detail is in `TASK_LOG.md`; this section records
+only what a successor needs in order to decide the next thing.
+
+### Corrections to the original handoff
+
+These supersede the corresponding rows and lines above. The originals are left
+in place as the record of what was believed at PR #10.
+
+- **§3 #2 (no fog / god rays / colour grade) and §3 #3 (no ambient particles)
+  are resolved** by PR #17 and should be read as closed. §U3 says so; the §3
+  table was not updated and still reads as open.
+- **§3 #5 is half wrong.** `runic-pillar`'s *model* payload
+  (`assets/models/runic-pillar-uoc.json`) is intact: its inline script parses,
+  it compiles to 58 meshes, and it validates. Only the standalone `.html`
+  sidecar is mangled, and the compiler never reads it — it reads `.json` →
+  `meta.html`. The corrupt payload the owner said to leave alone is the
+  **effect**, not the model. As previously written, this row invites someone to
+  delete a working asset.
+- **§3 #6 is out of date.** The count is not 17. Fifteen `ragm-*` monster
+  models are compiled, of which fourteen were unwired until `b87713b`.
+- **§3 #1 (230–380 draw calls) is stale and should not be quoted.** It predates
+  PR #15 (dead 2D paths removed), PR #17 (atmosphere added, which costs draws)
+  and PR #21 (static actor merge, which saves them). The net direction is
+  unknown. It is also the number priority #3 rests on. Re-measure before
+  planning against it.
+- **§2's last-known-good block is stale.** PR #10 is merged; `main` is at
+  `fedc868`. §5's "~97 models unpulled" is done — all 99 are pulled and compile.
+
+### What was found and fixed
+
+`MODEL_MAP` mapped four species and three of the four named slugs the catalogue
+does not contain, so exactly one species resolved and fourteen compiled models
+drove nothing. The reason it went unnoticed for three PRs is worth keeping:
+`requestModel`'s rejection landed in an empty `.catch()`, which made a missing
+model indistinguishable from a species that was never mapped. Misses are now
+recorded and surfaced in `Actors3.stats().modelMisses`.
+
+Fourteen species are now mapped. Authored models merge by material — every
+authored model is `animation: 'rigid'`, so *all* of its parts are static and it
+collapses to one draw per material. Without that, wiring them would have traded
+PR #21's merged rigs for 13–27 loose meshes per monster and made draw calls
+worse on precisely the species the merge was meant to make cheaper.
+
+Three further defects were fixed on the same path: the runtime rebuilt six of
+the thirteen geometry types the compiler may emit (the rest threw at load, into
+the same silent catch); `instanceModel` dropped the 1.3× boss multiplier that
+`build()` applies; and the authored animation branch ignored `def.fly`, so a
+wraith would have swapped to its model and settled onto the floor.
+
+### New tools
+
+- **`tools/inspect-models.js`** — measures where a compiled model actually
+  stands: bounds, gap from y=0, footprint offset from the origin, distinct
+  rotation count. Flags `FLOATING`/`SUNKEN`, `OFF-CENTRE`, `SIZE` and
+  `FROZEN-ROT`. This exists because `compile-models.js` bakes each mesh from
+  `matrixWorld` — absolute scene space — so for the fifteen models whose root
+  was *recovered* rather than published, any transform on the preview rig's
+  ancestors is baked in permanently and every other check still passes. Exit
+  code is always 0; it produces a shortlist for a human, not a gate.
+- **`tests/node/model-contract.js`** (`npm run test:models`) — checks the
+  compiler's geometry allowlist against the runtime's table, and every compiled
+  model against a reference build of one mesh per primitive. No DOM, no GPU.
+
+### Unverified — read before trusting the wiring
+
+- **No `ragm-*` model has ever been rendered.** This checkout carries a
+  three-model sample pack, all props. The `height` values in `MODEL_MAP` are
+  estimates derived from each family's `def.size`, not measurements.
+- Whether the fourteen recovered roots are correctly placed, scaled and
+  oriented is **unmeasured**. That is what `inspect-models.js` is for and it
+  needs the full pack.
+- The merge is verified on three prop models (58→40, 36→24, 28→6 draws;
+  vertices preserved exactly), not on any actor.
+- All 16 browser probes pass, but they exercise the *procedural* path, since no
+  authored model resolves in this checkout. They prove no regression, not that
+  the authored path renders correctly.
+
+### Next verification target
+
+On the full 99-model pack, in this order:
+
+1. `node tools/audit-assets.js assets/models` — the fifteen `ragm-*` payloads
+   have never been through the security audit.
+2. `node tools/inspect-models.js` — the shortlist of misplaced roots.
+3. `npm run test:models` — merge equivalence across all 99.
+4. Then, and only then, re-measure draw calls and FPS per §U2 step 4. Measuring
+   before steps 1–3 measures a pack that is about to change.
+
+### Still open, and not technical
+
+§7's redistribution condition is live rather than hypothetical: the repository
+is public and now carries 99 model payloads, 50 effect payloads and their baked
+derivatives, with no licence or chain of title recorded. That is the project
+owner's decision to make, but it should be made deliberately rather than by
+default.
