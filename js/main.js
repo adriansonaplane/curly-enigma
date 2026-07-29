@@ -122,7 +122,7 @@ const Save = {
       lvl: pl.lvl, xp: pl.xp, stats: pl.stats, statPts: pl.statPts, skillPts: pl.skillPts,
       skills: pl.skills, hotbar: pl.hotbar, equip: pl.equip, inv: pl.inv,
       gold: pl.gold, potions: pl.potions, progress: pl.progress,
-      bars: pl.bars, macros: pl.macros, quests: pl.quests,
+      bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: Dialogue.migrate(pl.dialogue),
       kills: G.stats.kills, season: SEASON.current().num,
     };
     try { localStorage.setItem(this.CHARS, JSON.stringify(all)); } catch (e) { /* storage full */ }
@@ -178,7 +178,7 @@ const Game = {
       lvl: c.lvl, xp: c.xp, stats: c.stats, statPts: c.statPts, skillPts: c.skillPts,
       skills: c.skills || {}, cds: {}, buffs: [],
       hotbar: c.hotbar, equip: c.equip, inv: c.inv || new Array(48).fill(null),
-      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests),
+      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue),
       gold: c.gold, potions: c.potions, progress: c.progress,
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
@@ -189,6 +189,7 @@ const Game = {
 
   start(pl) {
     pl.quests = QuestState.migrate(pl.quests);
+    pl.dialogue = Dialogue.migrate(pl.dialogue);
     G.player = pl;
     Save.loadStash();
     Ent.computeDerived(pl);
