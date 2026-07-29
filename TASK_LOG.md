@@ -7,6 +7,60 @@ The structure is the one set out in HANDOFF.md §U4.
 
 ---
 
+## 2026-07-29 — Measured: 4,696 primitives to 1,562 draw calls
+
+**Commits:** `3ee15b8`, `eb5b1af`, `c7c5bb6`, `1ce09cb` on
+`claude/diablo-2-clone-game-dzbw4a`, rebased onto `a720f37` (merge of PR #30).
+
+Owner-run on the full 99-model pack, measured by `tools/inspect-models.js`,
+which reads the count off the compiled root the renderer is handed rather than
+deriving it separately.
+
+| stage | draw calls | vs one per primitive |
+|---|---:|---:|
+| unmerged | 4,696 | — |
+| static merge by material (`b87713b`) | 2,432 | 48.2% fewer |
+| + material dedup by value (`c7c5bb6`) | **1,562** | **66.7% fewer** |
+
+The dedup removed a further 870 draws — a 36% cut on top of the merge. It came
+from a defect that looked like file redundancy: the compiler keyed materials on
+object identity, and the catalogue constructs a fresh MeshStandardMaterial per
+part, so models whose parts shared one appearance still got one draw each.
+`bookcase` compiled to 73 primitives and 73 draws before it; `astral-obelisk`
+71 and 71.
+
+**Also fixed:** the compiler was not reproducible. Three consecutive compiles of
+one unmodified payload produced yaws of 0, 0.00035 and 0, because `Math.random`
+was seeded per slug but the clock was left live and the catalogue's animation
+code reads it. The clock is frozen and `performance.now()` supplied (it was
+absent, so a payload reaching for it threw into the init guard and lost its
+model for an unrelated reason). Five consecutive compiles are now byte-
+identical. This matters beyond tidiness: `git diff` on the baked scenes is the
+only cheap check that a pipeline edit did not move geometry, and it could not
+work before.
+
+**Audit after sanitising:** 198 BLOCK to 17, `external hosts referenced: NONE`.
+Sixteen are `.html` sidecars carrying the `broken-js` corruption, which nothing
+in the pipeline reads. **`bookcase.json`'s `fetch` is the only blocking finding
+in a file the compiler consumes** and is still unexamined — the sanitiser has no
+rule for it.
+
+**Trap worth knowing.** `assets/models/index.json` and
+`assets/models/baked/manifest.json` are both tracked and both committed at the
+3-model sample state, so switching branches silently reverts a 99-model working
+set to 3. The payloads are untracked and survive; only the two files that index
+them are lost. Recovery is `./tools/pull-models.sh`, which skips anything
+already on disk and rebuilds the index from every slug present — no downloads.
+
+**Still unverified.** No `ragm-*` model has been rendered. Six models remain
+flagged by the placement inspector and have not been read yet.
+
+**Next concrete task.** Read the six flagged rows; examine `bookcase.json`'s
+fetch; then re-measure FPS on real hardware per HANDOFF §U2 step 4, which is now
+the only outstanding item in that sequence.
+
+---
+
 ## 2026-07-29 — Full-pack results; bounds measurement corrected
 
 **Commit:** `ff92c38`. Owner ran all three checks on the complete 99-model pack.

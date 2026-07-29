@@ -644,3 +644,56 @@ rewriting bare `top.`, so re-compile and re-run `npm run test:models` after.
 No `ragm-*` model has yet been *rendered*. The `MODEL_MAP` heights remain
 estimates derived from each family's `def.size`. Everything above is geometry
 measured offline; none of it is a picture.
+
+## U8. 2026-07-29 — Draw calls measured on the full pack
+
+Owner-run, all 99 models, measured by `tools/inspect-models.js`.
+
+| stage | draw calls | vs one per primitive |
+|---|---:|---:|
+| unmerged | 4,696 | — |
+| static merge by material | 2,432 | 48.2% fewer |
+| + material dedup by value | **1,562** | **66.7% fewer** |
+
+The second row was §U7. The third came from a compiler defect that read as file
+redundancy: materials were deduplicated by object identity, and the catalogue
+constructs a fresh MeshStandardMaterial per part, so a model whose parts share
+one appearance still paid one draw each. `bookcase` compiled to 73 primitives
+and 73 draws; `astral-obelisk` 71 and 71. Fixing it removed a further 870 draws.
+
+**§3 #1 can now be re-measured rather than re-quoted.** Its 230–380 figure
+predates PRs #15, #17, #21 and everything above. Actor and prop draw calls are
+the component that moved.
+
+**The compiler is now reproducible.** It was not: three consecutive compiles of
+one unmodified payload produced yaws of 0, 0.00035 and 0. `Math.random` was
+seeded per slug but the clock was live, and the catalogue's animation code reads
+it. Frozen now, with `performance.now()` supplied — it was absent entirely, so a
+payload reaching for it threw into the init guard and lost its model for a
+reason unrelated to its geometry. This is what makes `git diff` on the baked
+scenes usable as a check that a pipeline edit did not move geometry.
+
+**Audit, post-sanitise:** 198 BLOCK → 17, `external hosts referenced: NONE`.
+Sixteen are `.html` sidecars carrying `broken-js`, which nothing reads.
+**`bookcase.json`'s `fetch` is the only blocking finding in a file the compiler
+consumes.** The sanitiser has no rule for it; it needs a human.
+
+### Operational trap
+
+`assets/models/index.json` and `assets/models/baked/manifest.json` are both
+tracked, and both committed at the 3-model sample state. Switching branches
+therefore reverts a 99-model working set to 3 without saying so. The payloads
+themselves are untracked and survive — only the two files that index them are
+lost. Recovery is `./tools/pull-models.sh`, which skips anything already on disk
+and rebuilds the index from every slug present, so it costs no downloads.
+
+The durable fix is to stop tracking a locally-pulled index at a 3-model subset:
+either gitignore it, or have `compile-models.js` fall back to globbing
+`assets/models/*.json` when the index is thinner than what is on disk. The
+second fails safe and is the recommendation. Not done.
+
+### Still unverified
+
+No `ragm-*` model has been rendered. Six models are flagged by the placement
+inspector and have not been read. FPS on real hardware is now the only
+outstanding step in §U2's sequence.
