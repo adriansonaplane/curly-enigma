@@ -160,6 +160,14 @@ test('light budget culls influence volumes and only reselects after meaningful m
     const map = Dungeon.generate({ actIdx: 0, depth: 1, seed: 8675309 });
     Game.clearWorld(); Game.loadMap(map); Render.onMap(map);
     R3.maxLights = 8;
+    // Add a source that remains inside the camera's long view pyramid but is
+    // far beyond both the visible ground footprint and its own influence.
+    const remoteSrc = { x: G.player.x - 180, y: G.player.y - 180, r: 2, lit: true };
+    const remote = new THREE.PointLight(0xffffff, 0, remoteSrc.r * 1.6, 1.8);
+    remote.position.set(remoteSrc.x, 1.1, remoteSrc.y);
+    World3.group.add(remote);
+    const remoteEntry = { light: remote, src: remoteSrc };
+    World3.lights.push(remoteEntry);
     R3.lookAt(G.player.x, G.player.y); R3.updateCamera();
     World3.updateLights(G.time, G.player.x, G.player.y);
     const first = World3._lightSelection;
@@ -174,6 +182,7 @@ test('light budget culls influence volumes and only reselects after meaningful m
       held,
       stateChanged: World3._lightSelection !== first,
       coldExcluded: !World3._lightSelection.selected.has(cold) && !cold.light.visible,
+      remoteExcluded: !World3._lightSelection.selected.has(remoteEntry) && !remote.visible,
       visible: World3.lights.filter(e => e.light.visible).length,
     };
   });
@@ -181,6 +190,7 @@ test('light budget culls influence volumes and only reselects after meaningful m
   expect(result.held).toBe(true);
   expect(result.stateChanged).toBe(true);
   expect(result.coldExcluded).toBe(true);
+  expect(result.remoteExcluded).toBe(true);
   expect(result.visible).toBeLessThanOrEqual(8);
   expect(errors).toEqual([]);
 });

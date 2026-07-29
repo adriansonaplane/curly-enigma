@@ -273,16 +273,37 @@ const World3 = {
     const frustum = new THREE.Frustum().setFromProjectionMatrix(matrix);
     const sphere = new THREE.Sphere();
     const candidates = [];
+    // Frustum/sphere intersection alone admits lights deep inside the camera
+    // pyramid even when their influence cannot reach the patch of ground the
+    // player can see. Approximate that patch with a deliberately oversized
+    // circle. Dividing by sin(pitch) accounts for the footprint stretching as
+    // the camera approaches the horizon; the light radius is added below.
+    const cameraDistance = R3.dist / R3.zoom;
+    const halfFov = THREE.MathUtils.degToRad(cam.fov * 0.5);
+    const halfHeight = cameraDistance * Math.tan(halfFov);
+    // The bottom ray reaches much farther than the footprint at the focus in
+    // the free camera. If it reaches the horizon, fall back to the camera far
+    // plane rather than risk popping a visible light.
+    const farGround = R3.pitch > halfFov
+      ? cameraDistance * Math.sin(R3.pitch) / Math.tan(R3.pitch - halfFov)
+        - cameraDistance * Math.cos(R3.pitch)
+      : cam.far;
+    const groundViewRadius = Math.max(halfHeight / Math.max(0.08, Math.sin(R3.pitch)), farGround)
+      * Math.sqrt(1 + cam.aspect * cam.aspect);
     for (const e of this.lights) {
       if (e.src.lit === false) continue; // cold sconces never consume the budget
       const radius = e.light.distance || e.src.r * 1.6;
+      const dx = e.src.x - px, dz = e.src.y - pz;
+      e.d2 = dx * dx + dz * dz;
+      const reach = groundViewRadius + radius;
+      // This cheap ground-plane rejection also makes the effective influence
+      // limit explicit instead of relying only on the 3D frustum test.
+      if (e.d2 > reach * reach) continue;
       sphere.center.set(e.src.x, e.light.position.y, e.src.y);
       sphere.radius = radius;
       // A sphere test is deliberately conservative: off-screen sources remain
       // eligible when their illumination can still reach visible geometry.
       if (!frustum.intersectsSphere(sphere)) continue;
-      const dx = e.src.x - px, dz = e.src.y - pz;
-      e.d2 = dx * dx + dz * dz;
       candidates.push(e);
     }
     candidates.sort((a, b) => a.d2 - b.d2);
