@@ -12,7 +12,15 @@ module.exports = defineConfig({
     viewport: { width: 1100, height: 640 },
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
-    launchOptions: { args: ['--use-gl=swiftshader'] },
+    // Some sandboxes provide a Chromium build that does not match the revision
+    // this Playwright version would download, and cannot download one. Point
+    // PLAYWRIGHT_CHROMIUM_PATH at that binary to use it. Unset — the normal
+    // case — Playwright resolves its own browser exactly as before.
+    launchOptions: {
+      args: ['--use-gl=swiftshader'],
+      ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
+        ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {}),
+    },
   },
   webServer: {
     command: 'python3 -m http.server 4173 --bind 127.0.0.1',
