@@ -756,3 +756,96 @@ sentence. Prefer checks that are relative to the thing measured.
 - **Index tracking** (§U8) — `assets/models/index.json` and
   `baked/manifest.json` are tracked at the 3-model sample state, so a branch
   switch silently reverts a 99-model working set. Fix written down, not taken.
+
+## U10. 2026-07-29 — Rendering-pipeline review and next work
+
+The 3D pipeline was reviewed statically after the owner reported 100% GPU load.
+No runtime GPU capture was available, so the cause is not yet measured. The
+strongest explanation in the code is demand rather than a leak: `Game.loop`
+updates and renders on every `requestAnimationFrame`, while the automatic
+quality governor only reacts below 34 FPS. On a high-refresh display the game
+therefore asks the GPU for another complete frame whenever the browser permits
+one. Sustained 100% load while producing 145–155 FPS is consistent with that
+uncapped policy.
+
+### Rasterisation / rendering flow
+
+```
+requestAnimationFrame -> Game.loop
+  -> Game.update
+  -> Render.frame
+     -> FX simulation and map-change rebuild guard
+     -> camera, atmosphere and nearest-N light updates
+     -> actor, hero, particle and marker synchronisation
+     -> R3.render
+        -> scene to full-resolution render target (when grade is enabled)
+        -> full-screen colour-grade/vignette pass to the WebGL canvas
+     -> clear and redraw the full-resolution 2D overlay
+```
+
+The base scene is already sensibly batched: world categories and props use
+`InstancedMesh`, particle points use two blend-mode buffers, authored actor
+geometry is merged by material, and procedural actors merge their static parts.
+The remaining GPU cost is therefore more likely to be pixel fill, the second
+full-screen grade pass, shadow-map work, transparent overdraw and 6–12 standard-
+material point lights than the base world's draw-call count. At 2560×1440 and
+1.25 device scaling, one full-resolution pass is about 5.76 million pixels.
+
+### Immediate open items, reconciled
+
+The four model-pipeline items at the end of §U9 remain open and should not be
+lost, but the performance investigation now comes first:
+
+- Render `ragm-volcanic-imp` and decide whether the recovered root omits its
+  legs; its 56.2% floor gap and 20.2% footprint offset remain unverified.
+- Inspect and deliberately remove or permit `bookcase.json`'s `fetch`, the only
+  blocking audit finding in a compiler-consumed payload.
+- Fix model-index discovery so a branch switch cannot silently reduce a local
+  99-model pack to the tracked three-model sample.
+- Replace the stale 230–380 draw-call quotation with a new real-hardware
+  capture. That capture must record resolution, camera preset, FPS, calls,
+  triangles, shadows, grade, light count and effective pixel ratio.
+
+### Rendering-pipeline task list
+
+Do these in order; measurement precedes speculative restructuring:
+
+1. **Add diagnostics.** Extend the existing stats with internal framebuffer
+   size, effective DPR/render scale, triangles/points, active lights, shadow and
+   grade state, plus CPU update/submission timing. Use
+   `EXT_disjoint_timer_query_webgl2` for non-blocking GPU timing when available;
+   never substitute `gl.finish()` or synchronous readback.
+2. **Add an FPS limiter.** Offer display/unlimited, 30, 60, 90 and 120 FPS.
+   Gate accepted frames by timestamp/accumulator while continuing to schedule
+   `requestAnimationFrame`; do not busy-wait. Preserve elapsed game time and the
+   existing 50 ms `dt` safety cap.
+3. **Fix dynamic shadow control.** `R3.shadows` changes every frame, but
+   `hero.castShadow` is currently assigned only when lights are built. Apply
+   shadow changes immediately and disable `renderer.shadowMap` when no shadow-
+   casting light is active.
+4. **Add render scale and a target-based governor.** Keep the 2D UI native and
+   allow the 3D buffer to step through measured scales such as 100%, 85%, 75%
+   and 60%. Use hysteresis. Reduce render scale, grade, light budget and shadows
+   before the present emergency threshold of 34 FPS.
+5. **Profile light budgets independently.** Compare 12/8/6/4/0 lights with
+   camera, resolution, grade and shadows held fixed. Cull lights outside a
+   conservative visible/influence region only if GPU timings justify it.
+6. **Evaluate spatial chunks, do not assume them.** Whole-map instancing lowers
+   calls but weakens frustum culling. Prototype 12×12 or 16×16 world/large-prop
+   chunks and accept the extra calls only if submitted geometry, shadow work and
+   GPU time fall overall.
+7. **Batch transient draws.** After the above, instance compatible rings,
+   flashes, bolts, projectiles and the marker columns/beads so busy combat costs
+   draws per effect category rather than per active effect.
+8. **Align settings with reality.** AO and reflection preferences are forwarded
+   by the UI but are not consumed by the reviewed renderer. Remove/disable the
+   controls or implement them under explicit performance budgets.
+
+### TypeScript decision
+
+**Do not introduce an external TypeScript framework now.** It would not reduce
+GPU load, would confound the performance measurements and would discard the
+current no-build, `file://` operating contract. If typing becomes a separate
+priority later, start with development-only `tsc --noEmit`, `allowJs`,
+`checkJs` and JSDoc over the existing classic scripts. Do not combine that work
+with the renderer investigation or the pinned Three.js r128 migration.
