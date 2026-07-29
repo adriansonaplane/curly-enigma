@@ -630,3 +630,20 @@ body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
 }
 .wui-confirm-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .wui-confirm-actions [data-action="confirm"] { background: #583815; color: #fff0bd; }
+
+/* Dedicated player party and summoned-unit frames. */
+#wui-party .wui-unit, #wui-pets .wui-unit { min-width:190px; margin-bottom:4px; padding:3px 6px; }
+#wui-party .wu-portrait, #wui-pets .wu-portrait { width:26px; height:26px; }
+#wui-party .wu-portrait canvas, #wui-pets .wu-portrait canvas { width:26px; height:26px; }
+.wui-frame-title { font-size:10px; letter-spacing:2px; color:#8a7444; margin-bottom:3px; }
+.party-unit { cursor:pointer; }
+.party-unit.targeted { box-shadow:inset 0 0 0 1px #ffd94f,0 0 6px rgba(255,217,79,.4); }
+.party-unit.offline { filter:grayscale(1); opacity:.55; }
+.party-unit.dead { filter:grayscale(.8); opacity:.72; }
+.party-meta { font-size:8px; color:#9b927e; text-transform:capitalize; }
+.party-state { float:right; color:#c8a03a; }
+.party-role { font-weight:bold; }
+.role-tank { color:#6aa8ff; } .role-healer { color:#5fd88a; } .role-damage { color:#e68a5f; }
+.party-actions { display:none; gap:2px; margin-top:3px; }
+.party-unit:hover .party-actions, .party-unit:focus-within .party-actions { display:flex; }
+.party-actions button { padding:1px 3px; font-size:8px; }
