@@ -736,7 +736,6 @@ const UI = {
     p.appendChild(inv);
   },
 
-  npcDialog(npc, nodeId, trail) {
   npcDialog(npc, nodeId) {
     const p = this.panel('npc');
     this.closeAll();
@@ -744,17 +743,7 @@ const UI = {
     p.classList.remove('hidden');
     this.head(p, npc.def.name.toUpperCase());
     const pl = G.player;
-    const graph = DialogueGraphs[npc.id];
-    if (!graph || !graph.nodes) return this.closeAll();
-    const pl = G.player;
-    const id = graph.nodes[nodeId] ? nodeId : graph.start;
-    const node = graph.nodes[id];
-    trail = Array.isArray(trail) ? trail : [];
-    const state = pl.dialogue = DialogueState.migrate(pl.dialogue);
-    state.visited[`${npc.id}:${id}`] = true;
-    Save.saveChar(pl);
-    p.insertAdjacentHTML('beforeend', `<div class="npc-line">“${U.esc(node.text)}”</div>`);
-    const pl = G.player;
+  
     const npcFaction = { elder: 'haven', healer: 'light', smith: 'ironsong', gambler: 'haven' }[npc.id];
     if (npcFaction && Factions.isHostile(pl.reputation, npcFaction)) {
       p.insertAdjacentHTML('beforeend', `<div class="npc-line">“You are an enemy of ${U.esc(Factions.byId[npcFaction].name)}. Leave.”</div>`);
