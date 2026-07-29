@@ -76,6 +76,12 @@ function scrub(html, depth) {
 const files = fs.readdirSync(dir).filter(f => /\.(html|json)$/i.test(f) && f !== 'index.json');
 const depth = path.relative(ROOT, path.resolve(dir)).split(path.sep).length;
 
+// Say which directory, up front. The argument defaults to assets/effects, so a
+// bare invocation silently scrubs the wrong tree and reports a clean result
+// for it — which reads exactly like the directory you meant was already clean.
+console.log(`Sanitizing ${files.length} payloads in ${dir}` +
+  (process.argv[2] ? '' : '  (default — pass a directory to choose)') + '\n');
+
 let changed = 0;
 const tally = {};
 for (const f of files) {
