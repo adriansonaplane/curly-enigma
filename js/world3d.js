@@ -25,6 +25,16 @@ const World3 = {
   CHUNK_SIZE: 16,
   batches: [],
 
+  // Benchmark hook: 0 restores the old, single global batch per category.
+  // Rebuilding is intentional so captures never mix two batching layouts.
+  setChunkSize(size, rebuild) {
+    const next = size === 0 ? 0 : Math.max(1, Math.floor(Number(size) || 16));
+    if (next === this.CHUNK_SIZE) return false;
+    this.CHUNK_SIZE = next;
+    if (rebuild !== false && this.map) this.build(this.map);
+    return true;
+  },
+
   // Three r128 does not derive an InstancedMesh's culling volume from its
   // instance matrices.  Give every batch its own geometry (and therefore its
   // own bounds) and union the transformed primitive bounds explicitly.
@@ -108,7 +118,9 @@ const World3 = {
     };
     const chunks = new Map(), totals = { floor: 0, wall: 0, door: 0, lava: 0, water: 0, haz: 0 };
     const put = (tx, ty, category, matrix, color) => {
-      const key = Math.floor(tx / this.CHUNK_SIZE) + ',' + Math.floor(ty / this.CHUNK_SIZE);
+      const key = this.CHUNK_SIZE
+        ? Math.floor(tx / this.CHUNK_SIZE) + ',' + Math.floor(ty / this.CHUNK_SIZE)
+        : 'global';
       if (!chunks.has(key)) chunks.set(key, { floor: [], wall: [], door: [], lava: [], water: [], haz: [] });
       chunks.get(key)[category].push({ matrix: matrix.clone(), color: color && color.clone() }); totals[category]++;
     };

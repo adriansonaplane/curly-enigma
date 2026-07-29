@@ -30,6 +30,17 @@ const Props3 = {
   _buildToken: 0,
   built: false,
 
+  // Use from the diagnostics console to compare 0 (the original global
+  // batches), 12, and 16 without changing the production default.
+  setChunking(size, minInstances, rebuild) {
+    const nextSize = size === 0 ? 0 : Math.max(1, Math.floor(Number(size) || 16));
+    const nextMin = Math.max(1, Math.floor(Number(minInstances) || this.CHUNK_MIN_INSTANCES));
+    if (nextSize === this.CHUNK_SIZE && nextMin === this.CHUNK_MIN_INSTANCES) return false;
+    this.CHUNK_SIZE = nextSize; this.CHUNK_MIN_INSTANCES = nextMin;
+    if (rebuild !== false && this.map) this.build(this.map);
+    return true;
+  },
+
   // Authored replacements are intentionally a short, quality-reviewed list.
   // `parts` indices refer to the source scene before compatible meshes are
   // bucketed. ATTACHMENTS provides the same contract to procedural fallbacks.
@@ -545,7 +556,7 @@ const Props3 = {
   },
 
   _chunkLists(list) {
-    if (list.length < this.CHUNK_MIN_INSTANCES) return [list];
+    if (!this.CHUNK_SIZE || list.length < this.CHUNK_MIN_INSTANCES) return [list];
     const chunks = new Map();
     for (const pr of list) {
       const key = Math.floor(pr.x / this.CHUNK_SIZE) + ',' + Math.floor(pr.y / this.CHUNK_SIZE);
