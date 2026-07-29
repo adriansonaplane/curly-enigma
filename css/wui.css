@@ -592,3 +592,23 @@ body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
 .theme-swatch[data-t="crimson"] { background: radial-gradient(circle at 35% 30%, #ff8a5a, #5a2418); }
 .theme-swatch[data-t="arcane"] { background: radial-gradient(circle at 35% 30%, #d8ccff, #2a2050); }
 .theme-swatch[data-t="verdant"] { background: radial-gradient(circle at 35% 30%, #dcf0c0, #24401a); }
+
+/* Reusable, non-blocking confirmation surface for disruptive settings. */
+.wui-confirm-backdrop {
+  position: fixed; inset: 0; z-index: 12000; display: grid; place-items: center;
+  padding: 20px; background: rgba(5, 3, 2, 0.78);
+}
+.wui-confirm {
+  width: min(460px, calc(100vw - 40px)); padding: 22px;
+  border: 2px solid var(--wui-border-hi); border-radius: 7px;
+  background: #171008; color: var(--wui-text); box-shadow: 0 12px 50px #000;
+}
+.wui-confirm h2 { margin: 0 0 10px; color: var(--wui-accent); font-size: 18px; }
+.wui-confirm p { margin: 0 0 20px; color: var(--wui-text-dim); font-size: 13px; line-height: 1.55; }
+.wui-confirm-actions { display: flex; justify-content: flex-end; gap: 9px; }
+.wui-confirm-actions button {
+  min-width: 90px; padding: 7px 14px; border: 1px solid var(--wui-border-hi);
+  border-radius: 4px; background: #24180b; color: var(--wui-text-hi); font: inherit; cursor: pointer;
+}
+.wui-confirm-actions button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.wui-confirm-actions [data-action="confirm"] { background: #583815; color: #fff0bd; }
