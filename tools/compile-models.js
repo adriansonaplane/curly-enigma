@@ -78,7 +78,28 @@ function compile(entry) {
   const onEvent = (type, fn) => {
     if (typeof fn === 'function' && (type === 'DOMContentLoaded' || type === 'load')) ready.push(fn);
   };
-  const sandbox = { console, Math: seededMath, Date, innerWidth: 800, innerHeight: 600, devicePixelRatio: 1,
+  // Compilation has to be reproducible. Math.random is already seeded per slug
+  // for exactly that reason, but the clock was left live, and the catalogue's
+  // animation code reads it: three consecutive compiles of the same payload
+  // produced yaws of 0, 0.00035 and 0. A turntable advancing by two hundredths
+  // of a degree is invisible, but non-reproducible output is not — it makes
+  // `git diff` on the baked scenes useless for telling a real change from a
+  // re-run, which is the only cheap check there is that a pipeline edit did
+  // not move geometry.
+  //
+  // The clock is therefore frozen rather than seeded: a model is a pose, not a
+  // moment, and every payload should be captured at the same instant of its
+  // idle. performance.now() is provided for the same reason and because it was
+  // absent entirely, so a payload reaching for it threw into the init guard
+  // and lost its model for an unrelated reason.
+  const EPOCH = 0;
+  function FrozenDate(...args) { return args.length ? new Date(...args) : new Date(EPOCH); }
+  FrozenDate.prototype = Date.prototype;
+  FrozenDate.now = () => EPOCH;
+  FrozenDate.parse = Date.parse; FrozenDate.UTC = Date.UTC;
+  const sandbox = { console, Math: seededMath, Date: FrozenDate,
+    performance: { now: () => EPOCH },
+    innerWidth: 800, innerHeight: 600, devicePixelRatio: 1,
     addEventListener: onEvent, removeEventListener() {},
     requestAnimationFrame(fn) { if (typeof fn === 'function') frames.push(fn); return frames.length; },
     cancelAnimationFrame() {},
@@ -207,29 +228,49 @@ function compile(entry) {
   const scene = vm.runInContext(`(() => {
     const round = n => Object.is(n, -0) ? 0 : +n.toFixed(6);
     const vec = v => [round(v.x), round(v.y), round(v.z)];
-    const materials = [], materialIds = new Map();
+    const materials = [], byObject = new Map(), byValue = new Map();
+    // Two materials that describe the same appearance ARE the same material.
+    //
+    // This used to key only on object identity, which is not how the catalogue
+    // builds scenes: each part constructs its own MeshStandardMaterial, so a
+    // model made of one grey stone emitted one entry per part. runic-pillar
+    // carried 40 entries that were 31 distinct descriptions; a bookcase carried
+    // 73 that were nearly all the same wood.
+    //
+    // That reads as file redundancy and is not. The renderer merges static
+    // parts per material and draws one mesh each, so a duplicated description
+    // is a duplicated draw call — and a model whose parts each held a private
+    // material got no merge at all, which is why bookcase compiled to 73
+    // primitives and 73 draws.
+    //
+    // Object identity is still checked first, purely to avoid re-describing a
+    // shared material once per mesh that uses it.
     function material(m) {
       if (Array.isArray(m)) throw new Error('material arrays are unsupported');
-      if (!materialIds.has(m)) {
-        const id = materials.length; materialIds.set(m, id);
-        materials.push({
-          type: m.type, color: m.color ? m.color.getHex() : 0xffffff,
-          emissive: m.emissive ? m.emissive.getHex() : 0,
-          emissiveIntensity: round(m.emissiveIntensity || 0),
-          metalness: round(m.metalness || 0), roughness: round(m.roughness == null ? 1 : m.roughness),
-          opacity: round(m.opacity == null ? 1 : m.opacity), transparent: !!m.transparent,
-          side: m.side, flatShading: !!m.flatShading
-        });
-        // The scene contract carries no textures. A material that HAD one is
-        // recorded so the loss is reported instead of silently changing how
-        // the model looks — a transparent blob-shadow plane, for instance,
-        // becomes an opaque slab once its alpha map is gone.
-        const maps = ['map', 'alphaMap', 'emissiveMap', 'normalMap', 'roughnessMap',
-          'metalnessMap', 'aoMap', 'bumpMap', 'displacementMap', 'envMap']
-          .filter(k => m[k]);
-        if (maps.length) materials[id].droppedMaps = maps.slice().sort();
-      }
-      return materialIds.get(m);
+      if (byObject.has(m)) return byObject.get(m);
+      const desc = {
+        type: m.type, color: m.color ? m.color.getHex() : 0xffffff,
+        emissive: m.emissive ? m.emissive.getHex() : 0,
+        emissiveIntensity: round(m.emissiveIntensity || 0),
+        metalness: round(m.metalness || 0), roughness: round(m.roughness == null ? 1 : m.roughness),
+        opacity: round(m.opacity == null ? 1 : m.opacity), transparent: !!m.transparent,
+        side: m.side, flatShading: !!m.flatShading
+      };
+      // The scene contract carries no textures. A material that HAD one is
+      // recorded so the loss is reported instead of silently changing how the
+      // model looks — a transparent blob-shadow plane, for instance, becomes an
+      // opaque slab once its alpha map is gone. Carrying it in the description
+      // also keeps two materials apart when only their dropped textures differ.
+      const maps = ['map', 'alphaMap', 'emissiveMap', 'normalMap', 'roughnessMap',
+        'metalnessMap', 'aoMap', 'bumpMap', 'displacementMap', 'envMap']
+        .filter(k => m[k]);
+      if (maps.length) desc.droppedMaps = maps.slice().sort();
+      // Key order is fixed by the literal above, so this is stable across runs.
+      const key = JSON.stringify(desc);
+      let id = byValue.get(key);
+      if (id === undefined) { id = materials.length; materials.push(desc); byValue.set(key, id); }
+      byObject.set(m, id);
+      return id;
     }
     const meshes = [], animations = [], dropped = [];
     // A flat, transparent, texture-only plane is a painted decal — the

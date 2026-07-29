@@ -644,3 +644,115 @@ rewriting bare `top.`, so re-compile and re-run `npm run test:models` after.
 No `ragm-*` model has yet been *rendered*. The `MODEL_MAP` heights remain
 estimates derived from each family's `def.size`. Everything above is geometry
 measured offline; none of it is a picture.
+
+## U8. 2026-07-29 — Draw calls measured on the full pack
+
+Owner-run, all 99 models, measured by `tools/inspect-models.js`.
+
+| stage | draw calls | vs one per primitive |
+|---|---:|---:|
+| unmerged | 4,696 | — |
+| static merge by material | 2,432 | 48.2% fewer |
+| + material dedup by value | **1,562** | **66.7% fewer** |
+
+The second row was §U7. The third came from a compiler defect that read as file
+redundancy: materials were deduplicated by object identity, and the catalogue
+constructs a fresh MeshStandardMaterial per part, so a model whose parts share
+one appearance still paid one draw each. `bookcase` compiled to 73 primitives
+and 73 draws; `astral-obelisk` 71 and 71. Fixing it removed a further 870 draws.
+
+**§3 #1 can now be re-measured rather than re-quoted.** Its 230–380 figure
+predates PRs #15, #17, #21 and everything above. Actor and prop draw calls are
+the component that moved.
+
+**The compiler is now reproducible.** It was not: three consecutive compiles of
+one unmodified payload produced yaws of 0, 0.00035 and 0. `Math.random` was
+seeded per slug but the clock was live, and the catalogue's animation code reads
+it. Frozen now, with `performance.now()` supplied — it was absent entirely, so a
+payload reaching for it threw into the init guard and lost its model for a
+reason unrelated to its geometry. This is what makes `git diff` on the baked
+scenes usable as a check that a pipeline edit did not move geometry.
+
+**Audit, post-sanitise:** 198 BLOCK → 17, `external hosts referenced: NONE`.
+Sixteen are `.html` sidecars carrying `broken-js`, which nothing reads.
+**`bookcase.json`'s `fetch` is the only blocking finding in a file the compiler
+consumes.** The sanitiser has no rule for it; it needs a human.
+
+### Operational trap
+
+`assets/models/index.json` and `assets/models/baked/manifest.json` are both
+tracked, and both committed at the 3-model sample state. Switching branches
+therefore reverts a 99-model working set to 3 without saying so. The payloads
+themselves are untracked and survive — only the two files that index them are
+lost. Recovery is `./tools/pull-models.sh`, which skips anything already on disk
+and rebuilds the index from every slug present, so it costs no downloads.
+
+The durable fix is to stop tracking a locally-pulled index at a 3-model subset:
+either gitignore it, or have `compile-models.js` fall back to globbing
+`assets/models/*.json` when the index is thinner than what is on disk. The
+second fails safe and is the recommendation. Not done.
+
+### Still unverified
+
+No `ragm-*` model has been rendered. Six models are flagged by the placement
+inspector and have not been read. FPS on real hardware is now the only
+outstanding step in §U2's sequence.
+
+## U9. 2026-07-29 — Placement verdict on the compiled pack
+
+Six of 99 models flag on placement, **all six are `ragm-*`, none of the 84 props**.
+That is specific to the closure-local roots the compiler recovers, not to the
+pipeline generally.
+
+| model | height | floor gap | gap as % of own height | offset as % of footprint |
+|---|---:|---:|---:|---:|
+| ragm-troll | 2.51 | −0.138 | 5.5% | 0% |
+| ragm-wraith | 1.71 | −0.080 | 4.7% | 0% |
+| ragm-lich-lord | 2.42 | −0.068 | 2.8% | 0% |
+| ragm-necromancer | 1.77 | −0.050 | 2.8% | 0% |
+| ragm-skeletal-mage | 1.79 | −0.050 | 2.8% | 0% |
+| **ragm-volcanic-imp** | **1.00** | **+0.562** | **56.2%** | **20.2%** |
+
+**Five of the six are benign.** `instanceModel` re-seats every authored model on
+its lowest vertex (`js/actors3d.js`, `position.y = -minY * scale`), so a sink of
+a few percent just means the payload's origin sits above its feet. Nothing
+compensates x/z, so a footprint offset is uncorrected all the way to the screen.
+
+**`ragm-volcanic-imp` is the one to look at.** Its geometry occupies
+y ∈ [0.562, 1.562] — a metre-tall band floating half a metre up, wider than it
+is tall, off-axis, while every sibling spans roughly 0 → 1.7–2.5. The working
+hypothesis is that the compiler's largest-mesh-bearing-subtree heuristic grabbed
+the upper body and left the legs behind. **Unconfirmed** — spawning a Cinder Imp
+(`imp` is mapped to it) settles it. If true, the fix belongs in the compiler's
+recovery ranking, and it is the first evidence that the heuristic which
+unblocked all 99 models mis-picks. Worth knowing before more species are wired.
+
+### A measurement lesson, twice
+
+Both placement tools shipped with a defect that made them agree with whatever
+they were measuring, which is Appendix A9's warning in practice:
+
+1. Bounds were taken from transformed axis-aligned boxes, which over-cover a
+   rotated part — worst case a UV sphere, whose box is the full ±r cube while
+   the sphere is rotation-invariant. One rotated scaled sphere misreported its
+   own `minY` by 0.41 world units. Fixed by bounding actual vertices; tolerance
+   went from 1e-2 to 1e-5.
+2. Thresholds were absolute metres. A model 20% of its own footprint off-axis
+   passed a 0.30m bar, and the triage reported "needs a person: none" while the
+   text beside it named that model as the one real defect. Now judged relative
+   to each model's own size — and not tuned to the pack, which separates itself
+   by two orders of magnitude.
+
+Neither was caught by a test. Both were caught by a number contradicting a
+sentence. Prefer checks that are relative to the thing measured.
+
+### Open
+
+- **`ragm-volcanic-imp`** — render it; decide whether the root is truncated.
+- **`bookcase.json`'s `fetch`** — the only blocking audit finding in a file the
+  compiler reads. No sanitiser rule covers it.
+- **FPS on real hardware** — the last step of §U2's sequence. §3 #1's 230–380
+  draw-call figure is now re-measurable rather than quotable.
+- **Index tracking** (§U8) — `assets/models/index.json` and
+  `baked/manifest.json` are tracked at the 3-model sample state, so a branch
+  switch silently reverts a 99-model working set. Fix written down, not taken.

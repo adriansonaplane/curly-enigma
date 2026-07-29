@@ -21,10 +21,16 @@
 // This tool measures the compiled result and reports the four ways that goes
 // wrong:
 //
-//   FLOATING / SUNKEN   the model does not rest on y=0, so it hovers or sinks
-//                       when the game places it on the floor plane.
+//   FLOATING / SUNKEN   the model does not rest on y=0. INFORMATIONAL: the
+//                       runtime re-seats every authored model on its lowest
+//                       vertex (actors3d.js instanceModel, `position.y =
+//                       -minY * scale`), so this corrects itself. A small sink
+//                       just means the payload's origin sits above its feet.
+//                       It is still worth reading, because a LARGE gap says
+//                       the recovered root may be missing part of the body.
 //   OFF-CENTRE          the model's footprint is not over the origin, so it
 //                       orbits its own pivot instead of turning in place.
+//                       Nothing compensates x/z — this one is a real defect.
 //   SIZE                the model is not plausibly the size of the thing it
 //                       depicts, which means a fit-to-frame scale came along.
 //   FROZEN-ROT          every mesh shares one identical non-zero rotation.
@@ -56,10 +62,23 @@ const VERBOSE = process.argv.includes('--verbose');
 const WANTED = new Set(process.argv.slice(2).filter(a => !a.startsWith('--')));
 
 // Thresholds. Generous on purpose: this is a shortlist, not a gate.
-const GROUND = 0.05;   // metres of float/sink before it is worth a look
-const CENTRE = 0.30;   // metres of footprint offset from the origin
-const MIN_H = 0.15;    // shorter than this and a scale went missing
-const MAX_H = 8.0;     // taller than this and a scale came along
+//
+// The two that judge placement are RELATIVE to the model's own size, because
+// an absolute one cannot be right for both a 24cm figurine and a 3m statue.
+// An absolute 0.30m offset missed a model sitting 20% of its own footprint
+// off-axis, and reported it as needing nobody's attention.
+//
+// The measured pack separates itself by two orders of magnitude, so these are
+// not tuned to it: the five well-seated actors sink 2.8-5.5% of their height,
+// and the one bad root floats 56.2%.
+const GROUND = 0.05;        // metres of float/sink before it is worth reporting
+const GAP_FRAC = 0.20;      // ... and the fraction of its own height at which
+                            // it stops being an origin above the feet and
+                            // starts suggesting the root is missing a body part
+const CENTRE_FRAC = 0.15;   // footprint offset as a fraction of footprint size
+const CENTRE_FLOOR = 0.02;  // ... with a noise floor so tiny models do not trip
+const MIN_H = 0.15;         // shorter than this and a scale went missing
+const MAX_H = 8.0;          // taller than this and a scale came along
 
 // --- the real builder -------------------------------------------------------
 // Measuring what the game builds, rather than a second implementation of it,
@@ -90,8 +109,16 @@ function exactBounds(root) {
 // --- per-model report -------------------------------------------------------
 function inspect(file, slug) {
   const scene = JSON.parse(fs.readFileSync(file, 'utf8'));
-  let box, error = null;
-  try { box = exactBounds(Actors3._compileModel(scene, slug)); }
+  let box, error = null, draws = 0;
+  try {
+    const root = Actors3._compileModel(scene, slug);
+    // The compiled root's children ARE the draw calls: one merged mesh per
+    // material plus any animated part held out. Reading it off the real
+    // compile is the whole point — a count derived some other way is a second
+    // implementation waiting to disagree with the renderer.
+    draws = root.children.length;
+    box = exactBounds(root);
+  }
   catch (e) { error = (e && e.message) || String(e); }
 
   const empty = error || box.isEmpty();
@@ -109,7 +136,8 @@ function inspect(file, slug) {
   else {
     if (minY > GROUND) flags.push('FLOATING');
     if (minY < -GROUND) flags.push('SUNKEN');
-    if (Math.hypot(centre[0], centre[2]) > CENTRE) flags.push('OFF-CENTRE');
+    const off = Math.hypot(centre[0], centre[2]);
+    if (off > CENTRE_FLOOR && off > CENTRE_FRAC * Math.max(size[0], size[2])) flags.push('OFF-CENTRE');
     if (size[1] < MIN_H || size[1] > MAX_H) flags.push('SIZE');
   }
   // One rotation shared by every mesh, and it is not identity: the whole model
@@ -122,8 +150,12 @@ function inspect(file, slug) {
   const textureless = (scene.materials || []).filter(m => m.droppedMaps).length;
   if (textureless) flags.push('TEXLOST:' + textureless);
 
+  // Whether the runtime's y re-seat is enough to absorb this gap, or whether
+  // the gap is large enough relative to the model that something is missing.
+  const seatable = empty ? true : Math.abs(minY) <= GAP_FRAC * size[1];
+
   return {
-    slug, meshes: (scene.meshes || []).length, pivot: scene.pivot || null,
+    slug, meshes: (scene.meshes || []).length, draws, pivot: scene.pivot || null, seatable,
     size: size.map(n => +n.toFixed(3)),
     groundGap: +minY.toFixed(3),
     centreOffset: +Math.hypot(centre[0], centre[2]).toFixed(3),
@@ -154,12 +186,12 @@ const show = VERBOSE ? rows : flagged;
 console.log(`Inspected ${rows.length} compiled scenes in ${path.relative(ROOT, DIR)}\n`);
 if (!show.length) console.log('  nothing flagged — every model rests on the floor, centred and plausibly sized.\n');
 else {
-  console.log('  ' + 'slug'.padEnd(28) + 'meshes'.padStart(7) + '  ' +
+  console.log('  ' + 'slug'.padEnd(28) + 'meshes'.padStart(7) + 'draws'.padStart(7) + '  ' +
     'w x h x d'.padEnd(22) + 'floor'.padStart(8) + 'offset'.padStart(8) + '  flags');
-  console.log('  ' + '-'.repeat(96));
+  console.log('  ' + '-'.repeat(104));
   for (const r of show) {
     const dim = r.size.map(n => n.toFixed(2)).join(' x ');
-    console.log('  ' + r.slug.padEnd(28) + String(r.meshes).padStart(7) + '  ' +
+    console.log('  ' + r.slug.padEnd(28) + String(r.meshes).padStart(7) + String(r.draws).padStart(7) + '  ' +
       dim.padEnd(22) + r.groundGap.toFixed(3).padStart(8) +
       r.centreOffset.toFixed(3).padStart(8) + '  ' + r.flags.join(' '));
   }
@@ -173,10 +205,29 @@ for (const r of rows) pivots[r.pivot || '(none)'] = (pivots[r.pivot || '(none)']
 console.log('\n' + '-'.repeat(60));
 console.log(`  models         : ${rows.length}`);
 console.log(`  flagged        : ${flagged.length}`);
-console.log(`  total meshes   : ${rows.reduce((n, r) => n + r.meshes, 0)}`);
+const prim = rows.reduce((n, r) => n + r.meshes, 0);
+const draws = rows.reduce((n, r) => n + r.draws, 0);
+console.log(`  primitives     : ${prim}`);
+// What the renderer will actually issue. This is the number the merge and the
+// material dedup exist to move, so it belongs next to the placement report
+// rather than in a shell one-liner someone has to retype correctly.
+console.log(`  draw calls     : ${draws}` +
+  (prim ? `  (${(100 * (1 - draws / prim)).toFixed(1)}% fewer than one per primitive)` : ''));
 console.log(`  pivot labels   : ${JSON.stringify(pivots)}`);
 const contradictory = rows.filter(r => /bottom/i.test(r.pivot || '') &&
   (r.flags.includes('FLOATING') || r.flags.includes('SUNKEN')));
 if (contradictory.length)
   console.log(`  !! ${contradictory.length} model(s) claim a bottom pivot but do not rest on y=0`);
+// Separate the flags the runtime fixes from the ones it does not, so a row
+// that needs a person is not buried among rows that correct themselves.
+const SELF_CORRECTING = new Set(['FLOATING', 'SUNKEN']);
+const real = flagged.filter(r => !r.seatable ||
+  r.flags.some(f => !SELF_CORRECTING.has(f.split(':')[0])));
+if (flagged.length) {
+  console.log(`  of the ${flagged.length} flagged, ${flagged.length - real.length} are float/sink only,`
+    + ' which instanceModel re-seats at load');
+  console.log(real.length
+    ? `  needs a person  : ${real.map(r => r.slug).join(', ')}`
+    : '  needs a person  : none');
+}
 console.log(flagged.length ? '\nRun with --verbose to see every model.\n' : '\n');
