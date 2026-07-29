@@ -699,7 +699,7 @@ const Game = {
     Physics.step(dt);
 
     // auto-pickup gold
-    for (let i = G.groundItems.length - 1; i >= 0; i--) {
+    for (let i = WUI.set.autoGold === false ? -1 : G.groundItems.length - 1; i >= 0; i--) {
       const gi = G.groundItems[i];
       if (gi.gold && U.dist2(pl.x, pl.y, gi.x, gi.y) < 1.4) {
         pl.gold += Math.ceil(gi.gold * (1 + d.goldFind / 100));
