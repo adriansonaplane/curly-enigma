@@ -850,7 +850,6 @@ function showRendererRecovery() {
     graphics: typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.diagnostics() : null,
     userAgent: navigator.userAgent }, null, 2);
   document.getElementById('renderer-init-diagnostic').textContent = report;
-  document.getElementById('renderer-init-diagnostic').textContent = JSON.stringify(diagnostic, null, 2);
   const fallbackModels = document.getElementById('renderer-fallback-models');
   fallbackModels.checked = !R3.authoredModels;
   fallbackModels.addEventListener('change', () => R3.setAuthoredModels(!fallbackModels.checked));
