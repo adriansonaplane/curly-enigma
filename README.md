@@ -118,8 +118,8 @@ via Edit Mode (layout persists between sessions):
   and treasure goals) with gold/XP rewards, an on-screen objective tracker and a `J` log panel.
 - **Buff tray** — blessings and skill auras beside the minimap with icons, countdown timers,
   names and stat tooltips.
-- **Settings** — six tabs: Gameplay, Audio (master volume), Video (quality pin/auto + individual
-  toggles for fog, god rays, AO, reflections, grading, FPS counter), Interface (show/hide any
+- **Settings** — seven tabs: Gameplay, Camera, Audio (master volume), Video (quality pin/auto +
+  implemented toggles for fog, god rays, grading, and the FPS counter), Interface (show/hide any
   frame, Edit Mode, reset layout), **Keybinds** (every action rebindable, click-to-capture) and
   **Macros** (priority or cast-sequence skill chains, draggable onto the bar).
 

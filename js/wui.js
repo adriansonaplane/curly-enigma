@@ -10,7 +10,7 @@ const WUI = {
   set: null, keymap: null, layout: {},
   DEF_SET: {
     vol: 0.5, mute: false,
-    quality: 'auto', renderScale: 1, fpsLimit: 0, fog: true, shafts: true, ao: true, reflections: true, grade: true, fps: false,
+    quality: 'auto', renderScale: 1, fpsLimit: 0, fog: true, shafts: true, grade: true, fps: false,
     mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
     ctIn: true, ctOut: true, bubbles: true, physics: true,
@@ -55,12 +55,18 @@ const WUI = {
 
   // ================= INIT =================
   init() {
-    this.set = Object.assign({}, this.DEF_SET, this._load(this.SETK));
+    const savedSet = this._load(this.SETK) || {};
+    const hadRetiredVideoSettings = 'ao' in savedSet || 'reflections' in savedSet;
+    delete savedSet.ao;
+    delete savedSet.reflections;
+    this.set = Object.assign({}, this.DEF_SET, savedSet);
     const savedKeys = this._load(this.SETK + '_keys') || {};
     if (savedKeys.camMode && !savedKeys.camPreset) savedKeys.camPreset = savedKeys.camMode;
     delete savedKeys.camMode;
     this.keymap = Object.assign({}, this.DEF_KEYS, savedKeys);
     this.layout = this._load(this.LAYK) || {};
+    // Remove controls that predated the renderer contract from existing saves.
+    if (hadRetiredVideoSettings) this._save(this.SETK, this.set);
 
     // strip the legacy skill hotbar slots (potion counters stay, hidden)
     document.querySelectorAll('.hot-slot:not(.potion)').forEach(e => e.remove());
@@ -818,6 +824,15 @@ const WUI = {
 
   // ================= SETTINGS =================
   SETTINGS_TABS: ['GAMEPLAY', 'CAMERA', 'AUDIO', 'VIDEO', 'INTERFACE', 'KEYBINDS', 'MACROS'],
+  // Every entry here is a control/render-state contract. Do not add a visible
+  // toggle until its renderer state exists and the browser contract test can
+  // observe it changing.
+  VIDEO_TOGGLES: [
+    { key: 'fog', label: 'Atmospheric fog', hint: 'Drifting fog banks', state: 'fx.fog' },
+    { key: 'shafts', label: 'Volumetric god rays', hint: 'Light shafts from the ceiling', state: 'fx.shafts' },
+    { key: 'grade', label: 'Color grading & vignette', hint: 'Per-zone cinematic tinting', state: 'fx.grade' },
+    { key: 'fps', label: 'FPS counter', hint: '', state: 'showFps' },
+  ],
   renderSettings() {
     const p = UI.panel('settings');
     UI.head(p, 'SETTINGS');
@@ -840,6 +855,7 @@ const WUI = {
   wsToggle(body, label, hint, key, onChange) {
     const row = document.createElement('div');
     row.className = 'ws-row';
+    row.dataset.setting = key;
     row.innerHTML = `<span class="ws-label">${label}${hint ? `<span class="ws-hint">${hint}</span>` : ''}</span>
       <div class="ws-toggle${this.set[key] ? ' on' : ''}"></div>`;
     row.querySelector('.ws-toggle').addEventListener('click', () => {
@@ -983,12 +999,8 @@ const WUI = {
     hi.addEventListener('input', () => { this.set.heroLight = +hi.value; this.saveSet(); this.applySettings(); });
     hl.appendChild(hi);
     body.appendChild(hl);
-    this.wsToggle(body, 'Atmospheric fog', 'Drifting fog banks', 'fog');
-    this.wsToggle(body, 'Volumetric god rays', 'Light shafts from the ceiling', 'shafts');
-    this.wsToggle(body, 'Ambient occlusion', 'Contact shading where floors meet walls', 'ao');
-    this.wsToggle(body, 'Water reflections', 'Actors mirror in standing water', 'reflections');
-    this.wsToggle(body, 'Color grading & vignette', 'Per-zone cinematic tinting', 'grade');
-    this.wsToggle(body, 'FPS counter', '', 'fps');
+    for (const toggle of this.VIDEO_TOGGLES)
+      this.wsToggle(body, toggle.label, toggle.hint, toggle.key);
   },
 
   tabInterface(body) {
@@ -1142,7 +1154,7 @@ const WUI = {
     if (AUDIO.master) AUDIO.master.gain.value = s.mute ? 0 : s.vol;
     // video
     Render.fx = {
-      fog: s.fog, shafts: s.shafts, ao: s.ao, reflections: s.reflections,
+      fog: s.fog, shafts: s.shafts,
       grade: s.grade, dmgNums: s.dmgNums, shake: s.shake, nameplates: s.nameplates,
       bubbles: s.bubbles,
     };
@@ -1151,6 +1163,7 @@ const WUI = {
     Render.targetFps = Number(s.fpsLimit) || 60;
     Render.mood = s.mood || 'spooky';
     Render.heroLightMul = U.clamp((s.heroLight === undefined ? 42 : s.heroLight) / 100, 0, 1);
+    Render.showFps = !!s.fps;
     Physics.enabled = s.physics !== false;
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
@@ -1161,7 +1174,7 @@ const WUI = {
       if (f) f.el.classList.toggle('wui-hidden', !vis[id]);
     }
     const fps = document.getElementById('wui-fps');
-    if (fps) fps.style.display = s.fps ? 'block' : 'none';
+    if (fps) fps.style.display = Render.showFps ? 'block' : 'none';
   },
 
   // ================= ENGINE HOOKS =================
