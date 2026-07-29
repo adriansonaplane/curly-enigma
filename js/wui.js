@@ -15,7 +15,8 @@ const WUI = {
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
     ctIn: true, ctOut: true, bubbles: true, physics: true,
     fPlayer: true, fParty: true, fTarget: true, fBuffs: true, fChat: true, fDps: true, fTracker: true,
-    fFriends: true, fGuild: true,
+    fFriends: true, fGuild: true, fBar2: false, fCombatLog: true,
+    theme: 'gold',
   },
   DEF_KEYS: {
     moveU: 'w', moveL: 'a', moveD: 's', moveR: 'd',
@@ -26,6 +27,8 @@ const WUI = {
     targetNext: 'tab', targetClear: 'x',
     slot1: '1', slot2: '2', slot3: '3', slot4: '4', slot5: '5',
     slot6: '6', slot7: '7', slot8: '8', slot9: '9', slot10: '0',
+    bar2slot1: null, bar2slot2: null, bar2slot3: null, bar2slot4: null, bar2slot5: null,
+    bar2slot6: null, bar2slot7: null, bar2slot8: null, bar2slot9: null, bar2slot10: null,
   },
   KEYACTIONS: [
     ['moveU', 'Move up'], ['moveL', 'Move left'], ['moveD', 'Move down'], ['moveR', 'Move right'],
@@ -40,6 +43,10 @@ const WUI = {
     ['slot1', 'Action slot 1'], ['slot2', 'Action slot 2'], ['slot3', 'Action slot 3'], ['slot4', 'Action slot 4'],
     ['slot5', 'Action slot 5'], ['slot6', 'Action slot 6'], ['slot7', 'Action slot 7'], ['slot8', 'Action slot 8'],
     ['slot9', 'Action slot 9'], ['slot10', 'Action slot 10'],
+    ['bar2slot1', 'Action bar 2, slot 1'], ['bar2slot2', 'Action bar 2, slot 2'], ['bar2slot3', 'Action bar 2, slot 3'],
+    ['bar2slot4', 'Action bar 2, slot 4'], ['bar2slot5', 'Action bar 2, slot 5'], ['bar2slot6', 'Action bar 2, slot 6'],
+    ['bar2slot7', 'Action bar 2, slot 7'], ['bar2slot8', 'Action bar 2, slot 8'], ['bar2slot9', 'Action bar 2, slot 9'],
+    ['bar2slot10', 'Action bar 2, slot 10'],
   ],
 
   frames: {}, editMode: false, pickup: null, listening: null,
@@ -84,6 +91,13 @@ const WUI = {
       if (this.pickup && !e.target.closest('.wab-slot') && !e.target.closest('.skill-row') && !e.target.closest('.wm-ico'))
         this.clearPickup();
     }, true);
+    // Shift held = bonus action-bar page. Tracked independently of the game's
+    // own key-action dispatch so paging works even while a text field has
+    // focus, matching how WoW's bonus bar answers to the physical modifier.
+    window.addEventListener('keydown', e => { if (e.key === 'Shift' && !this.shiftHeld) this.shiftHeld = true; });
+    window.addEventListener('keyup', e => { if (e.key === 'Shift') this.shiftHeld = false; });
+    window.addEventListener('blur', () => { this.shiftHeld = false; });
+    this.applyTheme();
   },
 
   _load(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
@@ -125,10 +139,18 @@ const WUI = {
     const friends = mk('wui-friends', 'wui-frame wui-social', '');
     const guildf = mk('wui-guildframe', 'wui-frame wui-social', '');
     const bar = mk('wui-actionbar', 'wui-frame', '');
+    const bar2 = mk('wui-actionbar2', 'wui-frame', '');
+    const cl = mk('wui-cl', 'wui-frame', `
+      <div class="wd-head"><span>⚔ COMBAT LOG</span></div>
+      <div class="cl-toolbar"></div><div class="cl-log"></div>`);
+    const plates = mk('wui-plates', '', '');
     mk('wui-fps', '', '');
     const cur = document.createElement('div');
     cur.id = 'wui-cursoritem'; cur.innerHTML = '<canvas width="40" height="40"></canvas>';
     document.body.appendChild(cur);
+    this._snapV = document.createElement('div'); this._snapV.className = 'wui-snapline';
+    this._snapH = document.createElement('div'); this._snapH.className = 'wui-snapline';
+    document.body.appendChild(this._snapV); document.body.appendChild(this._snapH);
 
     const W = innerWidth, H = innerHeight;
     this.regFrame('player', player, 'Player Frame', 14, 14);
@@ -137,18 +159,22 @@ const WUI = {
     this.regFrame('buffs', buffs, 'Buffs & Auras', W - 250 - 350, 16);
     this.regFrame('ctin', ctIn, 'Incoming Combat Text', W / 2 - 350, H / 2 - 300);
     this.regFrame('ctout', ctOut, 'Outgoing Combat Text', W / 2 + 140, H / 2 - 300);
-    this.regFrame('chat', chat, 'Chat', 12, H - 342);
-    this.regFrame('dps', dps, 'Damage Meter', W - 306, H - 330);
-    this.regFrame('tracker', tracker, 'Quest Tracker', W - 254, 252);
-    this.regFrame('friends', friends, 'Friends', 14, 330);
-    this.regFrame('guildf', guildf, 'Guild', 14, 470);
+    this.regFrame('chat', chat, 'Chat', 12, H - 342, { resizable: true, minW: 260, minH: 120, maxW: 640, maxH: 460 });
+    this.regFrame('dps', dps, 'Damage Meter', W - 306, H - 330, { resizable: true, minW: 200, minH: 90, maxW: 460, maxH: 420 });
+    this.regFrame('tracker', tracker, 'Quest Tracker', W - 254, 252, { resizable: true, minW: 180, minH: 60, maxW: 420, maxH: 420 });
+    this.regFrame('friends', friends, 'Friends', 14, 330, { resizable: true, minW: 150, minH: 60, maxW: 360, maxH: 320 });
+    this.regFrame('guildf', guildf, 'Guild', 14, 470, { resizable: true, minW: 150, minH: 50, maxW: 360, maxH: 260 });
     this.regFrame('bar', bar, 'Action Bar', W / 2 - 372, H - 96);
+    this.regFrame('bar2', bar2, 'Action Bar 2', W / 2 - 372, H - 148);
+    this.regFrame('cl', cl, 'Combat Log', W - 396, H - 220, { resizable: true, minW: 260, minH: 110, maxW: 640, maxH: 460 });
     this.regFrame('minimap', document.getElementById('minimap'), 'Minimap', W - 236, 12);
     this.regFrame('mainhud', document.getElementById('bottom-hud'), 'Globes', null, null); // keeps its own CSS spot unless moved
     this.regFrame('hudbtns', document.getElementById('hud-buttons'), 'Panel Buttons', null, null);
 
     this.buildActionBar();
+    this.buildActionBar2();
     this.buildChat();
+    this.buildCombatLog();
     dps.querySelector('.wd-reset').addEventListener('click', () => { this.dps.reset(); sfx('ui'); });
 
     // extra HUD shortcut buttons
@@ -172,41 +198,156 @@ const WUI = {
     // edit banner
     const banner = document.createElement('div');
     banner.id = 'wui-editbanner';
-    banner.innerHTML = 'INTERFACE EDIT MODE — drag any frame to move it' +
-      '<button id="wui-edit-reset">Reset layout</button><button id="wui-edit-done">Done</button>';
+    banner.innerHTML = 'INTERFACE EDIT MODE — drag any frame to move it, resize from its corner' +
+      '<button id="wui-edit-lockall">Lock all</button><button id="wui-edit-reset">Reset layout</button><button id="wui-edit-done">Done</button>';
     banner.style.display = 'none';
     document.body.appendChild(banner);
     document.getElementById('wui-edit-done').addEventListener('click', () => this.setEditMode(false));
     document.getElementById('wui-edit-reset').addEventListener('click', () => {
       this.layout = {}; this._save(this.LAYK, this.layout); location.reload();
     });
+    const lockAllBtn = document.getElementById('wui-edit-lockall');
+    lockAllBtn.addEventListener('click', () => {
+      const allLocked = Object.keys(this.frames).every(id => this.frames[id].locked);
+      for (const id in this.frames) this.setFrameLocked(id, !allLocked);
+      lockAllBtn.classList.toggle('active', !allLocked);
+      sfx('ui');
+    });
   },
 
   // ---------------- frame manager ----------------
-  regFrame(id, el, label, defX, defY) {
+  // opts.resizable adds a drag handle; min/maxW/H bound it. Position, size and
+  // lock state persist together under one layout[id] record so a reload (or
+  // "Reset layout") restores or clears the whole frame, not just its origin.
+  regFrame(id, el, label, defX, defY, opts = {}) {
     if (!el) return;
     el.dataset.label = label;
     el.classList.add('wui-frame');
-    this.frames[id] = { el, defX, defY };
+    const resizable = !!opts.resizable;
+    if (resizable) el.classList.add('wui-resizable');
+    this.frames[id] = {
+      el, defX, defY, resizable, locked: false,
+      minW: opts.minW || 140, minH: opts.minH || 60,
+      maxW: opts.maxW || 640, maxH: opts.maxH || 600,
+    };
     const pos = this.layout[id];
-    if (pos) this.placeFrame(id, pos.x, pos.y);
-    else if (defX !== null && defX !== undefined) this.placeFrame(id, defX, defY, true);
+    if (pos) {
+      this.placeFrame(id, pos.x, pos.y);
+      if (resizable && pos.w) this.resizeFrame(id, pos.w, pos.h);
+    } else if (defX !== null && defX !== undefined) this.placeFrame(id, defX, defY, true);
+
+    const lockBtn = document.createElement('div');
+    lockBtn.className = 'wui-lockbtn';
+    lockBtn.title = 'Lock this frame in place';
+    lockBtn.textContent = '🔓';
+    lockBtn.addEventListener('pointerdown', e => e.stopPropagation());
+    lockBtn.addEventListener('click', e => { e.stopPropagation(); this.setFrameLocked(id, !this.frames[id].locked); });
+    el.appendChild(lockBtn);
+    this.frames[id].lockBtn = lockBtn;
+    if (pos && pos.locked) this.setFrameLocked(id, true, true);
+
+    if (resizable) {
+      const rs = document.createElement('div');
+      rs.className = 'wui-resizer';
+      el.appendChild(rs);
+      rs.addEventListener('pointerdown', e => {
+        if (!this.editMode || this.frames[id].locked) return;
+        e.preventDefault(); e.stopPropagation();
+        const startW = el.offsetWidth, startH = el.offsetHeight, sx = e.clientX, sy = e.clientY;
+        const move = ev => this.resizeFrame(id, startW + (ev.clientX - sx), startH + (ev.clientY - sy));
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          const L = this.layout[id] || (this.layout[id] = {});
+          L.w = el.offsetWidth; L.h = el.offsetHeight;
+          this._save(this.LAYK, this.layout);
+        };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      });
+    }
+
     el.addEventListener('pointerdown', e => {
-      if (!this.editMode) return;
+      if (!this.editMode || this.frames[id].locked) return;
+      if (e.target.classList.contains('wui-lockbtn') || e.target.classList.contains('wui-resizer')) return;
       e.preventDefault(); e.stopPropagation();
       const r = el.getBoundingClientRect();
       const ox = e.clientX - r.left, oy = e.clientY - r.top;
-      const move = ev => this.placeFrame(id, ev.clientX - ox, ev.clientY - oy);
+      const move = ev => {
+        const snapped = this.snapPosition(id, ev.clientX - ox, ev.clientY - oy, r.width, r.height);
+        this.placeFrame(id, snapped.x, snapped.y);
+      };
       const up = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
+        this.hideSnapLines();
         const rr = el.getBoundingClientRect();
-        this.layout[id] = { x: Math.round(rr.left), y: Math.round(rr.top) };
+        const L = this.layout[id] || (this.layout[id] = {});
+        L.x = Math.round(rr.left); L.y = Math.round(rr.top);
         this._save(this.LAYK, this.layout);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
     });
+  },
+
+  setFrameLocked(id, locked, silent) {
+    const f = this.frames[id];
+    if (!f) return;
+    f.locked = locked;
+    f.el.classList.toggle('wui-locked', locked);
+    if (f.lockBtn) f.lockBtn.textContent = locked ? '🔒' : '🔓';
+    if (!silent) {
+      const L = this.layout[id] || (this.layout[id] = {});
+      L.locked = locked;
+      this._save(this.LAYK, this.layout);
+    }
+  },
+
+  resizeFrame(id, w, h) {
+    const f = this.frames[id];
+    if (!f || !f.resizable) return;
+    w = U.clamp(w, f.minW, f.maxW);
+    h = U.clamp(h, f.minH, f.maxH);
+    f.el.style.width = Math.round(w) + 'px';
+    f.el.style.height = Math.round(h) + 'px';
+  },
+
+  // Snaps a dragged frame's top-left to nearby screen edges/center and the
+  // edges of every other placed frame, within an 8px threshold, and lights up
+  // a guide line on the axis that snapped so the alignment is visible, not
+  // just felt.
+  SNAP_THRESH: 8,
+  snapPosition(id, x, y, w, h) {
+    const T = this.SNAP_THRESH;
+    const candX = [0, Math.round(innerWidth / 2 - w / 2), innerWidth - w];
+    const candY = [0, Math.round(innerHeight / 2 - h / 2), innerHeight - h];
+    for (const oid in this.frames) {
+      if (oid === id) continue;
+      const of = this.frames[oid].el;
+      if (!of.style.left || of.classList.contains('wui-hidden')) continue;
+      const r = of.getBoundingClientRect();
+      candX.push(Math.round(r.left), Math.round(r.right - w), Math.round(r.right), Math.round(r.left - w));
+      candY.push(Math.round(r.top), Math.round(r.bottom - h), Math.round(r.bottom), Math.round(r.top - h));
+    }
+    let bestX = null, bestXD = T, bestY = null, bestYD = T;
+    for (const cx of candX) { const d = Math.abs(cx - x); if (d < bestXD) { bestXD = d; bestX = cx; } }
+    for (const cy of candY) { const d = Math.abs(cy - y); if (d < bestYD) { bestYD = d; bestY = cy; } }
+    this.showSnapLines(bestX !== null ? bestX + w / 2 : null, bestY !== null ? bestY + h / 2 : null);
+    return { x: bestX !== null ? bestX : x, y: bestY !== null ? bestY : y };
+  },
+
+  showSnapLines(vx, hy) {
+    if (!this._snapV) return;
+    this._snapV.style.display = vx !== null ? 'block' : 'none';
+    if (vx !== null) Object.assign(this._snapV.style, { left: vx + 'px', top: '0', width: '1px', height: '100%' });
+    this._snapH.style.display = hy !== null ? 'block' : 'none';
+    if (hy !== null) Object.assign(this._snapH.style, { top: hy + 'px', left: '0', height: '1px', width: '100%' });
+  },
+  hideSnapLines() {
+    if (!this._snapV) return;
+    this._snapV.style.display = 'none';
+    this._snapH.style.display = 'none';
   },
 
   placeFrame(id, x, y, isDefault) {
@@ -237,26 +378,48 @@ const WUI = {
     this.editMode = on;
     document.body.classList.toggle('wui-edit', on);
     document.getElementById('wui-editbanner').style.display = on ? 'block' : 'none';
+    if (!on) this.hideSnapLines();
     if (on) UI.closeAll();
     sfx('ui');
   },
 
   // ================= ACTION BAR =================
-  BAR_DEFS: null, // [{key ('lmb'|'rmb'|0..9|'php'|'pmp'), label}]
+  // Slot keys: 'lmb'|'rmb'|'php'|'pmp' (bar 1 fixed slots), 0..9 (bar 1
+  // numbered slots — page-swapped by Shift), 'x0'..'x9' (bar 2, its own
+  // independent bank, no paging). parseK() is the one place that turns a DOM
+  // dataset string back into a real key so bar 1 and bar 2 share one render
+  // path without either guessing the other's format.
+  BAR_DEFS: null, BAR2_DEFS: null, shiftHeld: false,
+  parseK(kRaw) {
+    if (kRaw === 'lmb' || kRaw === 'rmb' || kRaw === 'php' || kRaw === 'pmp') return kRaw;
+    if (kRaw[0] === 'x') return kRaw;
+    return +kRaw;
+  },
   buildActionBar() {
     const bar = document.getElementById('wui-actionbar');
-    bar.innerHTML = '';
+    bar.innerHTML = '<div class="wui-barpage-label"></div>';
     this.BAR_DEFS = [
       { k: 'lmb', label: 'LMB' }, { k: 'rmb', label: 'RMB' }, { gap: 1 },
       ...Array.from({ length: 10 }, (_, i) => ({ k: i, label: this.keyLabel('slot' + (i + 1)) })),
       { gap: 1 }, { k: 'php', label: this.keyLabel('potHp') }, { k: 'pmp', label: this.keyLabel('potMp') },
     ];
-    for (const def of this.BAR_DEFS) {
+    this.buildBarSlots(bar, this.BAR_DEFS);
+  },
+
+  buildActionBar2() {
+    const bar = document.getElementById('wui-actionbar2');
+    bar.innerHTML = '';
+    this.BAR2_DEFS = Array.from({ length: 10 }, (_, i) => ({ k: 'x' + i, label: this.keyLabel('bar2slot' + (i + 1)) }));
+    this.buildBarSlots(bar, this.BAR2_DEFS);
+  },
+
+  buildBarSlots(bar, defs) {
+    for (const def of defs) {
       if (def.gap) { bar.insertAdjacentHTML('beforeend', '<div class="wab-gap"></div>'); continue; }
       const d = document.createElement('div');
       d.className = 'wab-slot';
       d.dataset.k = def.k;
-      d.innerHTML = `<span class="wab-key">${def.label}</span><canvas width="42" height="42"></canvas><div class="wab-cd"></div><span class="wab-count"></span>`;
+      d.innerHTML = `<span class="wab-key">${def.label}</span><canvas width="42" height="42"></canvas><div class="wab-cd"></div><span class="wab-count"></span><span class="wab-charges"></span>`;
       d.addEventListener('mousedown', e => {
         e.stopPropagation();
         if (e.button === 0) this.slotClick(def.k);
@@ -279,6 +442,8 @@ const WUI = {
         if (pl.hotbar && pl.hotbar[s]) pl.bars.slots[i] = { t: 'skill', id: pl.hotbar[s] };
       });
     }
+    if (!pl.bars.slots2) pl.bars.slots2 = new Array(10).fill(null);       // action bar 2
+    if (!pl.bars.slotsShift) pl.bars.slotsShift = new Array(10).fill(null); // bar 1, Shift page
     if (!pl.macros) pl.macros = [];
     if (!pl.quests) pl.quests = { p: {}, done: {} };
     this.syncHotbar(pl);
@@ -295,6 +460,8 @@ const WUI = {
     if (k === 'rmb') return pl.bars.rmb;
     if (k === 'php') return { t: 'pot', id: 'hp' };
     if (k === 'pmp') return { t: 'pot', id: 'mp' };
+    if (typeof k === 'string' && k[0] === 'x') return pl.bars.slots2[+k.slice(1)];
+    if (this.shiftHeld && pl.bars.slotsShift) return pl.bars.slotsShift[k];
     return pl.bars.slots[k];
   },
 
@@ -307,6 +474,8 @@ const WUI = {
     }
     if (k === 'lmb') pl.bars.lmb = entry || { t: 'atk' };
     else if (k === 'rmb') pl.bars.rmb = entry;
+    else if (typeof k === 'string' && k[0] === 'x') pl.bars.slots2[+k.slice(1)] = entry;
+    else if (this.shiftHeld && pl.bars.slotsShift) pl.bars.slotsShift[k] = entry;
     else pl.bars.slots[k] = entry;
     this.syncHotbar(pl);
     sfx('equip');
@@ -413,15 +582,20 @@ const WUI = {
 
   updateActionBar() {
     const pl = G.player;
-    document.querySelectorAll('#wui-actionbar .wab-slot').forEach(d => {
-      const kRaw = d.dataset.k;
-      const k = (kRaw === 'lmb' || kRaw === 'rmb' || kRaw === 'php' || kRaw === 'pmp') ? kRaw : +kRaw;
+    const label = document.querySelector('#wui-actionbar .wui-barpage-label');
+    if (label) {
+      label.textContent = this.shiftHeld ? 'PAGE 2 (Shift)' : 'PAGE 1';
+      label.classList.toggle('on-page2', this.shiftHeld);
+    }
+    const hostileTarget = Target.current && Target.isHostile(Target.current) ? Target.current : null;
+    document.querySelectorAll('#wui-actionbar .wab-slot, #wui-actionbar2 .wab-slot').forEach(d => {
+      const k = this.parseK(d.dataset.k);
       const s = this.getSlot(k);
       const cv = d.querySelector('canvas'), ctx = cv.getContext('2d');
-      const cdEl = d.querySelector('.wab-cd'), cntEl = d.querySelector('.wab-count');
+      const cdEl = d.querySelector('.wab-cd'), cntEl = d.querySelector('.wab-count'), chEl = d.querySelector('.wab-charges');
       ctx.clearRect(0, 0, 42, 42);
       d.classList.toggle('wab-empty', !s);
-      let cdTxt = '', dim = false, oom = false, count = '';
+      let cdTxt = '', dim = false, oom = false, oor = false, count = '', charges = '';
       if (s) {
         this.drawEntryIcon(ctx, s, 42);
         if (s.t === 'skill') {
@@ -440,15 +614,24 @@ const WUI = {
           const lvl = Ent.skillLvl(pl, s.id);
           if (sk && lvl > 0 && pl.mp < Ent.manaCost(sk, lvl)) oom = true;
           if (pl.gcd > 0.1) dim = true;
+          // resource/range desaturation: an ability you cannot currently reach
+          // your focused enemy with reads differently from one merely on
+          // cooldown, so the player knows whether to wait or to close in.
+          if (hostileTarget && !Target.inRangeOf(s.id, hostileTarget)) oor = true;
         } else if (s.t === 'pot') {
           count = pl.potions[s.id];
           if (Game.potCd > 0 || !pl.potions[s.id]) dim = true;
+        } else if (s.t === 'macro') {
+          const m = pl.macros[s.id];
+          if (m && m.mode === 'seq' && m.seq.length) charges = ((m.idx || 0) % m.seq.length + 1) + '/' + m.seq.length;
         }
       }
       cdEl.textContent = cdTxt;
       cntEl.textContent = count;
+      if (chEl) chEl.textContent = charges;
       d.classList.toggle('wab-dim', dim);
       d.classList.toggle('wab-oom', oom);
+      d.classList.toggle('wab-oor', oor);
     });
   },
 
@@ -696,6 +879,49 @@ const WUI = {
     const lines = this.chatLines.filter(l => this.chatTab === 'all' || l.tab === this.chatTab);
     log.innerHTML = lines.slice(-90).map(l =>
       `<div style="color:${l.color || '#cfc4a8'}"><span class="wc-ts">${l.ts}</span>${l.html}</div>`).join('');
+    log.scrollTop = log.scrollHeight;
+  },
+
+  // ================= COMBAT LOG =================
+  // Distinct from the chat frame's Combat tab: chat carries a curated
+  // highlight feed (rare+ drops, elite/boss kills); the combat log is the
+  // unfiltered play-by-play — every hit, heal, kill and pickup — with its own
+  // checkbox filters so a player drowning in melee swings can mute them
+  // without losing loot or kill lines.
+  CL_TYPES: [['dealt', 'Dealt'], ['taken', 'Taken'], ['heal', 'Heals'], ['kill', 'Kills'], ['loot', 'Loot']],
+  clFilters: null, clLines: [],
+  buildCombatLog() {
+    this.clFilters = this._load('wui_cl_filters_v1') || { dealt: true, taken: true, heal: true, kill: true, loot: true };
+    const el = document.getElementById('wui-cl');
+    const tb = el.querySelector('.cl-toolbar');
+    for (const [id, label] of this.CL_TYPES) {
+      const c = document.createElement('div');
+      c.className = 'cl-filter' + (this.clFilters[id] !== false ? ' active' : '');
+      c.dataset.t = id;
+      c.textContent = label;
+      c.addEventListener('click', () => {
+        this.clFilters[id] = !this.clFilters[id];
+        c.classList.toggle('active', this.clFilters[id]);
+        this._save('wui_cl_filters_v1', this.clFilters);
+        this.renderCombatLog();
+      });
+      tb.appendChild(c);
+    }
+  },
+  clLine(type, html, color) {
+    const t = new Date();
+    const ts = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') + ':' + String(t.getSeconds()).padStart(2, '0');
+    this.clLines.push({ type, html, color, ts });
+    if (this.clLines.length > 240) this.clLines.shift();
+    this.renderCombatLog();
+  },
+  renderCombatLog() {
+    const el = document.getElementById('wui-cl');
+    if (!el || !this.clFilters) return;
+    const log = el.querySelector('.cl-log');
+    const lines = this.clLines.filter(l => this.clFilters[l.type] !== false);
+    log.innerHTML = lines.slice(-140).map(l =>
+      `<div style="color:${l.color || '#cfc4a8'}"><span class="cl-ts">${l.ts}</span>${l.html}</div>`).join('');
     log.scrollTop = log.scrollHeight;
   },
 
@@ -1028,10 +1254,32 @@ const WUI = {
     this.wsToggle(body, 'Buff tray', 'Blessings and skill auras with timers', 'fBuffs');
     this.wsToggle(body, 'Chat window', '', 'fChat');
     this.wsToggle(body, 'Damage meter', '', 'fDps');
+    this.wsToggle(body, 'Combat log', 'Filterable scrollback of every hit, heal and kill', 'fCombatLog');
     this.wsToggle(body, 'Quest tracker', '', 'fTracker');
     this.wsToggle(body, 'Friends frame', 'Online friends at a glance', 'fFriends');
     this.wsToggle(body, 'Guild frame', 'Your guild and who\'s online', 'fGuild');
+    this.wsToggle(body, 'Action bar 2', 'A second bar with its own bindable slots', 'fBar2');
     this.wsToggle(body, 'Chat & emote bubbles', 'Speech bubbles over characters in the world', 'bubbles');
+
+    const trow = document.createElement('div');
+    trow.className = 'ws-row';
+    trow.innerHTML = '<span class="ws-label">UI Theme<span class="ws-hint">Recolors every frame, bar and panel border</span></span>';
+    const sw = document.createElement('div');
+    sw.className = 'theme-swatches';
+    for (const t of ['gold', 'crimson', 'arcane', 'verdant']) {
+      const b = document.createElement('div');
+      b.className = 'theme-swatch' + (this.set.theme === t ? ' active' : '');
+      b.dataset.t = t;
+      b.title = t[0].toUpperCase() + t.slice(1);
+      b.addEventListener('click', () => {
+        this.set.theme = t; this.saveSet(); this.applyTheme();
+        sw.querySelectorAll('.theme-swatch').forEach(x => x.classList.toggle('active', x.dataset.t === t));
+        sfx('ui');
+      });
+      sw.appendChild(b);
+    }
+    trow.appendChild(sw);
+    body.appendChild(trow);
   },
 
   tabKeybinds(body) {
@@ -1168,13 +1416,21 @@ const WUI = {
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
     // frames
-    const vis = { player: s.fPlayer, party: s.fParty, target: s.fTarget, buffs: s.fBuffs, chat: s.fChat, dps: s.fDps, tracker: s.fTracker, friends: s.fFriends, guildf: s.fGuild };
+    const vis = { player: s.fPlayer, party: s.fParty, target: s.fTarget, buffs: s.fBuffs, chat: s.fChat, dps: s.fDps, tracker: s.fTracker, friends: s.fFriends, guildf: s.fGuild, bar2: s.fBar2, cl: s.fCombatLog };
     for (const id in vis) {
       const f = this.frames[id];
       if (f) f.el.classList.toggle('wui-hidden', !vis[id]);
     }
     const fps = document.getElementById('wui-fps');
     if (fps) fps.style.display = Render.showFps ? 'block' : 'none';
+    this.applyTheme();
+  },
+
+  // Theming is a single attribute on <html>; every color a theme touches is
+  // a var(--wui-*) read from css/wui.css's :root[data-wui-theme] blocks, so
+  // this function is the entire mechanism — no per-component branching.
+  applyTheme() {
+    document.documentElement.dataset.wuiTheme = this.set.theme || 'gold';
   },
 
   // ================= ENGINE HOOKS =================
@@ -1190,6 +1446,7 @@ const WUI = {
         const src = opts.srcName || Ent._src || 'Attack';
         self.ctLine('out', (opts.crit ? '✹ ' : '') + U.fmt(Math.floor(dealt)), opts.crit ? '#ffd94f' : ELEM[elem].color, opts.crit);
         self.trackOut(dealt, src, opts.crit);
+        self.clLine('dealt', `${U.esc(src)} hits ${U.esc(m.name || m.fam || 'target')} for <b>${U.fmt(Math.floor(dealt))}</b> ${ELEM[elem].name.toLowerCase()}${opts.crit ? ' <span style="color:#ffd94f">(Critical)</span>' : ''}`, '#c9d8ff');
         if (!m.dead && !Target.current) Target.soft = m;
       }
       return dealt;
@@ -1205,6 +1462,7 @@ const WUI = {
         const who = src && src.name ? src.name : 'the environment';
         self.ctLine('in', '-' + U.fmt(Math.floor(dealt)), '#ff6a5a');
         self.trackIn(dealt);
+        self.clLine('taken', `${U.esc(who)} hits you for <b>${U.fmt(Math.floor(dealt))}</b>`, '#ffb0a0');
         if (dealt > G.player.derived.maxHp * 0.18)
           self.chat('combat', `${U.esc(who)} hits you for <span style="color:#ff6a5a">${U.fmt(Math.floor(dealt))}</span>.`);
       }
@@ -1217,6 +1475,7 @@ const WUI = {
       _km(m, killer);
       if (wasDead || m.ally) return;
       if (self.dps.fight) self.dps.fight.kills++;
+      self.clLine('kill', `${U.esc(m.name || m.fam)} dies`, m.rank === 'boss' ? '#ff8a6a' : m.rank === 'elite' ? '#ffd94f' : '#a0d8a0');
       if (m.rank === 'elite' || m.rank === 'boss')
         self.chat('combat', `You have slain <span style="color:${m.rank === 'boss' ? '#ff6a3c' : '#ffd94f'}">${U.esc(m.name)}</span>!`);
       if (typeof G.map.actIdx === 'number') self.bumpQuest('kill', G.map.actIdx);
@@ -1239,7 +1498,10 @@ const WUI = {
     const _gi = Game.giveItem.bind(Game);
     Game.giveItem = function (it) {
       const ok = _gi(it);
-      if (ok) self.chat('loot', `You receive <span style="color:${Items.rarityColor(it.rarity)}">[${U.esc(it.name)}]</span>.`);
+      if (ok) {
+        self.chat('loot', `You receive <span style="color:${Items.rarityColor(it.rarity)}">[${U.esc(it.name)}]</span>.`);
+        self.clLine('loot', `You receive [<span style="color:${Items.rarityColor(it.rarity)}">${U.esc(it.name)}</span>]`, '#e8dcc0');
+      }
       return ok;
     };
 
@@ -1281,7 +1543,10 @@ const WUI = {
       const b = kind === 'hp' ? pl.hp : pl.mp;
       _pot(kind);
       const gain = Math.round((kind === 'hp' ? pl.hp : pl.mp) - b);
-      if (gain > 0) self.ctLine('in', '+' + U.fmt(gain), kind === 'hp' ? '#6be26b' : '#6fa8ff');
+      if (gain > 0) {
+        self.ctLine('in', '+' + U.fmt(gain), kind === 'hp' ? '#6be26b' : '#6fa8ff');
+        self.clLine('heal', `You recover <b>${U.fmt(gain)}</b> ${kind === 'hp' ? 'life' : 'mana'}`, kind === 'hp' ? '#8fe68f' : '#8fc0ff');
+      }
     };
 
     // panels this layer owns
@@ -1334,6 +1599,11 @@ const WUI = {
     for (let i = 1; i <= 10; i++) {
       if (k === m['slot' + i]) {
         const s = this.getSlot(i - 1);
+        if (s && !UI.openPanel) this.execEntry(s);
+        return true;
+      }
+      if (m['bar2slot' + i] && k === m['bar2slot' + i]) {
+        const s = this.getSlot('x' + (i - 1));
         if (s && !UI.openPanel) this.execEntry(s);
         return true;
       }

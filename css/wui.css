@@ -1,5 +1,53 @@
 /* ============ DIABLOID: wui.css — WoW-style interface layer ============ */
 
+/* ---------------- theme tokens ----------------
+   Every new component below reads these instead of literal colors, so a
+   theme swap (Settings -> Interface -> UI Theme) is one attribute write on
+   <html>. Legacy rules above/below this block still carry literal colors
+   from before theming existed; where a rule was touched for this feature it
+   was ported to tokens, not rewritten wholesale, per the "extend, don't
+   rewrite" brief. */
+:root, :root[data-wui-theme="gold"] {
+  --wui-bg: rgba(10, 7, 4, 0.88);
+  --wui-bg-solid: #0c0906;
+  --wui-bg2: rgba(20, 14, 6, 0.9);
+  --wui-border: #4a3a1c;
+  --wui-border-hi: #8a6a2c;
+  --wui-text: #cfc4a8;
+  --wui-text-hi: #ffe9a8;
+  --wui-text-dim: #8a7444;
+  --wui-accent: #ffd94f;
+  --wui-accent-dim: #b8a468;
+  --wui-good: #6be26b;
+  --wui-bad: #ff6a5a;
+  --wui-hp: #2e9e40;
+  --wui-hp-low: #c03a2a;
+  --wui-mp: #2a52c0;
+}
+:root[data-wui-theme="crimson"] {
+  --wui-border: #5a2418;
+  --wui-border-hi: #b3402a;
+  --wui-text-hi: #ffcfae;
+  --wui-accent: #ff8a5a;
+  --wui-accent-dim: #c47456;
+  --wui-mp: #7a2a2a;
+}
+:root[data-wui-theme="arcane"] {
+  --wui-border: #2a2050;
+  --wui-border-hi: #6a52c9;
+  --wui-text-hi: #d8ccff;
+  --wui-accent: #b39bff;
+  --wui-accent-dim: #8f7cc4;
+  --wui-hp: #5a3a9e;
+}
+:root[data-wui-theme="verdant"] {
+  --wui-border: #24401a;
+  --wui-border-hi: #5c9a3a;
+  --wui-text-hi: #dcf0c0;
+  --wui-accent: #9be26b;
+  --wui-accent-dim: #7bab5a;
+}
+
 /* hide the legacy fixed hotbar & buff strip; WUI replaces them */
 #hotbar { display: none !important; }
 #buff-bar { display: none !important; }
@@ -18,31 +66,56 @@
 body.wui-edit .wui-frame { pointer-events: auto !important; }
 .wui-frame.wui-hidden { display: none; }
 body.wui-edit .wui-frame {
-  outline: 1px dashed rgba(255, 217, 79, 0.85);
+  outline: 1px dashed color-mix(in srgb, var(--wui-accent) 85%, transparent);
   outline-offset: 2px;
   cursor: grab;
   background: rgba(60, 45, 12, 0.25);
   min-width: 40px; min-height: 22px;
 }
+body.wui-edit .wui-frame.wui-locked {
+  outline-color: color-mix(in srgb, var(--wui-bad) 75%, transparent);
+  cursor: not-allowed;
+}
 body.wui-edit .wui-frame::before {
   content: attr(data-label);
   position: absolute; top: -17px; left: 0;
-  font-size: 10px; letter-spacing: 1px; color: #ffd94f;
+  font-size: 10px; letter-spacing: 1px; color: var(--wui-accent);
   background: rgba(10, 7, 4, 0.85); padding: 1px 6px;
-  border: 1px solid #4a3a1c; white-space: nowrap;
+  border: 1px solid var(--wui-border); white-space: nowrap;
   pointer-events: none;
 }
 body.wui-edit .wui-frame * { pointer-events: none !important; }
+body.wui-edit .wui-frame .wui-lockbtn,
+body.wui-edit .wui-frame .wui-resizer { pointer-events: auto !important; }
+.wui-lockbtn {
+  position: absolute; top: -17px; right: 0; width: 15px; height: 15px;
+  background: rgba(10, 7, 4, 0.85); border: 1px solid var(--wui-border);
+  color: var(--wui-accent-dim); font-size: 10px; line-height: 13px; text-align: center;
+  cursor: pointer; display: none; z-index: 5;
+}
+body.wui-edit .wui-frame .wui-lockbtn { display: block; }
+.wui-frame.wui-locked .wui-lockbtn { color: var(--wui-bad); }
+.wui-resizer {
+  position: absolute; right: 0; bottom: 0; width: 13px; height: 13px;
+  cursor: nwse-resize; display: none; z-index: 5;
+  background: linear-gradient(135deg, transparent 50%, var(--wui-border-hi) 50%);
+}
+body.wui-edit .wui-frame.wui-resizable:not(.wui-locked) .wui-resizer { display: block; }
+.wui-snapline {
+  position: fixed; z-index: 61; background: var(--wui-accent);
+  box-shadow: 0 0 4px var(--wui-accent); pointer-events: none; display: none;
+}
 #wui-editbanner {
   position: fixed; top: 64px; left: 50%; transform: translateX(-50%);
-  z-index: 60; background: rgba(20, 14, 4, 0.95); border: 1px solid #ffd94f;
-  color: #ffd94f; padding: 8px 20px; font-size: 13px; letter-spacing: 1px;
+  z-index: 60; background: rgba(20, 14, 4, 0.95); border: 1px solid var(--wui-accent);
+  color: var(--wui-accent); padding: 8px 20px; font-size: 13px; letter-spacing: 1px;
   font-family: 'Palatino Linotype', serif; text-align: center;
 }
 #wui-editbanner button {
-  margin-left: 14px; background: #3c2c0c; color: #ffd94f;
+  margin-left: 14px; background: #3c2c0c; color: var(--wui-accent);
   border: 1px solid #6a5a24; padding: 3px 12px; cursor: pointer; font-family: inherit;
 }
+#wui-editbanner button.active { background: var(--wui-accent); color: #1a1208; }
 
 /* ---------------- action bar ---------------- */
 #wui-actionbar { display: flex; gap: 4px; align-items: flex-end; }
@@ -333,3 +406,189 @@ body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
   0%   { box-shadow: 0 0 0 2px rgba(255,90,70,0.9); background: rgba(120,20,10,0.55); }
   100% { box-shadow: none; }
 }
+
+/* ---------------- action bar: range/resource desaturation, pages, charges ---------------- */
+.wab-slot.wab-oor canvas { filter: grayscale(0.85) brightness(0.55); }
+.wab-slot.wab-oor .wab-key { color: var(--wui-bad); }
+.wab-slot .wab-charges {
+  position: absolute; bottom: 1px; left: 3px; font-size: 10px; color: var(--wui-accent);
+  text-shadow: 0 1px 2px #000; z-index: 3; pointer-events: none; font-weight: bold;
+}
+#wui-actionbar { position: relative; }
+#wui-actionbar2 { display: flex; gap: 4px; align-items: flex-end; margin-top: 4px; }
+#wui-actionbar .wui-barpage-label {
+  position: absolute; left: 0; top: -16px; font-size: 10px; letter-spacing: 2px;
+  color: var(--wui-accent-dim); text-shadow: 0 1px 2px #000; pointer-events: none; white-space: nowrap;
+}
+#wui-actionbar .wui-barpage-label.on-page2 { color: var(--wui-accent); }
+
+/* ---------------- rich tooltips: delay, comparison, sockets, sets ---------------- */
+#tooltip.tt-rich { display: flex; gap: 12px; max-width: 640px; }
+#tooltip .tt-col { max-width: 300px; }
+#tooltip .tt-col + .tt-col { border-left: 1px solid var(--wui-border); padding-left: 12px; }
+#tooltip .tt-compare-label { font-size: 10px; letter-spacing: 1px; color: var(--wui-text-dim); margin-bottom: 3px; }
+#tooltip .tt-delta { font-size: 11px; }
+#tooltip .tt-delta.up { color: var(--wui-good); }
+#tooltip .tt-delta.down { color: var(--wui-bad); }
+#tooltip .tt-sockets { margin-top: 5px; display: flex; gap: 4px; }
+#tooltip .tt-socket {
+  width: 13px; height: 13px; border-radius: 50%; border: 1px solid #000;
+  background: radial-gradient(circle at 35% 30%, #3a3a3a, #0a0a0a);
+  box-shadow: 0 0 3px rgba(0,0,0,0.8) inset;
+}
+#tooltip .tt-socket.filled { background: radial-gradient(circle at 35% 30%, #9be2ff, #1a5a8a); box-shadow: 0 0 5px #4ab0ff; }
+#tooltip .tt-setpiece-owned { outline: 1px solid #2bd45e; outline-offset: 3px; }
+#tooltip .tt-affix-head { font-size: 10px; letter-spacing: 1px; color: var(--wui-text-dim); margin: 5px 0 2px; }
+
+/* ---------------- character sheet: paperdoll, formula tips, gear score ---------------- */
+.paperdoll-wrap { display: flex; gap: 18px; margin-bottom: 10px; }
+.paperdoll {
+  position: relative; width: 210px; height: 300px; flex: none;
+  background: radial-gradient(ellipse at 50% 30%, rgba(80,60,20,0.18), transparent 70%);
+  border: 1px solid var(--wui-border); border-radius: 6px;
+}
+.paperdoll .pd-silhouette {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 46px; height: 210px; border-radius: 22px;
+  background: linear-gradient(180deg, rgba(120,100,60,0.16), rgba(60,50,30,0.08));
+  border: 1px solid rgba(120,100,60,0.25);
+}
+.paperdoll .pd-slot {
+  position: absolute; width: 46px; height: 46px; background: #0d0905;
+  border: 1px dashed var(--wui-border); border-radius: 5px; cursor: pointer;
+}
+.paperdoll .pd-slot:hover { border-color: var(--wui-border-hi); }
+.paperdoll .pd-slot canvas { position: absolute; inset: 0; margin: auto; }
+.paperdoll .pd-slot .pd-label {
+  position: absolute; bottom: -13px; width: 100%; text-align: center;
+  font-size: 8px; color: var(--wui-text-dim); pointer-events: none; white-space: nowrap;
+}
+.gear-score {
+  display: inline-flex; align-items: baseline; gap: 6px; margin: 6px 0;
+  padding: 4px 10px; border: 1px solid var(--wui-border-hi); border-radius: 4px;
+  background: rgba(40,28,8,0.5);
+}
+.gear-score .gs-num { font-size: 20px; color: var(--wui-accent); font-weight: bold; }
+.gear-score .gs-label { font-size: 10px; letter-spacing: 1px; color: var(--wui-text-dim); }
+.stat-table td.stat-name { cursor: help; border-bottom: 1px dotted var(--wui-border); }
+.stat-table td.stat-name:hover { color: var(--wui-text-hi); }
+.tt-formula { color: #8ecbff; font-family: monospace; font-size: 11px; margin-top: 4px; white-space: pre-wrap; }
+
+/* ---------------- inventory: sizes, toolbar, stash tabs ---------------- */
+.inv-toolbar { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; justify-content: center; }
+.inv-toolbar input[type=text] {
+  background: #0d0905; border: 1px solid var(--wui-border); color: var(--wui-text-hi);
+  font-family: inherit; font-size: 12px; padding: 5px 9px; width: 160px;
+}
+.inv-toolbar select { background: #0d0905; border: 1px solid var(--wui-border); color: var(--wui-text); font-family: inherit; font-size: 12px; padding: 5px 6px; }
+.inv-toolbar .inv-filter-chip {
+  padding: 3px 9px; border: 1px solid var(--wui-border); border-radius: 10px; font-size: 10.5px;
+  cursor: pointer; color: var(--wui-text-dim);
+}
+.inv-toolbar .inv-filter-chip.active { border-color: var(--wui-border-hi); color: var(--wui-text-hi); background: rgba(255,217,79,0.12); }
+.inv-grid { position: relative; }
+.inv-cell.filtered-out { opacity: 0.16; pointer-events: none; }
+.inv-cell.sz-2x1 { grid-column: span 2; }
+.inv-cell.sz-1x2 { grid-row: span 2; }
+.inv-cell.sz-2x2 { grid-column: span 2; grid-row: span 2; }
+.stash-tabs { display: flex; gap: 4px; justify-content: center; margin-bottom: 6px; }
+.stash-tabs .stash-tab {
+  padding: 4px 14px; background: #160f07; border: 2px solid var(--wui-border); border-radius: 5px;
+  cursor: pointer; font-size: 12px; color: var(--wui-text-dim);
+}
+.stash-tabs .stash-tab.active { background: #2e2008; color: var(--wui-text-hi); border-color: var(--wui-border-hi); }
+
+/* ---------------- lore codex ---------------- */
+#panel-codex { width: 760px; max-width: 94vw; }
+.codex-layout { display: flex; gap: 14px; }
+.codex-list { width: 220px; flex: none; max-height: 58vh; overflow-y: auto; }
+.codex-entry-btn {
+  display: block; width: 100%; text-align: left; padding: 7px 10px; margin-bottom: 3px;
+  background: rgba(20,14,6,0.5); border: 1px solid var(--wui-border); border-radius: 4px;
+  color: var(--wui-text-dim); font-family: inherit; font-size: 12px; cursor: pointer;
+}
+.codex-entry-btn.unlocked { color: var(--wui-text-hi); }
+.codex-entry-btn.active { border-color: var(--wui-border-hi); background: rgba(255,217,79,0.08); }
+.codex-entry-btn.locked { opacity: 0.5; cursor: default; }
+.codex-body { flex: 1; max-height: 58vh; overflow-y: auto; padding-right: 6px; }
+.codex-body h3 { color: var(--wui-accent); font-size: 16px; letter-spacing: 1px; margin-bottom: 8px; }
+.codex-body .codex-cat { font-size: 10px; letter-spacing: 2px; color: var(--wui-text-dim); margin-bottom: 10px; }
+.codex-body .codex-text { font-size: 13px; line-height: 1.6; color: var(--wui-text); white-space: pre-line; }
+.codex-locked-msg { color: var(--wui-text-dim); font-style: italic; padding: 20px; text-align: center; }
+.codex-progress { text-align: center; color: var(--wui-text-dim); font-size: 11px; margin-bottom: 10px; }
+
+/* ---------------- combat log ---------------- */
+#wui-cl { width: 380px; }
+#wui-cl .cl-toolbar { display: flex; gap: 3px; flex-wrap: wrap; padding: 3px; background: rgba(8,6,3,0.6); }
+#wui-cl .cl-filter {
+  font-size: 9.5px; padding: 2px 7px; border: 1px solid var(--wui-border); border-radius: 8px;
+  cursor: pointer; color: var(--wui-text-dim);
+}
+#wui-cl .cl-filter.active { color: var(--wui-text-hi); border-color: var(--wui-border-hi); background: rgba(255,217,79,0.1); }
+#wui-cl .cl-log {
+  height: 150px; overflow-y: auto; padding: 4px 7px; background: rgba(8,6,3,0.72);
+  border: 1px solid var(--wui-border); font-size: 11px; line-height: 1.4;
+  scrollbar-width: thin; scrollbar-color: var(--wui-border) transparent;
+}
+#wui-cl .cl-log div { text-shadow: 0 1px 1px #000; }
+#wui-cl .cl-ts { color: #5f5237; font-size: 9px; margin-right: 4px; }
+
+/* ---------------- nameplates (DOM, screen-space) ---------------- */
+#wui-plates { position: fixed; inset: 0; z-index: 11; pointer-events: none; }
+.wui-plate {
+  position: absolute; transform: translate(-50%, -100%); width: 96px;
+  text-align: center; pointer-events: none; will-change: transform;
+}
+.wui-plate .wp-name {
+  font-size: 11px; color: #d8cdb0; text-shadow: 0 1px 2px #000, 0 0 3px #000;
+  white-space: nowrap; margin-bottom: 2px;
+}
+.wui-plate.wp-elite .wp-name { color: #ffd94f; }
+.wui-plate.wp-boss .wp-name { font-size: 13px; color: #ff8a6a; font-weight: bold; }
+.wui-plate.wp-aggro .wp-name { color: #ff6a5a; }
+.wui-plate .wp-hpwrap {
+  height: 5px; border: 1px solid #000; background: #1a1410; border-radius: 2px; overflow: hidden;
+}
+.wui-plate.wp-boss .wp-hpwrap { height: 7px; }
+.wui-plate .wp-hpfill { height: 100%; background: linear-gradient(180deg, #c0392b, #7a1408); }
+.wui-plate.wp-elite .wp-hpfill { background: linear-gradient(180deg, #d8a838, #8a6a1c); }
+.wui-plate.wp-ally .wp-hpfill { background: linear-gradient(180deg, #2e9e40, #1d6a2a); }
+.wui-plate .wp-frame {
+  position: absolute; inset: -3px -3px -3px -3px; border-radius: 3px; pointer-events: none;
+}
+.wui-plate.wp-elite .wp-frame { border: 1px solid #ffd94f; box-shadow: 0 0 5px rgba(255,217,79,0.5); }
+.wui-plate.wp-boss .wp-frame { border: 2px solid #ff5a3c; box-shadow: 0 0 9px rgba(255,90,60,0.65); }
+.wui-plate .wp-castwrap {
+  height: 6px; margin-top: 2px; border: 1px solid #000; background: #1a1410; border-radius: 2px; overflow: hidden;
+}
+.wui-plate .wp-castfill { height: 100%; background: linear-gradient(180deg, #c8a03a, #8a6a1c); transform-origin: left; }
+.wui-plate .wp-castname { font-size: 8px; color: #ffe9a8; text-shadow: 0 1px 1px #000; line-height: 7px; }
+.wui-plate .wp-aggroicon {
+  position: absolute; left: -16px; top: 50%; transform: translateY(-50%); font-size: 12px;
+  color: #ff6a5a; text-shadow: 0 0 3px #000;
+}
+
+/* ---------------- keybind conflict ---------------- */
+.ws-key.conflict { border-color: var(--wui-bad); color: var(--wui-bad); animation: ws-conflict 1.1s infinite; }
+@keyframes ws-conflict { 50% { box-shadow: 0 0 6px rgba(255,90,90,0.7); } }
+.ws-conflict-note { color: var(--wui-bad); font-size: 10.5px; margin-top: 2px; }
+
+/* ---------------- class preview polish ---------------- */
+.cc-stats { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+.cc-stat-row { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--wui-text-dim); }
+.cc-stat-row .cc-stat-bar { flex: 1; height: 5px; background: #1a1410; border: 1px solid #000; border-radius: 2px; overflow: hidden; }
+.cc-stat-row .cc-stat-fill { height: 100%; background: linear-gradient(90deg, #8a6a2c, var(--wui-accent)); }
+.cc-playstyle { font-size: 9.5px; color: var(--wui-accent-dim); margin-top: 5px; letter-spacing: 0.5px; }
+.class-card.sel .cc-stats .cc-stat-fill { background: linear-gradient(90deg, var(--wui-accent-dim), var(--wui-accent)); }
+
+/* ---------------- theme select swatches ---------------- */
+.theme-swatches { display: flex; gap: 8px; }
+.theme-swatch {
+  width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;
+  box-shadow: 0 0 0 1px #000 inset;
+}
+.theme-swatch.active { border-color: #fff; }
+.theme-swatch[data-t="gold"] { background: radial-gradient(circle at 35% 30%, #ffe9a8, #8a6a2c); }
+.theme-swatch[data-t="crimson"] { background: radial-gradient(circle at 35% 30%, #ff8a5a, #5a2418); }
+.theme-swatch[data-t="arcane"] { background: radial-gradient(circle at 35% 30%, #d8ccff, #2a2050); }
+.theme-swatch[data-t="verdant"] { background: radial-gradient(circle at 35% 30%, #dcf0c0, #24401a); }
