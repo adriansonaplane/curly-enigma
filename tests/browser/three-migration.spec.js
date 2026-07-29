@@ -153,6 +153,51 @@ test('shadow quality changes update the live world without rebuilding it', async
   expect(errors).toEqual([]);
 });
 
+test('light budget culls influence volumes and only reselects after meaningful movement', async ({ page }) => {
+  const errors = [];
+  await openGame(page, errors); await startGame(page);
+  const result = await page.evaluate(() => {
+    const map = Dungeon.generate({ actIdx: 0, depth: 1, seed: 8675309 });
+    Game.clearWorld(); Game.loadMap(map); Render.onMap(map);
+    R3.maxLights = 8;
+    R3.lookAt(G.player.x, G.player.y); R3.updateCamera();
+    World3.updateLights(G.time, G.player.x, G.player.y);
+    const first = World3._lightSelection;
+    const selected = first.selected.size;
+    World3.updateLights(G.time + 0.1, G.player.x + 0.2, G.player.y + 0.2);
+    const held = World3._lightSelection === first;
+    const cold = World3.lights.find(e => first.selected.has(e));
+    cold.src.lit = false;
+    World3.updateLights(G.time + 0.2, G.player.x + 0.2, G.player.y + 0.2);
+    return {
+      selected,
+      held,
+      stateChanged: World3._lightSelection !== first,
+      coldExcluded: !World3._lightSelection.selected.has(cold) && !cold.light.visible,
+      visible: World3.lights.filter(e => e.light.visible).length,
+    };
+  });
+  expect(result.selected).toBeLessThanOrEqual(8);
+  expect(result.held).toBe(true);
+  expect(result.stateChanged).toBe(true);
+  expect(result.coldExcluded).toBe(true);
+  expect(result.visible).toBeLessThanOrEqual(8);
+  expect(errors).toEqual([]);
+});
+
+test('ultra explicitly opts into twelve lights while high uses eight', async ({ page }) => {
+  const errors = [];
+  await openGame(page, errors); await startGame(page);
+  const budgets = await page.evaluate(() => {
+    Render.qualityMode = 'high'; Render.frame(1 / 60, G.time);
+    const high = R3.maxLights;
+    Render.qualityMode = 'ultra'; Render.frame(1 / 60, G.time);
+    return { high, ultra: R3.maxLights };
+  });
+  expect(budgets).toEqual({ high: 8, ultra: 12 });
+  expect(errors).toEqual([]);
+});
+
 for (const mode of ['elevated', 'third']) {
   test(`movement is camera-relative in ${mode} mode`, async ({ page }) => {
     const errors = [];

@@ -207,7 +207,9 @@ const Render = {
       this._shadows = shadows;
       World3.setShadows(shadows);
     }
-    R3.maxLights = step >= 5 ? 6 : step >= 4 ? 8 : 12;
+    // Profiling showed fragment lighting to be a primary GPU cost. High/auto
+    // therefore use eight; twelve is an explicit opt-in rather than a default.
+    R3.maxLights = this.qualityMode === 'ultra' ? 12 : (step >= 5 ? 6 : 8);
     World3.updateAtmosphere(this.fx.fog !== false);
     // Expensive atmosphere yields before lights/readability under the governor.
     R3.gradeEnabled = step < 3 && this.fx.grade !== false;
