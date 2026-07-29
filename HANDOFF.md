@@ -454,3 +454,27 @@ document to become a chronological dump. Use one entry per task with:
 Periodically summarize stable conclusions from that log into a new dated handoff
 section. Keep detailed execution history in the task log and reserve this file for
 the information a successor needs to make the next correct decision.
+
+## U5. 2026-07-28 — full catalogue compilation unblocked
+
+The project owner has now run `node tools/compile-models.js` against the complete
+local catalogue and confirmed that **all 99 of 99 models compile**, including the
+15 `ragm-*` actors that previously failed with `window.MODEL: absent`. This is
+manual evidence from the full asset pack; the repository checkout used by the
+automation environment contains only the three-model sample pack.
+
+The failure was not a broken `window.MODEL`. The RAGM payload family keeps its
+model root in closure-local state, so neither the documented `window.MODEL.root`
+contract nor a search of likely global names can reach it. The compiler now
+observes objects passed to `THREE.Object3D.prototype.add` while each payload is
+building its scene. Global roots remain preferred. When none is published, it
+selects the largest observed subtree that contains meshes but no camera or light;
+this recovers the closure-local actor group while rejecting the complete preview
+scene and its ground plane. Failed discovery also reports the number of observed
+Object3D additions, which distinguishes a payload that constructed nothing from
+one whose scene shape is still unsupported.
+
+The successful 99/99 compile establishes model-root discovery, not final visual
+correctness. The next owner should run `node tools/validate-models.js`, inspect
+the generated RAGM scenes in-game (especially pivots, scale, materials and shadow
+decals), and only then treat the full compiled pack as shippable.
