@@ -3,6 +3,8 @@
 
 const Ent = {
 
+  BOSS_ADD_CAP: 6,
+
   // ======================= derived stats =======================
   computeDerived(pl) {
     const cls = CLASSES.find(c => c.id === pl.cls);
@@ -550,6 +552,16 @@ const Ent = {
   killMonster(m, killer) {
     if (m.dead) return;
     m.dead = true; m.deathT = 0.9;
+    // Boss adds exist only for the encounter that created them. Despawn them
+    // directly so cleanup cannot award XP, loot, or trigger on-death effects.
+    if (m.boss) {
+      for (const add of G.monsters) {
+        if (!add.dead && add.summonedBy === m) {
+          add.dead = true;
+          add.deathT = 0.4;
+        }
+      }
+    }
     sfx(m.rank === 'boss' ? 'bigdie' : 'die');
     FX.deathBurst(m.x, m.y, m.def.pal.main, m.size);
     // corpses topple along the blow that felled them
@@ -926,11 +938,13 @@ const Ent = {
       case 'charge': if (dist > 2.5) { m.windup = 0.6; } break;
       case 'summon_skeleton': case 'summon_spiderling': case 'summon_serpent': case 'summon_imp': {
         const kind = ab.split('_')[1] === 'skeleton' ? 'skeleton' : ab.split('_')[1] === 'spiderling' ? 'spiderling' : ab.split('_')[1] === 'serpent' ? 'serpent' : 'imp';
-        for (let i = 0; i < 3; i++) {
+        const livingAdds = G.monsters.filter(o => !o.dead && o.summonedBy === m).length;
+        const spawnCount = Math.min(3, Math.max(0, this.BOSS_ADD_CAP - livingAdds));
+        for (let i = 0; i < spawnCount; i++) {
           const sm = this.makeMonster(kind, m.x + U.rf(U.rand, -1.5, 1.5), m.y + U.rf(U.rand, -1.5, 1.5), { mlvl: m.lvl });
-          sm.aggro = true;
+          sm.summonedBy = m; sm.aggro = true;
         }
-        FX.ring(m.x, m.y, 2, '#c07bff');
+        if (spawnCount > 0) FX.ring(m.x, m.y, 2, '#c07bff');
         break;
       }
     }
