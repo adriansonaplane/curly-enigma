@@ -68,6 +68,27 @@ const missing = allowed.filter(t => !Actors3.GEOMETRY_ARGS[t]);
 check(!missing.length, `runtime table covers the compiler allowlist${missing.length ? ' — missing ' + missing.join(', ') : ''}`);
 
 // --- 2. the merge ------------------------------------------------------------
+// Bound the vertices themselves, never the meshes' boxes.
+//
+// Box3.setFromObject transforms each geometry's axis-aligned box, which badly
+// over-covers a rotated part: a UV sphere's box is the full ±r cube, so one
+// rotated scaled sphere can report a minY 0.4 world units below where its
+// surface actually is. The ragm actors are built entirely from rotated scaled
+// spheres, and measuring them that way made a correct merge look like it had
+// moved geometry by 10cm. Merged geometry has its transforms baked in, so its
+// vertices are already the truth; the reference has to be held to the same
+// standard or the comparison measures the measurement.
+function exactBounds(root) {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3(), v = new THREE.Vector3();
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    const p = o.geometry.attributes.position;
+    for (let i = 0; i < p.count; i++) box.expandByPoint(v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld));
+  });
+  return box;
+}
+
 // One mesh per primitive with the transform on the mesh: what _compileModel
 // built before it merged, and therefore the thing the merge must agree with.
 function reference(doc) {
@@ -83,8 +104,7 @@ function reference(doc) {
     if (p.scale) mesh.scale.fromArray(p.scale);
     root.add(mesh);
   }
-  root.updateMatrixWorld(true);
-  return { verts, box: new THREE.Box3().setFromObject(root) };
+  return { verts, box: exactBounds(root) };
 }
 const countVerts = (root) => {
   let n = 0;
@@ -106,7 +126,7 @@ if (!fs.existsSync(manifestFile)) {
     const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
     const ref = reference(doc);
     const got = Actors3._compileModel(doc, entry.slug);
-    const box = new THREE.Box3().setFromObject(got);
+    const box = exactBounds(got);
     // An animated part keeps its own draw; the rest collapse to one draw per
     // material. Counting materials across ALL meshes double-counts any material
     // an animated part happens to share with a static one.
@@ -120,21 +140,17 @@ if (!fs.existsSync(manifestFile)) {
     check(countVerts(got) === ref.verts, `vertices preserved (${countVerts(got)} vs ${ref.verts})`);
     check(!got.userData.unmergedMaterials, 'every material bucket merged');
 
-    // The merged bounds must sit inside the reference bounds, never outside.
-    // They are legitimately TIGHTER: Box3.setFromObject on an unrotated-geometry
-    // mesh transforms that geometry's own AABB, which over-covers a rotated
-    // part, while merged geometry bounds the actual welded vertices. A model
-    // with rotated parts therefore measures a hair shorter after merging —
-    // more correct, not less. Growing, or shrinking by more than a millimetre,
-    // would mean a part had moved.
-    const eps = 1e-6;
-    const inside = box.min.x >= ref.box.min.x - eps && box.min.y >= ref.box.min.y - eps &&
-      box.min.z >= ref.box.min.z - eps && box.max.x <= ref.box.max.x + eps &&
-      box.max.y <= ref.box.max.y + eps && box.max.z <= ref.box.max.z + eps;
+    // Both sides now bound the same vertices, so they must agree to float
+    // precision. Merging welds transformed copies of exactly the geometry the
+    // reference placed, and welding does not move a vertex — any drift beyond
+    // rounding means a part was dropped, duplicated or mis-transformed.
     const drift = Math.max(box.min.distanceTo(ref.box.min), box.max.distanceTo(ref.box.max));
-    check(inside, 'merged bounds lie within the reference bounds');
-    check(drift < 1e-2, `bounds drift is sub-millimetre (${drift.toExponential(2)})`);
-    check(Math.abs(got.userData.minY - ref.box.min.y) < 1e-2, 'minY agrees with the reference');
+    check(drift < 1e-5, `bounds match the reference exactly (${drift.toExponential(2)})`);
+    // userData.minY seats the model on the floor at runtime, and it is measured
+    // with Box3.setFromObject. On a merged root that is exact, because merged
+    // geometry has no mesh-level rotation left to over-cover. Holding it to the
+    // vertex truth is what proves the merge earned that.
+    check(Math.abs(got.userData.minY - ref.box.min.y) < 1e-5, 'minY seats on the true lowest vertex');
   }
 }
 

@@ -31,13 +31,23 @@
 //                       That is not a model; that is a turntable stopped
 //                       mid-spin and baked in.
 //
+// Bounds come from the ACTUAL VERTICES of the geometry the game will build,
+// via actors3d.js in a vm — no DOM, no GPU. That detail is the whole accuracy
+// story. Bounding a rotated part by transforming its axis-aligned box (which
+// is what Box3.setFromObject does, and what an analytic bound would do) badly
+// over-covers it: a UV sphere's box is the full ±r cube, so rotating a scaled
+// sphere can inflate its measured minY by 0.4 world units on ONE part. The
+// ragm actors are built entirely from rotated scaled spheres. Measured that
+// way, most of them look sunken when they are sitting exactly on the floor.
+//
 // Nothing here is a hard failure — a wall sconce SHOULD float, a ceiling root
 // SHOULD hang. Exit code stays 0. This prints the shortlist worth eyeballing
-// in-game, so that job is fifteen models instead of ninety-nine.
+// in-game, so that job is a handful of models instead of ninety-nine.
 // ============================================================================
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const ROOT = path.resolve(__dirname, '..');
 const DIR = path.join(ROOT, 'assets/models/baked');
@@ -51,111 +61,54 @@ const CENTRE = 0.30;   // metres of footprint offset from the origin
 const MIN_H = 0.15;    // shorter than this and a scale went missing
 const MAX_H = 8.0;     // taller than this and a scale came along
 
-// --- local bounds -----------------------------------------------------------
-// Derived from geometry parameters rather than by building the geometry, so
-// there is no constructor-argument-order to get wrong. Curved shapes use their
-// full radius and ignore any partial phi/theta sweep, which over-estimates a
-// half-sphere slightly. Over-estimating bounds cannot invent a defect: it can
-// only fail to report a marginal one.
-function localBounds(type, p) {
-  const r = p.radius || 0;
-  switch (type) {
-    case 'BoxGeometry':
-      return box(p.width || 1, p.height || 1, p.depth || 1);
-    case 'SphereGeometry':
-    case 'IcosahedronGeometry': case 'OctahedronGeometry':
-    case 'DodecahedronGeometry': case 'TetrahedronGeometry':
-      return box(2 * r, 2 * r, 2 * r);
-    case 'CylinderGeometry': {
-      const d = 2 * Math.max(p.radiusTop || 0, p.radiusBottom || 0);
-      return box(d, p.height || 1, d);
-    }
-    case 'ConeGeometry':
-      return box(2 * r, p.height || 1, 2 * r);
-    case 'PlaneGeometry':
-      return box(p.width || 1, p.height || 1, 0);
-    case 'CircleGeometry':
-      return box(2 * r, 2 * r, 0);
-    case 'RingGeometry': {
-      const d = 2 * (p.outerRadius || 0);
-      return box(d, d, 0);
-    }
-    case 'TorusGeometry': {
-      const d = 2 * ((p.radius || 0) + (p.tube || 0));
-      return box(d, d, 2 * (p.tube || 0));
-    }
-    case 'LatheGeometry': {
-      const pts = Array.isArray(p.points) ? p.points : [];
-      if (!pts.length) return box(0, 0, 0);
-      const xs = pts.map(q => Math.abs(q[0])), ys = pts.map(q => q[1]);
-      const d = 2 * Math.max(...xs);
-      return { min: [-d / 2, Math.min(...ys), -d / 2], max: [d / 2, Math.max(...ys), d / 2] };
-    }
-    default:
-      return null;
-  }
-}
-const box = (w, h, d) => ({ min: [-w / 2, -h / 2, -d / 2], max: [w / 2, h / 2, d / 2] });
+// --- the real builder -------------------------------------------------------
+// Measuring what the game builds, rather than a second implementation of it,
+// is what keeps this tool honest: there is no separate geometry table here to
+// drift out of step with the runtime's.
+const sandbox = { console };
+sandbox.window = sandbox; sandbox.self = sandbox; sandbox.globalThis = sandbox;
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'vendor/three.min.js'), 'utf8'), sandbox, { timeout: 10000 });
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'js/actors3d.js'), 'utf8'), sandbox, { timeout: 10000 });
+const THREE = sandbox.THREE;
+// A top-level `const` lands in the realm's script-lexical scope rather than on
+// the global object, so the module has to be read back by evaluating its name.
+const Actors3 = vm.runInContext('Actors3', sandbox);
 
-// --- transform --------------------------------------------------------------
-// Transform the eight corners and re-bound. This is what Box3.applyMatrix4
-// does, so it matches three.js exactly for the axis-aligned case and is
-// conservative for a rotated curved shape.
-function euler(rx, ry, rz) {
-  const cx = Math.cos(rx), sx = Math.sin(rx), cy = Math.cos(ry), sy = Math.sin(ry);
-  const cz = Math.cos(rz), sz = Math.sin(rz);
-  // three.js Euler order 'XYZ' composes as R = Rx * Ry * Rz.
-  return [
-    [cy * cz, -cy * sz, sy],
-    [cx * sz + sx * sy * cz, cx * cz - sx * sy * sz, -sx * cy],
-    [sx * sz - cx * sy * cz, sx * cz + cx * sy * sz, cx * cy],
-  ];
-}
-
-function meshBounds(mesh) {
-  const local = localBounds(mesh.geometry.type, mesh.geometry.parameters || {});
-  if (!local) return null;
-  const [sx, sy, sz] = mesh.scale, R = euler(...mesh.rotation), [px, py, pz] = mesh.position;
-  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-  for (let c = 0; c < 8; c++) {
-    const v = [
-      (c & 1 ? local.max[0] : local.min[0]) * sx,
-      (c & 2 ? local.max[1] : local.min[1]) * sy,
-      (c & 4 ? local.max[2] : local.min[2]) * sz,
-    ];
-    for (let i = 0; i < 3; i++) {
-      const w = R[i][0] * v[0] + R[i][1] * v[1] + R[i][2] * v[2] + [px, py, pz][i];
-      if (w < min[i]) min[i] = w;
-      if (w > max[i]) max[i] = w;
-    }
-  }
-  return { min, max };
+// Bound the vertices themselves. Anything cheaper over-covers rotated parts.
+function exactBounds(root) {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3(), v = new THREE.Vector3();
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    const p = o.geometry.attributes.position;
+    for (let i = 0; i < p.count; i++) box.expandByPoint(v.fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld));
+  });
+  return box;
 }
 
 // --- per-model report -------------------------------------------------------
 function inspect(file, slug) {
   const scene = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
-  const unsupported = new Set();
-  const rotations = new Set();
-  for (const mesh of scene.meshes || []) {
-    const b = meshBounds(mesh);
-    if (!b) { unsupported.add(mesh.geometry.type); continue; }
-    for (let i = 0; i < 3; i++) {
-      if (b.min[i] < min[i]) min[i] = b.min[i];
-      if (b.max[i] > max[i]) max[i] = b.max[i];
-    }
-    rotations.add(mesh.rotation.map(n => n.toFixed(4)).join(','));
-  }
-  const empty = !isFinite(min[0]);
-  const size = empty ? [0, 0, 0] : [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
-  const centre = empty ? [0, 0, 0] : [(min[0] + max[0]) / 2, 0, (min[2] + max[2]) / 2];
+  let box, error = null;
+  try { box = exactBounds(Actors3._compileModel(scene, slug)); }
+  catch (e) { error = (e && e.message) || String(e); }
+
+  const empty = error || box.isEmpty();
+  const size = empty ? [0, 0, 0] : box.getSize(new THREE.Vector3()).toArray();
+  const centre = empty ? [0, 0, 0] : [(box.min.x + box.max.x) / 2, 0, (box.min.z + box.max.z) / 2];
+  const minY = empty ? 0 : box.min.y;
+
+  // Rotations come from the scene file, not the compiled root: merging bakes
+  // transforms into the vertices, which is exactly what destroys this signal.
+  const rotations = new Set((scene.meshes || []).map(m => (m.rotation || [0, 0, 0]).map(n => n.toFixed(4)).join(',')));
 
   const flags = [];
-  if (empty) flags.push('EMPTY');
+  if (error) flags.push('ERROR:' + error);
+  else if (empty) flags.push('EMPTY');
   else {
-    if (min[1] > GROUND) flags.push('FLOATING');
-    if (min[1] < -GROUND) flags.push('SUNKEN');
+    if (minY > GROUND) flags.push('FLOATING');
+    if (minY < -GROUND) flags.push('SUNKEN');
     if (Math.hypot(centre[0], centre[2]) > CENTRE) flags.push('OFF-CENTRE');
     if (size[1] < MIN_H || size[1] > MAX_H) flags.push('SIZE');
   }
@@ -165,7 +118,6 @@ function inspect(file, slug) {
   const only = rotations.size === 1 ? [...rotations][0] : null;
   if (only && only !== '0.0000,0.0000,0.0000' && (scene.meshes || []).length > 3)
     flags.push('FROZEN-ROT');
-  if (unsupported.size) flags.push('UNMEASURED:' + [...unsupported].join('/'));
   if (scene.droppedDecals) flags.push('DECALS:' + scene.droppedDecals);
   const textureless = (scene.materials || []).filter(m => m.droppedMaps).length;
   if (textureless) flags.push('TEXLOST:' + textureless);
@@ -173,7 +125,7 @@ function inspect(file, slug) {
   return {
     slug, meshes: (scene.meshes || []).length, pivot: scene.pivot || null,
     size: size.map(n => +n.toFixed(3)),
-    groundGap: empty ? 0 : +min[1].toFixed(3),
+    groundGap: +minY.toFixed(3),
     centreOffset: +Math.hypot(centre[0], centre[2]).toFixed(3),
     distinctRotations: rotations.size, flags,
   };
