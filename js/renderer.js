@@ -361,7 +361,9 @@ const Render = {
         props: propInstances && Object.assign({ chunkSize: Props3.CHUNK_SIZE,
           minChunkInstances: Props3.CHUNK_MIN_INSTANCES }, propInstances),
       },
-      props: { diagnostics: (Props3.diagnostics || []).map(d => Object.assign({}, d)) },
+      authoredModels: !!R3.authoredModels,
+      props: { authoredModels: !!R3.authoredModels,
+        diagnostics: (Props3.diagnostics || []).map(d => Object.assign({}, d)) },
     });
   },
 

@@ -841,6 +841,8 @@ function showRendererRecovery() {
       <button id="renderer-copy-diagnostic" class="big-btn dark">COPY DIAGNOSTICS</button>
     </div>
     <pre id="renderer-init-diagnostic" style="max-width:680px;max-height:240px;overflow:auto;text-align:left;white-space:pre-wrap;font:12px/1.4 monospace;color:#bdab97"></pre>
+    <pre id="renderer-init-diagnostic" style="max-width:680px;overflow:auto;text-align:left;white-space:pre-wrap;font:12px/1.4 monospace;color:#bdab97"></pre>
+    <label style="display:block;margin:16px"><input id="renderer-fallback-models" type="checkbox"> Force fallback models</label>
     <button id="renderer-reload" class="big-btn">RELOAD</button>
     </div>`;
   document.body.appendChild(message);
@@ -848,6 +850,10 @@ function showRendererRecovery() {
     graphics: typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.diagnostics() : null,
     userAgent: navigator.userAgent }, null, 2);
   document.getElementById('renderer-init-diagnostic').textContent = report;
+  document.getElementById('renderer-init-diagnostic').textContent = JSON.stringify(diagnostic, null, 2);
+  const fallbackModels = document.getElementById('renderer-fallback-models');
+  fallbackModels.checked = !R3.authoredModels;
+  fallbackModels.addEventListener('change', () => R3.setAuthoredModels(!fallbackModels.checked));
   document.getElementById('renderer-reload').addEventListener('click', () => location.reload());
   document.getElementById('renderer-reset-graphics').addEventListener('click', () => {
     GraphicsConfig.reset();

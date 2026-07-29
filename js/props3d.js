@@ -527,6 +527,7 @@ const Props3 = {
   },
 
   _modelSpec(kind) {
+    if (!R3.authoredModels) return null;
     const own = this.MODEL_MAP[kind];
     if (!own) return null;
     const manifest = typeof Assets !== 'undefined' && Assets.MANIFEST[own.slot];
@@ -536,6 +537,7 @@ const Props3 = {
 
   _requestAuthored(kind, spec, fallbackDraws, token) {
     if (!this.authoredModels) return;
+    if (!R3.authoredModels) return;
     if (this._authored.has(spec.slug) || this._requests.has(spec.slug)) return;
     const url = 'assets/models/baked/' + encodeURIComponent(spec.slug) + '.scene.json';
     const p = fetch(url).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
@@ -552,7 +554,7 @@ const Props3 = {
 
   _diagnose(kind, slug, reason, meshCount, triangles, count) {
     const d = { kind, slug: slug || null, fallbackReason: reason || null, meshCount: meshCount || 0,
-      triangleCount: triangles || 0, instantiatedCount: count };
+      triangleCount: triangles || 0, instantiatedCount: count, authoredModels: !!R3.authoredModels };
     this.diagnostics.push(d);
     if (typeof location !== 'undefined' && (location.hostname === 'localhost' || /[?&]props3diag\b/.test(location.search)))
       console.info('[Props3]', d);
@@ -627,7 +629,8 @@ const Props3 = {
       const def = this.KIND[kind] || { a: 'rubble', c: wallCol };
       const make = this.ARCH[def.a] || this.ARCH.rubble;
       let tmpl = make(def.c, def.g || def.c);
-      const spec = this._modelSpec(kind), cached = spec && this._authored.get(spec.slug);
+      const spec = R3.authoredModels ? this._modelSpec(kind) : null;
+      const cached = spec && this._authored.get(spec.slug);
       let authored = cached && cached.template;
       if (spec && !cached) this._requestAuthored(kind, spec, tmpl.length, token);
       if (authored) {

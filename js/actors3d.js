@@ -92,6 +92,7 @@ const Actors3 = {
   // fallback for models which are not part of an act pack. Species lookup is
   // exclusively `fam`/`def`; `kind` is not a monster species identifier.
   modelSpec(m) {
+    if (!R3.authoredModels) return null;
     let fam = m && m.fam;
     if (!fam && m && typeof m.def === 'string') fam = m.def;
     if (!fam && m && m.def) {
@@ -491,6 +492,7 @@ const Actors3 = {
       rig.traverse(node => { if (node.isMesh && node.visible) authoredMeshes++; });
     }
     return Object.assign({}, out, {
+      authoredModels: !!R3.authoredModels,
       visibleActors, actorMeshes,
       authoredActors, authoredMeshes,
       mergedArchetypes: Object.keys(this._staticGeometry).length,
@@ -533,7 +535,7 @@ const Actors3 = {
         R3.scene.add(m._rig);
         this.pool.push(m);
         if (requested) requested.then(template => {
-          if (!m._rig || this.pool.indexOf(m) < 0) return;
+          if (!R3.authoredModels || !m._rig || this.pool.indexOf(m) < 0) return;
           const authored = this.instanceModel(template, spec, def, size);
           authored.position.copy(m._rig.position); authored.rotation.copy(m._rig.rotation);
           R3.scene.remove(m._rig); m._rig = authored; R3.scene.add(authored);
