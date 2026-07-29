@@ -92,6 +92,7 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .npc-opts { display:flex; flex-direction:column; gap:8px; }
 .npc-opts button, .menu-list button { padding:10px; background:#1c1309; color:#e0cd94; border:2px solid #57431f; border-radius:7px; font-size:15px; cursor:pointer; letter-spacing:1px; }
 .npc-opts button:hover, .menu-list button:hover { background:#2e2008; border-color:#8a6b31; }
+.npc-opts button:disabled { opacity:.45; cursor:not-allowed; }
 .menu-list { display:flex; flex-direction:column; gap:8px; }
 
 .ladder-tabs { display:flex; gap:6px; justify-content:center; margin-bottom:10px; flex-wrap:wrap; }
