@@ -219,7 +219,8 @@ const Render = {
     const step = this.qualityMode === 'auto' ? this._qualityStep : (this.quality === 'low' ? 6 : 0);
     const scaleCaps = [1, 0.85, 0.75, 0.75, 0.75, 0.75, 0.75];
     R3.setRenderScale(Math.min(this.renderScale, scaleCaps[step]));
-    const shadows = step < 6 && this.fx.shadows !== false;
+    const shadows = step < 6 && this.fx.shadows !== false
+      && (!R3.profile || R3.profile.pointLightShadows);
     if (this._shadows !== shadows) {
       this._shadows = shadows;
       World3.setShadows(shadows);
@@ -229,11 +230,13 @@ const Render = {
     // permanent default (with twelve as opt-in) dimmed every scene at full
     // quality to buy headroom the governor is there to buy on demand. Full
     // quality is twelve again; the steps down are 8 and then 6.
-    R3.maxLights = this.qualityMode === 'ultra' ? 12
+    const requestedLights = this.qualityMode === 'ultra' ? 12
       : (step >= 5 ? 6 : (step >= 3 ? 8 : 12));
+    R3.maxLights = Math.min(requestedLights, R3.profile ? R3.profile.maxLights : requestedLights);
     World3.updateAtmosphere(this.fx.fog !== false);
     // Expensive atmosphere yields before lights/readability under the governor.
-    R3.gradeEnabled = step < 3 && this.fx.grade !== false;
+    R3.gradeEnabled = step < 3 && this.fx.grade !== false
+      && (!R3.profile || R3.profile.grading);
 
     // camera: the old rig's zoom/mode/shake, aimed at the same focus point
     G.shake = Math.max(0, G.shake - dt * 30);

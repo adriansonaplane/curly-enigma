@@ -230,7 +230,7 @@ const World3 = {
   // the effective quality setting changes; repeated calls are deliberately a
   // no-op from Three.js's point of view.
   setShadows(enabled) {
-    const on = !!enabled;
+    const on = !!enabled && (!R3.profile || R3.profile.pointLightShadows);
     R3.shadows = on;
     if (this.hero) this.hero.castShadow = on;
     if (R3.renderer && R3.renderer.shadowMap) R3.renderer.shadowMap.enabled = on;
@@ -342,7 +342,10 @@ const World3 = {
     if (this.ambient) this.ambient.intensity = spooky ? 0.055 : 0.18;
     if (this.keyLight) this.keyLight.intensity = spooky ? 0.03 : 0.08;
 
-    const budget = R3.maxLights;
+    // The hero lamp is itself a visible point light and therefore consumes a
+    // shader slot. Budget sconces from what remains so Three never generates a
+    // program containing more point lights than the active profile allows.
+    const budget = Math.max(0, R3.maxLights - (this.hero && this.hero.visible ? 1 : 0));
     const arr = this.lights;
     const selected = this._selectLights(px, pz, budget);
     let on = 0;
@@ -363,7 +366,8 @@ const World3 = {
 
     if (this.hero) {
       // Shadow quality can change at runtime under the governor/settings.
-      this.hero.castShadow = R3.shadows;
+      this.hero.castShadow = R3.shadows
+        && (!R3.profile || R3.profile.pointLightShadows);
       const pl = G.player;
       const rad = pl && pl.derived ? pl.derived.lightRad : 7;
       this.hero.position.set(px, 1.4, pz);
