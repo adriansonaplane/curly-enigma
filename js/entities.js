@@ -5,6 +5,40 @@ const Ent = {
 
   BOSS_ADD_CAP: 6,
 
+  mercXpForLevel(level) { return 80 + level * level * 45; },
+  mercDerived(state) {
+    const def = MERCENARY_BY_ID[state.archetypeId], bonus = {};
+    for (const item of Object.values(state.equipment || {})) if (item) {
+      for (const [key, value] of Object.entries(item.stats || {})) bonus[key] = (bonus[key] || 0) + value;
+      if (item.armor) bonus.armor = (bonus.armor || 0) + item.armor;
+    }
+    const weapon = state.equipment && state.equipment.weapon;
+    return { maxHp: Math.floor(def.baseHp + def.hpLvl * (state.level - 1) + (bonus.hp || 0) + (bonus.vit || 0) * 3),
+      dmgLo: (weapon && weapon.dmg ? weapon.dmg[0] : def.dmg[0] + def.dmgLvl * (state.level - 1)) + (bonus.dmgFlat || 0),
+      dmgHi: (weapon && weapon.dmg ? weapon.dmg[1] : def.dmg[1] + def.dmgLvl * (state.level - 1)) + (bonus.dmgFlat || 0),
+      armor: (bonus.armor || 0), resist: U.clamp((bonus.allRes || 0) / 100, 0, 0.65) };
+  },
+  syncMercenary() {
+    const state = G.player && G.player.mercenary;
+    if (!state || state.dead || G.monsters.some(m => m.mercenary && !m.dead)) return null;
+    const def = MERCENARY_BY_ID[state.archetypeId], d = this.mercDerived(state);
+    const m = { fam: state.archetypeId, def, name: def.name, x: G.player.x + 1, y: G.player.y + 1,
+      size: 1, lvl: state.level, spd: def.spd, ai: def.ai, elem: def.elem, xpVal: 0, rank: 'normal', mods: [],
+      ally: true, owner: G.player, mercenary: true, mercState: state, dir: 0, anim: 0, atkCd: .5, abilityCd: 1,
+      stunT: 0, debuffs: {}, dead: false, deathT: 0, aggro: true, wanderT: 0, wanderA: 0, resist: d.resist, hitT: 0,
+      maxHp: d.maxHp, hp: d.maxHp, dmgLo: d.dmgLo, dmgHi: d.dmgHi };
+    G.monsters.push(m); return m;
+  },
+  awardMercXp(amount) {
+    const s = G.player && G.player.mercenary;
+    if (!s || s.dead) return;
+    s.xp += Math.max(1, Math.floor(amount * .35));
+    while (s.level < G.player.lvl && s.xp >= this.mercXpForLevel(s.level)) {
+      s.xp -= this.mercXpForLevel(s.level); s.level++;
+      UI.announce(`${MERCENARY_BY_ID[s.archetypeId].name} reached level ${s.level}`, '#8fc8ff');
+    }
+  },
+
   // ======================= derived stats =======================
   computeDerived(pl) {
     const cls = CLASSES.find(c => c.id === pl.cls);
@@ -577,6 +611,7 @@ const Ent = {
     if (m.ai === 'exploder' && !m.ally) this.explode(m.x, m.y, 2.2, [m.dmgLo, m.dmgHi], m.elem, { hostile: true });
     if (!m.ally) {
       G.awardXp(m.xpVal);
+      this.awardMercXp(m.xpVal);
       G.dropLoot(m);
       G.stats.kills++;
       if (m.boss) G.onBossKilled(m);
@@ -641,8 +676,15 @@ const Ent = {
 
   minionDamage(m, amount, elem) {
     if (m.dead) return;
-    m.hp -= amount; m.hitT = 0.12;
-    if (m.hp <= 0) { m.dead = true; m.deathT = 0.6; FX.deathBurst(m.x, m.y, m.def.pal.main, m.size); }
+    if (m.mercenary) {
+      const d = this.mercDerived(m.mercState);
+      amount *= elem === 'phys' ? 1 - Math.min(.75, d.armor / (d.armor + 80 + m.lvl * 10)) : 1 - d.resist;
+    }
+    m.hp -= Math.max(1, amount); m.hitT = 0.12;
+    if (m.hp <= 0) {
+      m.dead = true; m.deathT = 0.6; FX.deathBurst(m.x, m.y, m.def.pal.main, m.size);
+      if (m.mercenary) { m.mercState.dead = true; Save.saveChar(G.player); UI.announce(`${m.name} has fallen`, '#ff6a5a'); }
+    }
   },
 
   // ======================= MOVEMENT =======================
@@ -707,6 +749,12 @@ const Ent = {
       if (m.ttl <= 0) { m.dead = true; m.deathT = 0.4; FX.spark(m.x, m.y, '#8ef04a', 4); return; }
     }
     if (m.hitT > 0) m.hitT -= dt;
+    // Retainers catch up instead of becoming stranded across the map. Unlike
+    // summons this never consumes ttl and therefore cannot expire.
+    if (m.mercenary && U.dist(m.x, m.y, G.player.x, G.player.y) > 14) {
+      m.x = G.player.x + Math.cos(G.player.dir + Math.PI) * 1.5;
+      m.y = G.player.y + Math.sin(G.player.dir + Math.PI) * 1.5;
+    }
     // debuffs
     let slow = 0, weaken = 0;
     if (m.debuffT > 0) {

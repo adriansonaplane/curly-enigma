@@ -226,6 +226,7 @@ const UI = {
       case 'inv': this.renderInv(); break;
       case 'char': this.renderChar(); break;
       case 'skills': this.renderSkills(); break;
+      case 'mercenary': this.renderMercenary(); break;
       case 'ladder': this.renderLadder(); break;
       case 'vendor': this.renderVendor(); break;
       case 'stash': this.renderStash(); break;
@@ -233,6 +234,44 @@ const UI = {
       case 'waypoint': this.renderWaypoint(); break;
       case 'menu': this.renderPauseMenu(); break;
     }
+  },
+
+  renderMercenary() {
+    const p = this.panel('mercenary'), pl = G.player, state = pl.mercenary;
+    this.head(p, 'MERCENARY COMPANY');
+    if (!state) {
+      p.insertAdjacentHTML('beforeend', '<div class="npc-line">Hire one permanent retainer. Mercenaries level with you, cross zones, and are separate from temporary summons.</div>');
+      for (const def of MERCENARY_ARCHETYPES) {
+        const row = document.createElement('div'); row.className = 'vendor-row';
+        row.innerHTML = `<div><b>${U.esc(def.name)}</b> — ${U.esc(def.title)} <span class="rarity-magic">${def.role}</span><br><small>${U.esc(def.desc)}</small></div><button>Hire · ${def.hireCost}g</button>`;
+        row.querySelector('button').addEventListener('click', () => {
+          if (pl.gold < def.hireCost) return this.announce('Not enough gold', '#ff6a5a');
+          pl.gold -= def.hireCost; pl.mercenary = { archetypeId: def.id, level: Math.max(1, pl.lvl - 1), xp: 0, equipment: {}, dead: false };
+          Ent.syncMercenary(); Save.saveChar(pl); this.renderMercenary();
+        }); p.appendChild(row);
+      } return;
+    }
+    const def = MERCENARY_BY_ID[state.archetypeId], d = Ent.mercDerived(state);
+    const rez = def.resurrectionBase + state.level * 35;
+    p.insertAdjacentHTML('beforeend', `<div class="npc-line"><b>${U.esc(def.name)}, ${U.esc(def.title)}</b> · Level ${state.level} · ${state.dead ? '<span style="color:#ff6a5a">FALLEN</span>' : 'ACTIVE'}<br>Life ${d.maxHp} · Damage ${Math.floor(d.dmgLo)}–${Math.floor(d.dmgHi)} · Armor ${d.armor}<br>Experience ${state.xp}/${Ent.mercXpForLevel(state.level)}</div>`);
+    if (state.dead) {
+      const b = document.createElement('button'); b.className = 'big-btn'; b.textContent = `Resurrect · ${rez} gold`;
+      b.addEventListener('click', () => { if (pl.gold < rez) return this.announce('Not enough gold', '#ff6a5a'); pl.gold -= rez; state.dead = false; Ent.syncMercenary(); Save.saveChar(pl); this.renderMercenary(); }); p.appendChild(b);
+    }
+    p.insertAdjacentHTML('beforeend', '<h3>EQUIPMENT</h3>');
+    for (const slot of def.slots) {
+      const item = state.equipment[slot], row = document.createElement('div'); row.className = 'vendor-row';
+      row.innerHTML = `<span><b>${slot.toUpperCase()}</b> · ${item ? U.esc(item.name) : 'Empty'}</span><button>${item ? 'Unequip' : 'Equip from inventory'}</button>`;
+      row.querySelector('button').addEventListener('click', () => {
+        if (item) { if (!Game.giveItem(item)) return; state.equipment[slot] = null; }
+        else { const i = pl.inv.findIndex(it => it && !it.potion && (it.slot === slot || (slot === 'offhand' && it.slot === 'offhand')) && (it.reqLvl || 1) <= state.level); if (i < 0) return this.announce(`No level-appropriate ${slot} in inventory`, '#ff6a5a'); state.equipment[slot] = pl.inv[i]; pl.inv[i] = null; }
+        const live = G.monsters.find(m => m.mercenary && !m.dead); if (live) { live.dead = true; live.deathT = 0; } Ent.syncMercenary(); Save.saveChar(pl); this.renderMercenary();
+      }); p.appendChild(row);
+    }
+    const dismiss = document.createElement('button'); dismiss.textContent = 'Dismiss mercenary'; dismiss.addEventListener('click', () => {
+      const gear = Object.values(state.equipment).filter(Boolean); if (gear.length && pl.inv.filter(Boolean).length + gear.length > pl.inv.length) return this.announce('Make room for their equipment first', '#ff6a5a');
+      gear.forEach(it => Game.giveItem(it)); pl.mercenary = null; const live = G.monsters.find(m => m.mercenary); if (live) live.dead = true; Save.saveChar(pl); this.renderMercenary();
+    }); p.appendChild(dismiss);
   },
   head(p, title) {
     p.innerHTML = `<span class="close-x">✕</span><h2>${title}</h2>`;
