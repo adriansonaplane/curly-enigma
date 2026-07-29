@@ -4,7 +4,8 @@
 // Builds the level as real geometry once per map, then leaves it alone. A 92x92
 // dungeon is ~8,500 tiles; drawing those as individual meshes would be ~8,500
 // draw calls a frame. InstancedMesh collapses each category to one, so the
-// whole level costs a handful regardless of size.
+// whole level costs a handful when visible. Spatial chunks trade some calls
+// for rejecting the large majority of off-camera tile and shadow instances.
 //
 // This also retires two hacks the 2D renderer needed:
 //   - the painter's-algorithm depth sort, replaced by the z-buffer
@@ -21,6 +22,38 @@ const World3 = {
   built: false,
   _lightSelection: null,
   LIGHT_RESELECT_D2: 0.75 * 0.75,
+  CHUNK_SIZE: 16,
+  batches: [],
+
+  // Three r128 does not derive an InstancedMesh's culling volume from its
+  // instance matrices.  Give every batch its own geometry (and therefore its
+  // own bounds) and union the transformed primitive bounds explicitly.
+  _finishBatch(im, matrices, category, chunk) {
+    const box = new THREE.Box3(), one = new THREE.Box3();
+    im.geometry.computeBoundingBox();
+    for (const matrix of matrices) box.union(one.copy(im.geometry.boundingBox).applyMatrix4(matrix));
+    im.geometry.boundingBox = box;
+    im.geometry.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    im.count = matrices.length;
+    im.userData.spatialBatch = { category, chunk, instances: matrices.length };
+    this.batches.push(im);
+  },
+
+  batchStats(camera) {
+    const totalInstances = this.batches.reduce((n, im) => n + im.count, 0);
+    if (!camera) return { totalInstances, submittedVisibleInstances: totalInstances, calls: this.batches.length };
+    camera.updateMatrixWorld();
+    const pv = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(pv);
+    let submittedVisibleInstances = 0, calls = 0;
+    for (const im of this.batches) {
+      if (!im.visible || !frustum.intersectsObject(im)) continue;
+      submittedVisibleInstances += im.count; calls++;
+    }
+    return { totalInstances, submittedVisibleInstances, calls };
+  },
 
   // ---- materials ----
   _mat(theme) {
@@ -47,6 +80,7 @@ const World3 = {
   // ---- build ----
   build(map) {
     this.dispose();
+    this.batches = [];
     this.map = map;
     this.built = false;
     const g = new THREE.Group();
@@ -58,42 +92,27 @@ const World3 = {
     const M = this._mat(map.theme);
     const { w, h } = map;
 
-    // Count first so each InstancedMesh is sized exactly — an oversized
-    // instance buffer costs memory and an undersized one silently drops tiles.
-    let nFloor = 0, nWall = 0, nDoor = 0, nLava = 0, nWater = 0, nHaz = 0;
-    for (let i = 0; i < w * h; i++) {
-      const t = map.t[i], hz = map.haz[i];
-      if (t === TILE.WALL) { nWall++; continue; }
-      if (t === TILE.DOOR) nDoor++;
-      if (hz === HAZ.LAVA) nLava++;
-      else if (hz === HAZ.WATER) nWater++;
-      else if (hz) nHaz++;
-      else nFloor++;
-    }
-
     const plane = new THREE.BoxGeometry(1, 0.12, 1);
     const wallGeo = new THREE.BoxGeometry(1, 1.9, 1);
     const doorGeo = new THREE.BoxGeometry(1, 0.12, 1);
 
-    const mk = (geo, mat, n, cast, receive) => {
-      if (!n) return null;
-      const im = new THREE.InstancedMesh(geo, mat, n);
+    const mk = (geo, mat, entries, cast, receive, category, chunk) => {
+      if (!entries.length) return null;
+      const im = new THREE.InstancedMesh(geo.clone(), mat, entries.length);
       im.castShadow = !!cast; im.receiveShadow = receive !== false;
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       g.add(im);
+      entries.forEach((e, i) => { im.setMatrixAt(i, e.matrix); if (e.color) im.setColorAt(i, e.color); });
+      this._finishBatch(im, entries.map(e => e.matrix), category, chunk);
       return im;
     };
-
-    const floors = mk(plane, M.floor, nFloor);
-    const walls = mk(wallGeo, M.wall, nWall, true);
-    const doors = mk(doorGeo, M.door, nDoor);
-    const lava = mk(plane, M.lava, nLava, false);
-    const water = mk(plane, M.water, nWater, false);
-    const hazm = mk(plane, M.haz, nHaz);
-
-    const m4 = new THREE.Matrix4();
-    const col = new THREE.Color();
-    let fi = 0, wi = 0, di = 0, li = 0, ai = 0, hi = 0;
+    const chunks = new Map(), totals = { floor: 0, wall: 0, door: 0, lava: 0, water: 0, haz: 0 };
+    const put = (tx, ty, category, matrix, color) => {
+      const key = Math.floor(tx / this.CHUNK_SIZE) + ',' + Math.floor(ty / this.CHUNK_SIZE);
+      if (!chunks.has(key)) chunks.set(key, { floor: [], wall: [], door: [], lava: [], water: [], haz: [] });
+      chunks.get(key)[category].push({ matrix: matrix.clone(), color: color && color.clone() }); totals[category]++;
+    };
+    const m4 = new THREE.Matrix4(), col = new THREE.Color();
 
     for (let ty = 0; ty < h; ty++) {
       for (let tx = 0; tx < w; tx++) {
@@ -102,42 +121,45 @@ const World3 = {
         const x = tx + 0.5, z = ty + 0.5;
         if (t === TILE.WALL) {
           m4.makeTranslation(x, 0.95, z);
-          walls.setMatrixAt(wi, m4);
           // vary the wall tone a little so a long corridor is not one flat slab
           const v = 0.86 + (map.variant[i] % 6) * 0.045;
           col.set(THEMES[map.theme].wall).multiplyScalar(v);
-          walls.setColorAt(wi, col);
-          wi++;
+          put(tx, ty, 'wall', m4, col);
           continue;
         }
         m4.makeTranslation(x, 0, z);
-        if (t === TILE.DOOR) { doors.setMatrixAt(di++, m4); }
-        if (hz === HAZ.LAVA) lava.setMatrixAt(li++, m4);
-        else if (hz === HAZ.WATER) water.setMatrixAt(ai++, m4);
-        else if (hz) hazm.setMatrixAt(hi++, m4);
+        if (t === TILE.DOOR) put(tx, ty, 'door', m4);
+        if (hz === HAZ.LAVA) put(tx, ty, 'lava', m4);
+        else if (hz === HAZ.WATER) put(tx, ty, 'water', m4);
+        else if (hz) put(tx, ty, 'haz', m4);
         else if (t !== TILE.DOOR) {
-          floors.setMatrixAt(fi, m4);
           const v = 0.9 + (map.variant[i] % 6) * 0.035;
           col.set(map.variant[i] & 1 ? THEMES[map.theme].floorAlt : THEMES[map.theme].floor).multiplyScalar(v);
-          floors.setColorAt(fi, col);
-          fi++;
+          put(tx, ty, 'floor', m4, col);
         } else {
-          floors.setMatrixAt(fi, m4); fi++;   // a door still needs floor under it
+          // A door still needs floor under it. Supply a colour as well: once
+          // any sibling instance has a colour attribute, unset entries are
+          // black rather than inheriting the material colour.
+          col.set(THEMES[map.theme].floor);
+          put(tx, ty, 'floor', m4, col);
         }
       }
     }
-    for (const im of [floors, walls, doors, lava, water, hazm]) {
-      if (!im) continue;
-      im.instanceMatrix.needsUpdate = true;
-      if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      im.count = im === floors ? fi : im === walls ? wi : im === doors ? di
-               : im === lava ? li : im === water ? ai : hi;
+    for (const [chunk, bucket] of chunks) {
+      mk(plane, M.floor, bucket.floor, false, true, 'floor', chunk);
+      mk(wallGeo, M.wall, bucket.wall, true, true, 'wall', chunk);
+      mk(doorGeo, M.door, bucket.door, false, true, 'door', chunk);
+      mk(plane, M.lava, bucket.lava, false, true, 'lava', chunk);
+      mk(plane, M.water, bucket.water, false, true, 'water', chunk);
+      mk(plane, M.haz, bucket.haz, false, true, 'haz', chunk);
     }
+    plane.dispose(); wallGeo.dispose(); doorGeo.dispose();
 
     this.buildLights(map);
     this.buildShafts(map);
     this.built = true;
-    return { floors: fi, walls: wi, doors: di, lava: li, water: ai, haz: hi, lights: this.lights.length };
+    return { floors: totals.floor, walls: totals.wall, doors: totals.door, lava: totals.lava,
+      water: totals.water, haz: totals.haz, batches: this.batches.length, lights: this.lights.length };
   },
 
   configureAtmosphere(map) {
@@ -322,7 +344,7 @@ const World3 = {
         }
       });
     }
-    this.group = null; this.lights = []; this._lightSelection = null; this.shafts = []; this.hero = null; this.fog = null; this.built = false;
+    this.group = null; this.batches = []; this.lights = []; this._lightSelection = null; this.shafts = []; this.hero = null; this.fog = null; this.built = false;
     if (R3.scene) R3.scene.fog = null;
   },
 };

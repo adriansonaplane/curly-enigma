@@ -6,7 +6,8 @@
 // monster is on screen, so props are INSTANCED: each kind is described once as
 // a small template of primitives, and every prop of that kind is one transform
 // into the same buffers. Twenty kinds at four parts each is eighty draw calls
-// no matter how densely the generator scatters them.
+// for ordinary groups. Exceptionally dense kinds are split spatially so the
+// camera does not submit every copy merely because one copy is visible.
 //
 // The cost of instancing is that a prop cannot animate its own geometry. That
 // turns out not to matter: the things that moved in 2D were flames, and flames
@@ -23,6 +24,9 @@ const Props3 = {
   _authored: new Map(),     // slug -> compiled instancing template or rejection
   _requests: new Map(),     // slug -> in-flight fetch
   diagnostics: [],
+  batches: [],
+  CHUNK_SIZE: 16,
+  CHUNK_MIN_INSTANCES: 48, // splitting sparse kinds only buys draw-call overhead
   _buildToken: 0,
   built: false,
 
@@ -540,6 +544,42 @@ const Props3 = {
       console.info('[Props3]', d);
   },
 
+  _chunkLists(list) {
+    if (list.length < this.CHUNK_MIN_INSTANCES) return [list];
+    const chunks = new Map();
+    for (const pr of list) {
+      const key = Math.floor(pr.x / this.CHUNK_SIZE) + ',' + Math.floor(pr.y / this.CHUNK_SIZE);
+      if (!chunks.has(key)) chunks.set(key, []);
+      chunks.get(key).push(pr);
+    }
+    return chunks.size > 1 ? [...chunks.values()] : [list];
+  },
+
+  _finishMesh(im) {
+    const base = im.geometry.boundingBox || (im.geometry.computeBoundingBox(), im.geometry.boundingBox);
+    const box = new THREE.Box3(), one = new THREE.Box3(), matrix = new THREE.Matrix4();
+    for (let i = 0; i < im.count; i++) { im.getMatrixAt(i, matrix); box.union(one.copy(base).applyMatrix4(matrix)); }
+    // Authored geometry can be shared with another part, so clone before
+    // attaching batch-specific bounds.
+    im.geometry = im.geometry.clone();
+    im.geometry.boundingBox = box;
+    im.geometry.boundingSphere = box.getBoundingSphere(new THREE.Sphere());
+    im.userData.spatialBatch = { category: 'prop:' + im.userData.kind, instances: im.count };
+    this.batches.push(im);
+  },
+
+  batchStats(camera) {
+    const totalInstances = this.batches.reduce((n, im) => n + im.count, 0);
+    const pv = camera && new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const frustum = pv && new THREE.Frustum().setFromProjectionMatrix(pv);
+    let submittedVisibleInstances = 0, calls = 0;
+    for (const im of this.batches) {
+      if (!im.visible || (frustum && !frustum.intersectsObject(im))) continue;
+      submittedVisibleInstances += im.count; calls++;
+    }
+    return { totalInstances, submittedVisibleInstances, calls };
+  },
+
   // One pass to bucket by kind, one to size the instance buffers, one to fill
   // them. Props never move, so this happens once per map and then nothing
   // touches it until something is smashed.
@@ -547,6 +587,7 @@ const Props3 = {
     this.dispose();
     const token = ++this._buildToken;
     this.diagnostics = [];
+    this.batches = [];
     this.map = map;
     const g = new THREE.Group();
     this.group = g;
@@ -568,44 +609,50 @@ const Props3 = {
     const geo = this.geo();
     let parts = 0;
 
-    for (const [kind, list] of byKind) {
+    for (const [kind, wholeList] of byKind) {
       const def = this.KIND[kind] || { a: 'rubble', c: wallCol };
       const make = this.ARCH[def.a] || this.ARCH.rubble;
       let tmpl = make(def.c, def.g || def.c);
       const spec = this._modelSpec(kind), cached = spec && this._authored.get(spec.slug);
       let authored = cached && cached.template;
       if (spec && !cached) this._requestAuthored(kind, spec, tmpl.length, token);
-      const meshes = [];
       if (authored) {
         tmpl = authored.groups.map(group => ({ authored: true, group, locals: group.locals,
           e: group.locals.some(p => p.emissive) ? 1 : 0 }));
       }
-      for (const part of tmpl) {
-        const im = new THREE.InstancedMesh(
-          authored ? part.group.geometry : geo[part.g],
-          authored ? part.group.material : this.mat(part.g, part.c, part.e, part.alpha),
-          list.length * (part.locals ? part.locals.length : 1));
-        im.castShadow = !part.e;         // a light source casting its own shadow reads as a hole
-        im.receiveShadow = !part.e;
-        im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-        g.add(im);
-        meshes.push(im);
-        parts++;
-      }
-      const set = { kind, meshes, tmpl, list, def, authored,
-        metadata: authored ? authored.metadata : (this.ATTACHMENTS[kind] || {}) };
-      set.face = list.map(pr => this._facing(map, pr, def));
-      this.sets.push(set);
+      for (const list of this._chunkLists(wholeList)) {
+        const meshes = [];
+        for (const part of tmpl) {
+          const im = new THREE.InstancedMesh(
+            authored ? part.group.geometry : geo[part.g],
+            authored ? part.group.material : this.mat(part.g, part.c, part.e, part.alpha),
+            list.length * (part.locals ? part.locals.length : 1));
+          im.castShadow = !part.e;         // a light source casting its own shadow reads as a hole
+          im.receiveShadow = !part.e;
+          im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+          im.userData.kind = kind;
+          g.add(im);
+          meshes.push(im);
+          parts++;
+        }
+        const set = { kind, meshes, tmpl, list, def, authored,
+          metadata: authored ? authored.metadata : (this.ATTACHMENTS[kind] || {}) };
+        set.face = list.map(pr => this._facing(map, pr, def));
+        this.sets.push(set);
 
-      list.forEach((pr, i) => {
-        this.slot.set(pr, { set, i });
-        this._place(set, i, pr);
-      });
-      for (const im of meshes) im.instanceMatrix.needsUpdate = true;
+        list.forEach((pr, i) => {
+          this.slot.set(pr, { set, i });
+          this._place(set, i, pr);
+        });
+        for (const im of meshes) {
+          im.instanceMatrix.needsUpdate = true;
+          this._finishMesh(im);
+        }
+      }
       this._diagnose(kind, spec && spec.slug,
         authored ? null : (cached && cached.reason || (spec ? 'loading authored template' : 'no suitable authored mapping')),
         authored ? authored.meshCount : cached && cached.meshCount,
-        authored ? authored.triangles : cached && cached.triangles, list.length);
+        authored ? authored.triangles : cached && cached.triangles, wholeList.length);
     }
 
     this.built = true;
@@ -707,7 +754,7 @@ const Props3 = {
       R3.scene.remove(this.group);
       this.group.traverse(n => { if (n.geometry && n.isInstancedMesh) n.dispose(); });
     }
-    this.group = null; this.sets = []; this.slot = new WeakMap(); this.built = false;
+    this.group = null; this.sets = []; this.batches = []; this.slot = new WeakMap(); this.built = false;
   },
 };
 

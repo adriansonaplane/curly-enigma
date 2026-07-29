@@ -272,12 +272,24 @@ const Render = {
   // elevated/free, grade, shadow, and render-scale runs remain self-describing.
   diagnosticSnapshot() {
     const actors = Actors3.stats ? Actors3.stats() : null;
+    const worldInstances = World3.batchStats ? World3.batchStats(R3.cam) : null;
+    const propInstances = Props3.batchStats ? Props3.batchStats(R3.cam) : null;
     return Object.assign({}, R3.stats(), {
       activeLights: this.activeLights,
       counters: { scene: Object.assign({}, this.sceneCounters || {}),
         frame: Object.assign({}, this.frameCounters || {}) },
       cpu: { updateMs: +this.cpuUpdateMs.toFixed(3), renderSubmissionMs: +this.cpuRenderMs.toFixed(3) },
       actors,
+      instances: {
+        totalInstances: (worldInstances ? worldInstances.totalInstances : 0) +
+          (propInstances ? propInstances.totalInstances : 0),
+        submittedVisibleInstances: (worldInstances ? worldInstances.submittedVisibleInstances : 0) +
+          (propInstances ? propInstances.submittedVisibleInstances : 0),
+        calls: (worldInstances ? worldInstances.calls : 0) + (propInstances ? propInstances.calls : 0),
+        world: worldInstances && Object.assign({ chunkSize: World3.CHUNK_SIZE }, worldInstances),
+        props: propInstances && Object.assign({ chunkSize: Props3.CHUNK_SIZE,
+          minChunkInstances: Props3.CHUNK_MIN_INSTANCES }, propInstances),
+      },
       props: { diagnostics: (Props3.diagnostics || []).map(d => Object.assign({}, d)) },
     });
   },
