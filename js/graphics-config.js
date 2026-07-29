@@ -10,7 +10,7 @@ const GraphicsConfig = (() => {
   const DEFAULTS = Object.freeze({
     profile: 'default', antialias: true, powerPreference: 'high-performance',
     webglVersion: 'auto', dprCap: 2, renderScale: 1, shadows: true,
-    lightBudget: 12, grading: true, fog: true, shafts: true, gpuTimers: true,
+    lightBudget: 12, grading: true, fog: false, shafts: true, gpuTimers: true,
     authoredModels: true, advancedEffects: true,
   });
   const enumOf = values => value => values.indexOf(value) >= 0 ? value : undefined;

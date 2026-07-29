@@ -58,3 +58,73 @@ test('retired AO and reflection settings are neither visible nor forwarded', asy
     controls: ['fog', 'shafts', 'grade', 'fps'],
   });
 });
+
+test('fog defaults off, toggles on, and persists without changing shafts', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.waitForFunction(() => typeof WUI !== 'undefined' && WUI.set && typeof Render !== 'undefined');
+
+  const defaults = await page.evaluate(() => ({
+    graphics: GraphicsConfig.DEFAULTS.fog,
+    wui: WUI.DEF_SET.fog,
+    setting: WUI.set.fog,
+    renderer: Render.fx.fog,
+    shaftsSetting: WUI.set.shafts,
+    shaftsConfig: GraphicsConfig.current.shafts,
+  }));
+  expect(defaults).toEqual({
+    graphics: false,
+    wui: false,
+    setting: false,
+    renderer: false,
+    shaftsSetting: true,
+    shaftsConfig: true,
+  });
+
+  await page.evaluate(() => {
+    WUI.settingsTab = WUI.SETTINGS_TABS.indexOf('VIDEO');
+    WUI.renderSettings();
+  });
+  await page.locator('#panel-settings .ws-row[data-setting="fog"] .ws-toggle').click();
+
+  const toggled = await page.evaluate(() => {
+    const wuiSaved = JSON.parse(localStorage.getItem(WUI.SETK));
+    const graphicsSaved = JSON.parse(localStorage.getItem(GraphicsConfig.STORAGE_KEY)).config;
+    return {
+      setting: WUI.set.fog,
+      renderer: Render.fx.fog,
+      graphics: GraphicsConfig.current.fog,
+      wuiSaved: wuiSaved.fog,
+      graphicsSaved: graphicsSaved.fog,
+      shaftsSetting: WUI.set.shafts,
+      shaftsConfig: GraphicsConfig.current.shafts,
+    };
+  });
+  expect(toggled).toEqual({
+    setting: true,
+    renderer: true,
+    graphics: true,
+    wuiSaved: true,
+    graphicsSaved: true,
+    shaftsSetting: true,
+    shaftsConfig: true,
+  });
+
+  await page.reload();
+  await page.waitForFunction(() => typeof WUI !== 'undefined' && WUI.set && typeof Render !== 'undefined');
+  const reloaded = await page.evaluate(() => ({
+    setting: WUI.set.fog,
+    renderer: Render.fx.fog,
+    graphics: GraphicsConfig.current.fog,
+    shaftsSetting: WUI.set.shafts,
+    shaftsRenderer: Render.fx.shafts,
+    shaftsConfig: GraphicsConfig.current.shafts,
+  }));
+  expect(reloaded).toEqual({
+    setting: true,
+    renderer: true,
+    graphics: true,
+    shaftsSetting: true,
+    shaftsRenderer: true,
+    shaftsConfig: true,
+  });
+});
