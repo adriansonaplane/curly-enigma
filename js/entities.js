@@ -3,6 +3,42 @@
 
 const Ent = {
 
+  BOSS_ADD_CAP: 6,
+
+  mercXpForLevel(level) { return 80 + level * level * 45; },
+  mercDerived(state) {
+    const def = MERCENARY_BY_ID[state.archetypeId], bonus = {};
+    for (const item of Object.values(state.equipment || {})) if (item) {
+      for (const [key, value] of Object.entries(item.stats || {})) bonus[key] = (bonus[key] || 0) + value;
+      if (item.armor) bonus.armor = (bonus.armor || 0) + item.armor;
+    }
+    const weapon = state.equipment && state.equipment.weapon;
+    return { maxHp: Math.floor(def.baseHp + def.hpLvl * (state.level - 1) + (bonus.hp || 0) + (bonus.vit || 0) * 3),
+      dmgLo: (weapon && weapon.dmg ? weapon.dmg[0] : def.dmg[0] + def.dmgLvl * (state.level - 1)) + (bonus.dmgFlat || 0),
+      dmgHi: (weapon && weapon.dmg ? weapon.dmg[1] : def.dmg[1] + def.dmgLvl * (state.level - 1)) + (bonus.dmgFlat || 0),
+      armor: (bonus.armor || 0), resist: U.clamp((bonus.allRes || 0) / 100, 0, 0.65) };
+  },
+  syncMercenary() {
+    const state = G.player && G.player.mercenary;
+    if (!state || state.dead || G.monsters.some(m => m.mercenary && !m.dead)) return null;
+    const def = MERCENARY_BY_ID[state.archetypeId], d = this.mercDerived(state);
+    const m = { fam: state.archetypeId, def, name: def.name, x: G.player.x + 1, y: G.player.y + 1,
+      size: 1, lvl: state.level, spd: def.spd, ai: def.ai, elem: def.elem, xpVal: 0, rank: 'normal', mods: [],
+      ally: true, owner: G.player, mercenary: true, mercState: state, dir: 0, anim: 0, atkCd: .5, abilityCd: 1,
+      stunT: 0, debuffs: {}, dead: false, deathT: 0, aggro: true, wanderT: 0, wanderA: 0, resist: d.resist, hitT: 0,
+      maxHp: d.maxHp, hp: d.maxHp, dmgLo: d.dmgLo, dmgHi: d.dmgHi };
+    G.monsters.push(m); return m;
+  },
+  awardMercXp(amount) {
+    const s = G.player && G.player.mercenary;
+    if (!s || s.dead) return;
+    s.xp += Math.max(1, Math.floor(amount * .35));
+    while (s.level < G.player.lvl && s.xp >= this.mercXpForLevel(s.level)) {
+      s.xp -= this.mercXpForLevel(s.level); s.level++;
+      UI.announce(`${MERCENARY_BY_ID[s.archetypeId].name} reached level ${s.level}`, '#8fc8ff');
+    }
+  },
+
   // ======================= derived stats =======================
   computeDerived(pl) {
     const cls = CLASSES.find(c => c.id === pl.cls);
@@ -59,6 +95,8 @@ const Ent = {
     d.regenHp = 0.3 + (g.regenHp || 0); d.regenMp = 1.2 + d.ene * 0.015 + (g.regenMp || 0);
     d.minionDmg = (g.minionDmg || 0); d.minionHp = (g.minionHp || 0);
     d.xpGain = (g.xpGain || 0);
+    d.stunOnHit = (g.stunOnHit || 0);
+    d.pierce = Math.max(0, Math.floor(g.pierce || 0));
     d.flatElem = { fire: g.fireDmg || 0, cold: g.coldDmg || 0, lite: g.liteDmg || 0, pois: g.poisDmg || 0, arc: g.arcDmg || 0, holy: g.holyDmg || 0 };
     pl.derived = d;
     return d;
@@ -129,6 +167,7 @@ const Ent = {
 
     pl.mp -= cost;
     this._src = sk.name; // damage-meter attribution
+    const srcName = sk.name;
     pl.lastCastArch = sk.arch;
     if (sk.cd) pl.cds[skId] = sk.cd;
     pl.gcd = sk.wd ? 1 / pl.derived.atkRate : 0.38;
@@ -153,7 +192,8 @@ const Ent = {
             if (sk.flat) dmg += U.rf(U.rand, sk.flat[0], sk.flat[1]) * (1 + 0.2 * (lvl - 1));
             const crit = U.chance(U.rand, d.critCh / 100);
             if (crit) dmg *= d.critDmg;
-            this.damageMonster(m, dmg, sk.elem, { crit, from: pl });
+            this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
+            if (sk.wd) this.applyWeaponHitEffects(m, pl);
             if (sk.dot) this.applyDebuff(m, { dot: sk.dot * (1 + 0.2 * (lvl - 1)), dotElem: sk.elem === 'phys' ? 'pois' : sk.elem }, 4);
             if (sk.stun) m.stunT = Math.max(m.stunT, sk.stun);
             if (sk.slowHit) this.applyDebuff(m, { slow: sk.slowHit }, 2.5);
@@ -176,7 +216,8 @@ const Ent = {
           let dmg = sk.wd ? this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100) + elemFlat : this.rollSpellDmg(pl, sk, lvl);
           const crit = U.chance(U.rand, d.critCh / 100);
           if (crit) dmg *= d.critDmg;
-          this.damageMonster(m, dmg, sk.elem, { crit, from: pl });
+          this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
+          if (sk.wd) this.applyWeaponHitEffects(m, pl);
           if (sk.stun) m.stunT = Math.max(m.stunT, sk.stun);
         }
         FX.ring(pl.x, pl.y, radius, ELEM[sk.elem].color);
@@ -197,9 +238,10 @@ const Ent = {
           G.projs.push({
             x: pl.x, y: pl.y, vx: Math.cos(a) * sk.speed, vy: Math.sin(a) * sk.speed,
             dmg, elem: elems ? elems[i % 3] : sk.elem, ally: true, from: pl, r: 0.3,
-            ttl: 2.2, pierce: sk.pierce || 0, explodeR: sk.explodeR || 0,
+            ttl: 2.2, pierce: (sk.pierce || 0) + (sk.wd ? d.pierce : 0), explodeR: sk.explodeR || 0,
             homing: sk.homing, wobble: sk.wobble, orb: sk.orb, orbT: 0, orbRate: sk.orbRate,
-            slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: sk.orb ? 'orb' : 'bolt',
+            slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: sk.orb ? 'orb' : 'bolt', srcName,
+            weaponHit: !!sk.wd,
           });
         }
         break;
@@ -214,7 +256,8 @@ const Ent = {
           G.projs.push({
             x: pl.x, y: pl.y, vx: Math.cos(a) * sk.speed, vy: Math.sin(a) * sk.speed,
             dmg, elem: sk.elem, ally: true, from: pl, r: 0.3, ttl: 1.1,
-            slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: 'bolt',
+            slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: 'bolt', srcName,
+            weaponHit: !!sk.wd, pierce: sk.wd ? d.pierce : 0,
           });
         }
         FX.ring(pl.x, pl.y, 1.2, ELEM[sk.elem].color);
@@ -235,7 +278,7 @@ const Ent = {
               let dmg = this.rollSpellDmg(pl, sk, lvl);
               const crit = U.chance(U.rand, d.critCh / 100);
               if (crit) dmg *= d.critDmg;
-              this.damageMonster(m, dmg, sk.elem, { crit, from: pl });
+              this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
               if (sk.slowHit) this.applyDebuff(m, { slow: sk.slowHit }, 2.5);
               if (sk.healPct) pl.hp = Math.min(d.maxHp, pl.hp + dmg * sk.healPct / 100);
             }
@@ -250,7 +293,7 @@ const Ent = {
         G.pending.push({
           x: mx, y: my, t: sk.delay || 0.8, radius: sk.radius || 2.5,
           dmg: this.rollSpellDmg(pl, sk, lvl), elem: sk.elem, ally: true, from: pl,
-          linger: sk.linger || 0, lingerDps: sk.linger ? this.rollSpellDmg(pl, sk, lvl) * 0.25 : 0,
+          linger: sk.linger || 0, lingerDps: sk.linger ? this.rollSpellDmg(pl, sk, lvl) * 0.25 : 0, srcName,
         });
         break;
       }
@@ -260,7 +303,7 @@ const Ent = {
         G.projs.push({
           x: pl.x, y: pl.y, vx: Math.cos(ang) * sk.speed, vy: Math.sin(ang) * sk.speed,
           dmg: this.rollSpellDmg(pl, sk, lvl), elem: sk.elem, ally: true, from: pl,
-          r: 0.35, ttl: 1.6, jumps, kind: 'bolt', crit: U.chance(U.rand, d.critCh / 100),
+          r: 0.35, ttl: 1.6, jumps, kind: 'bolt', crit: U.chance(U.rand, d.critCh / 100), srcName,
         });
         break;
       }
@@ -296,7 +339,7 @@ const Ent = {
         G.storms.push({
           x: sx2, y: sy2, radius: sk.radius || 5, elem: sk.elem, ally: true, from: pl,
           strikes: sk.strikes || 10, interval: (sk.dur || 4) / (sk.strikes || 10), t: 0,
-          dmg: this.rollSpellDmg(pl, sk, lvl), left: sk.strikes || 10,
+          dmg: this.rollSpellDmg(pl, sk, lvl), left: sk.strikes || 10, srcName,
         });
         break;
       }
@@ -346,7 +389,7 @@ const Ent = {
             let dmg = this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100) + elemFlat;
             const crit = U.chance(U.rand, d.critCh / 100);
             if (crit) dmg *= d.critDmg;
-            this.damageMonster(m, dmg, sk.elem, { crit, from: pl });
+            this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
           }
           FX.ring(pl.x, pl.y, sk.radius || 2, ELEM[sk.elem].color);
           G.shake += 6;
@@ -369,6 +412,15 @@ const Ent = {
     return d.flatElem.fire + d.flatElem.cold + d.flatElem.lite + d.flatElem.pois + d.flatElem.arc + d.flatElem.holy;
   },
 
+  // stunOnHit's value is the stun duration in seconds. A qualifying weapon hit
+  // rolls this fixed chance once; multiple sources add duration, not chance.
+  STUN_ON_HIT_CHANCE: 0.2,
+  applyWeaponHitEffects(target, attacker) {
+    const duration = attacker && attacker.derived ? attacker.derived.stunOnHit : 0;
+    if (duration > 0 && U.chance(U.rand, this.STUN_ON_HIT_CHANCE))
+      target.stunT = Math.max(target.stunT || 0, duration);
+  },
+
   basicAttack(pl, tx, ty) {
     if (pl.gcd > 0) return false;
     this._src = 'Attack';
@@ -386,7 +438,8 @@ const Ent = {
       G.projs.push({
         x: pl.x, y: pl.y, vx: Math.cos(pl.dir) * 14, vy: Math.sin(pl.dir) * 14,
         dmg, elem: caster ? 'arc' : 'phys', ally: true, from: pl, r: 0.28, ttl: 1.8,
-        crit: U.chance(U.rand, d.critCh / 100), kind: caster ? 'orb' : 'arrow',
+        crit: U.chance(U.rand, d.critCh / 100), kind: caster ? 'orb' : 'arrow', srcName: 'Attack',
+        weaponHit: true, pierce: d.pierce,
       });
     } else {
       sfx('swing');
@@ -398,7 +451,8 @@ const Ent = {
         let dmg = this.rollWeaponDmg(pl, 1.35) + flat;
         const crit = U.chance(U.rand, d.critCh / 100);
         if (crit) dmg *= d.critDmg;
-        this.damageMonster(m, dmg, 'phys', { crit, from: pl });
+        this.damageMonster(m, dmg, 'phys', { crit, from: pl, srcName: 'Attack' });
+        this.applyWeaponHitEffects(m, pl);
         any = true;
       }
       FX.slash(pl.x, pl.y, pl.dir, 1.7, '#cfcfcf');
@@ -532,6 +586,16 @@ const Ent = {
   killMonster(m, killer) {
     if (m.dead) return;
     m.dead = true; m.deathT = 0.9;
+    // Boss adds exist only for the encounter that created them. Despawn them
+    // directly so cleanup cannot award XP, loot, or trigger on-death effects.
+    if (m.boss) {
+      for (const add of G.monsters) {
+        if (!add.dead && add.summonedBy === m) {
+          add.dead = true;
+          add.deathT = 0.4;
+        }
+      }
+    }
     sfx(m.rank === 'boss' ? 'bigdie' : 'die');
     FX.deathBurst(m.x, m.y, m.def.pal.main, m.size);
     // corpses topple along the blow that felled them
@@ -547,6 +611,7 @@ const Ent = {
     if (m.ai === 'exploder' && !m.ally) this.explode(m.x, m.y, 2.2, [m.dmgLo, m.dmgHi], m.elem, { hostile: true });
     if (!m.ally) {
       G.awardXp(m.xpVal);
+      this.awardMercXp(m.xpVal);
       G.dropLoot(m);
       G.stats.kills++;
       if (m.boss) G.onBossKilled(m);
@@ -604,15 +669,22 @@ const Ent = {
     if (!opts.hostile || opts.both) {
       for (const m of G.monsters) {
         if (m.ally || m.dead) continue;
-        if (U.dist(x, y, m.x, m.y) < r + m.size * 0.3) this.damageMonster(m, dmg, elem, { from: opts.from });
+        if (U.dist(x, y, m.x, m.y) < r + m.size * 0.3) this.damageMonster(m, dmg, elem, { from: opts.from, srcName: opts.srcName });
       }
     }
   },
 
   minionDamage(m, amount, elem) {
     if (m.dead) return;
-    m.hp -= amount; m.hitT = 0.12;
-    if (m.hp <= 0) { m.dead = true; m.deathT = 0.6; FX.deathBurst(m.x, m.y, m.def.pal.main, m.size); }
+    if (m.mercenary) {
+      const d = this.mercDerived(m.mercState);
+      amount *= elem === 'phys' ? 1 - Math.min(.75, d.armor / (d.armor + 80 + m.lvl * 10)) : 1 - d.resist;
+    }
+    m.hp -= Math.max(1, amount); m.hitT = 0.12;
+    if (m.hp <= 0) {
+      m.dead = true; m.deathT = 0.6; FX.deathBurst(m.x, m.y, m.def.pal.main, m.size);
+      if (m.mercenary) { m.mercState.dead = true; Save.saveChar(G.player); UI.announce(`${m.name} has fallen`, '#ff6a5a'); }
+    }
   },
 
   // ======================= MOVEMENT =======================
@@ -677,6 +749,12 @@ const Ent = {
       if (m.ttl <= 0) { m.dead = true; m.deathT = 0.4; FX.spark(m.x, m.y, '#8ef04a', 4); return; }
     }
     if (m.hitT > 0) m.hitT -= dt;
+    // Retainers catch up instead of becoming stranded across the map. Unlike
+    // summons this never consumes ttl and therefore cannot expire.
+    if (m.mercenary && U.dist(m.x, m.y, G.player.x, G.player.y) > 14) {
+      m.x = G.player.x + Math.cos(G.player.dir + Math.PI) * 1.5;
+      m.y = G.player.y + Math.sin(G.player.dir + Math.PI) * 1.5;
+    }
     // debuffs
     let slow = 0, weaken = 0;
     if (m.debuffT > 0) {
@@ -908,11 +986,13 @@ const Ent = {
       case 'charge': if (dist > 2.5) { m.windup = 0.6; } break;
       case 'summon_skeleton': case 'summon_spiderling': case 'summon_serpent': case 'summon_imp': {
         const kind = ab.split('_')[1] === 'skeleton' ? 'skeleton' : ab.split('_')[1] === 'spiderling' ? 'spiderling' : ab.split('_')[1] === 'serpent' ? 'serpent' : 'imp';
-        for (let i = 0; i < 3; i++) {
+        const livingAdds = G.monsters.filter(o => !o.dead && o.summonedBy === m).length;
+        const spawnCount = Math.min(3, Math.max(0, this.BOSS_ADD_CAP - livingAdds));
+        for (let i = 0; i < spawnCount; i++) {
           const sm = this.makeMonster(kind, m.x + U.rf(U.rand, -1.5, 1.5), m.y + U.rf(U.rand, -1.5, 1.5), { mlvl: m.lvl });
-          sm.aggro = true;
+          sm.summonedBy = m; sm.aggro = true;
         }
-        FX.ring(m.x, m.y, 2, '#c07bff');
+        if (spawnCount > 0) FX.ring(m.x, m.y, 2, '#c07bff');
         break;
       }
     }
@@ -950,12 +1030,12 @@ const Ent = {
       if (p.orbT <= 0) {
         p.orbT = p.orbRate || 0.09;
         const a = U.rand() * Math.PI * 2;
-        G.projs.push({ x: p.x, y: p.y, vx: Math.cos(a) * 9, vy: Math.sin(a) * 9, dmg: p.dmg * 0.45, elem: p.elem, ally: p.ally, from: p.from, r: 0.22, ttl: 0.5, kind: 'bolt', slowHit: 0.3 });
+        G.projs.push({ x: p.x, y: p.y, vx: Math.cos(a) * 9, vy: Math.sin(a) * 9, dmg: p.dmg * 0.45, elem: p.elem, ally: p.ally, from: p.from, r: 0.22, ttl: 0.5, kind: 'bolt', slowHit: 0.3, srcName: p.srcName });
       }
     }
     const nx = p.x + p.vx * dt, ny = p.y + p.vy * dt;
     if (Dungeon.isWall(G.map, Math.floor(nx), Math.floor(ny))) {
-      if (p.explodeR) this.explode(p.x, p.y, p.explodeR, [p.dmg * 0.9, p.dmg * 1.1], p.elem, { hostile: !p.ally, from: p.from });
+      if (p.explodeR) this.explode(p.x, p.y, p.explodeR, [p.dmg * 0.9, p.dmg * 1.1], p.elem, { hostile: !p.ally, from: p.from, srcName: p.srcName });
       else FX.spark(p.x, p.y, ELEM[p.elem].color, 3);
       p.dead = true; return;
     }
@@ -970,6 +1050,7 @@ const Ent = {
           let dmg = p.dmg;
           if (p.crit && p.from === G.player) dmg *= G.player.derived.critDmg;
           this.damageMonster(m, dmg, p.elem, { crit: p.crit, from: p.from, srcName: p.srcName });
+          if (p.weaponHit) this.applyWeaponHitEffects(m, p.from);
           if (p.slowHit) this.applyDebuff(m, { slow: p.slowHit }, 2.5);
           if (p.jumps && p.jumps > 0) {
             let best = null, bd = 30;
@@ -987,7 +1068,7 @@ const Ent = {
               return; // keep flying to next target
             }
           }
-          if (p.explodeR) this.explode(p.x, p.y, p.explodeR, [p.dmg * 0.8, p.dmg * 1.05], p.elem, { from: p.from });
+          if (p.explodeR) this.explode(p.x, p.y, p.explodeR, [p.dmg * 0.8, p.dmg * 1.05], p.elem, { from: p.from, srcName: p.srcName });
           if (p.pierce && p.pierce > 0) { p.pierce--; return; }
           p.dead = true; return;
         }
@@ -1032,8 +1113,8 @@ const Ent = {
       const pd = G.pending[i];
       pd.t -= dt;
       if (pd.t <= 0) {
-        this.explode(pd.x, pd.y, pd.radius, [pd.dmg * 0.9, pd.dmg * 1.1], pd.elem, pd.ally ? { from: pd.from } : { hostile: true });
-        if (pd.linger) G.grounds.push({ x: pd.x, y: pd.y, r: pd.radius, dps: pd.lingerDps, elem: pd.elem, t: pd.linger, ally: pd.ally, tick: 0 });
+        this.explode(pd.x, pd.y, pd.radius, [pd.dmg * 0.9, pd.dmg * 1.1], pd.elem, pd.ally ? { from: pd.from, srcName: pd.srcName } : { hostile: true });
+        if (pd.linger) G.grounds.push({ x: pd.x, y: pd.y, r: pd.radius, dps: pd.lingerDps, elem: pd.elem, t: pd.linger, ally: pd.ally, from: pd.from, tick: 0, srcName: pd.srcName });
         G.pending.splice(i, 1);
       }
     }
@@ -1050,7 +1131,7 @@ const Ent = {
         if (s.ally) {
           for (const m of G.monsters) {
             if (m.ally || m.dead) continue;
-            if (U.dist(sx, sy, m.x, m.y) < 1.4 + m.size * 0.3) this.damageMonster(m, U.rf(U.rand, dmgR[0], dmgR[1]), s.elem, { from: s.from });
+            if (U.dist(sx, sy, m.x, m.y) < 1.4 + m.size * 0.3) this.damageMonster(m, U.rf(U.rand, dmgR[0], dmgR[1]), s.elem, { from: s.from, srcName: s.srcName });
           }
         } else {
           if (U.dist(sx, sy, pl.x, pl.y) < 1.5) this.damagePlayer(U.rf(U.rand, dmgR[0], dmgR[1]), s.elem, null);
@@ -1068,7 +1149,7 @@ const Ent = {
         if (gr.ally) {
           for (const m of G.monsters) {
             if (m.ally || m.dead) continue;
-            if (U.dist(gr.x, gr.y, m.x, m.y) < gr.r + m.size * 0.3) this.damageMonster(m, gr.dps * 0.4, gr.elem, {});
+            if (U.dist(gr.x, gr.y, m.x, m.y) < gr.r + m.size * 0.3) this.damageMonster(m, gr.dps * 0.4, gr.elem, { from: gr.from, srcName: gr.srcName });
           }
         } else if (U.dist(gr.x, gr.y, pl.x, pl.y) < gr.r) this.damagePlayer(gr.dps * 0.4, gr.elem, null);
       }

@@ -1,8 +1,96 @@
 // ============ DIABLOID: ui.js — HUD, panels, menu, ladder ============
 'use strict';
 
+// Owns inventory view state and all item transfers.  renderInv() may rebuild
+// the DOM as often as it likes without losing the user's query or ordering.
+class InventoryGridController {
+  constructor() { this.query = ''; this.filter = 'all'; this.sort = 'position'; }
+
+  matches(item) {
+    if (!item) return true;
+    const q = this.query.trim().toLowerCase();
+    if (q && ![item.name, item.baseName, item.type, item.slot, item.rarity]
+      .some(value => String(value || '').toLowerCase().includes(q))) return false;
+    return this.filter === 'all' || item.rarity === this.filter ||
+      (this.filter === 'equipment' && !item.potion);
+  }
+
+  entries(inv) {
+    const entries = inv.map((item, position) => ({ item, position }));
+    if (this.sort === 'position') return entries;
+    const rarity = { unique: 0, set: 1, rare: 2, magic: 3, common: 4 };
+    const value = (entry) => this.sort === 'rarity'
+      ? (rarity[entry.item.rarity] ?? 9)
+      : String(entry.item[this.sort] || '').toLowerCase();
+    const occupied = entries.filter(entry => entry.item).sort((a, b) => {
+      const av = value(a), bv = value(b);
+      return (av < bv ? -1 : av > bv ? 1 : 0) ||
+        String(a.item.id).localeCompare(String(b.item.id)) || a.position - b.position;
+    });
+    return occupied.concat(entries.filter(entry => !entry.item));
+  }
+
+  source(event) {
+    try { return JSON.parse(event.dataTransfer.getData('application/x-diabloid-item')); }
+    catch (e) { return null; }
+  }
+  begin(event, source) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-diabloid-item', JSON.stringify(source));
+  }
+  itemAt(source) {
+    if (!source) return null;
+    return source.kind === 'inv' ? G.player.inv[source.position] : G.player.equip[source.slot];
+  }
+  accepts(item, slot) {
+    return !!item && !item.potion && (item.slot === slot ||
+      (item.slot === 'ring' && (slot === 'ring1' || slot === 'ring2')));
+  }
+  moveToPosition(source, position) {
+    const pl = G.player, item = this.itemAt(source);
+    if (!item || position < 0 || position >= pl.inv.length) return false;
+    if (source.kind === 'inv') {
+      [pl.inv[source.position], pl.inv[position]] = [pl.inv[position], pl.inv[source.position]];
+    } else {
+      const displaced = pl.inv[position];
+      pl.inv[position] = item;
+      pl.equip[source.slot] = displaced || null;
+      if (displaced && !this.accepts(displaced, source.slot)) {
+        pl.equip[source.slot] = item; pl.inv[position] = displaced; return false;
+      }
+      Ent.computeDerived(pl);
+    }
+    Save.saveChar(pl); return true;
+  }
+  equip(source, slot) {
+    const pl = G.player, item = this.itemAt(source);
+    if (!item || item.potion || (item.reqLvl || 1) > pl.lvl) return false;
+    if (!this.accepts(item, slot)) { UI.announce(`That item cannot be equipped as ${slot}`, '#ff6a5a'); return false; }
+    if (source.kind === 'equip') {
+      if (source.slot === slot) return false;
+      if (pl.equip[slot] && !this.accepts(pl.equip[slot], source.slot)) {
+        UI.announce('Those equipment slots cannot be swapped', '#ff6a5a'); return false;
+      }
+      [pl.equip[source.slot], pl.equip[slot]] = [pl.equip[slot], pl.equip[source.slot]];
+    } else {
+      [pl.inv[source.position], pl.equip[slot]] = [pl.equip[slot] || null, item];
+    }
+    Ent.computeDerived(pl); pl.hp = Math.min(pl.hp, pl.derived.maxHp);
+    Save.saveChar(pl); sfx('equip'); return true;
+  }
+  dropToWorld(source) {
+    const pl = G.player, item = this.itemAt(source);
+    if (!item) return false;
+    if (source.kind === 'inv') pl.inv[source.position] = null;
+    else { pl.equip[source.slot] = null; Ent.computeDerived(pl); }
+    G.groundItems.push({ x: pl.x, y: pl.y, item });
+    Save.saveChar(pl); UI.announce(`Dropped ${item.name}`, '#d8c9a3'); return true;
+  }
+}
+
 const UI = {
   els: {}, openPanel: null, treeTab: 0, ladderTab: 0, menuFxT: null,
+  inventoryGrid: new InventoryGridController(),
 
   init() {
     const ids = ['hud', 'zone-label', 'announce', 'hp-fill', 'mp-fill', 'hp-text', 'mp-text', 'xp-fill',
@@ -138,6 +226,7 @@ const UI = {
       case 'inv': this.renderInv(); break;
       case 'char': this.renderChar(); break;
       case 'skills': this.renderSkills(); break;
+      case 'mercenary': this.renderMercenary(); break;
       case 'ladder': this.renderLadder(); break;
       case 'vendor': this.renderVendor(); break;
       case 'stash': this.renderStash(); break;
@@ -145,6 +234,44 @@ const UI = {
       case 'waypoint': this.renderWaypoint(); break;
       case 'menu': this.renderPauseMenu(); break;
     }
+  },
+
+  renderMercenary() {
+    const p = this.panel('mercenary'), pl = G.player, state = pl.mercenary;
+    this.head(p, 'MERCENARY COMPANY');
+    if (!state) {
+      p.insertAdjacentHTML('beforeend', '<div class="npc-line">Hire one permanent retainer. Mercenaries level with you, cross zones, and are separate from temporary summons.</div>');
+      for (const def of MERCENARY_ARCHETYPES) {
+        const row = document.createElement('div'); row.className = 'vendor-row';
+        row.innerHTML = `<div><b>${U.esc(def.name)}</b> — ${U.esc(def.title)} <span class="rarity-magic">${def.role}</span><br><small>${U.esc(def.desc)}</small></div><button>Hire · ${def.hireCost}g</button>`;
+        row.querySelector('button').addEventListener('click', () => {
+          if (pl.gold < def.hireCost) return this.announce('Not enough gold', '#ff6a5a');
+          pl.gold -= def.hireCost; pl.mercenary = { archetypeId: def.id, level: Math.max(1, pl.lvl - 1), xp: 0, equipment: {}, dead: false };
+          Ent.syncMercenary(); Save.saveChar(pl); this.renderMercenary();
+        }); p.appendChild(row);
+      } return;
+    }
+    const def = MERCENARY_BY_ID[state.archetypeId], d = Ent.mercDerived(state);
+    const rez = def.resurrectionBase + state.level * 35;
+    p.insertAdjacentHTML('beforeend', `<div class="npc-line"><b>${U.esc(def.name)}, ${U.esc(def.title)}</b> · Level ${state.level} · ${state.dead ? '<span style="color:#ff6a5a">FALLEN</span>' : 'ACTIVE'}<br>Life ${d.maxHp} · Damage ${Math.floor(d.dmgLo)}–${Math.floor(d.dmgHi)} · Armor ${d.armor}<br>Experience ${state.xp}/${Ent.mercXpForLevel(state.level)}</div>`);
+    if (state.dead) {
+      const b = document.createElement('button'); b.className = 'big-btn'; b.textContent = `Resurrect · ${rez} gold`;
+      b.addEventListener('click', () => { if (pl.gold < rez) return this.announce('Not enough gold', '#ff6a5a'); pl.gold -= rez; state.dead = false; Ent.syncMercenary(); Save.saveChar(pl); this.renderMercenary(); }); p.appendChild(b);
+    }
+    p.insertAdjacentHTML('beforeend', '<h3>EQUIPMENT</h3>');
+    for (const slot of def.slots) {
+      const item = state.equipment[slot], row = document.createElement('div'); row.className = 'vendor-row';
+      row.innerHTML = `<span><b>${slot.toUpperCase()}</b> · ${item ? U.esc(item.name) : 'Empty'}</span><button>${item ? 'Unequip' : 'Equip from inventory'}</button>`;
+      row.querySelector('button').addEventListener('click', () => {
+        if (item) { if (!Game.giveItem(item)) return; state.equipment[slot] = null; }
+        else { const i = pl.inv.findIndex(it => it && !it.potion && (it.slot === slot || (slot === 'offhand' && it.slot === 'offhand')) && (it.reqLvl || 1) <= state.level); if (i < 0) return this.announce(`No level-appropriate ${slot} in inventory`, '#ff6a5a'); state.equipment[slot] = pl.inv[i]; pl.inv[i] = null; }
+        const live = G.monsters.find(m => m.mercenary && !m.dead); if (live) { live.dead = true; live.deathT = 0; } Ent.syncMercenary(); Save.saveChar(pl); this.renderMercenary();
+      }); p.appendChild(row);
+    }
+    const dismiss = document.createElement('button'); dismiss.textContent = 'Dismiss mercenary'; dismiss.addEventListener('click', () => {
+      const gear = Object.values(state.equipment).filter(Boolean); if (gear.length && pl.inv.filter(Boolean).length + gear.length > pl.inv.length) return this.announce('Make room for their equipment first', '#ff6a5a');
+      gear.forEach(it => Game.giveItem(it)); pl.mercenary = null; const live = G.monsters.find(m => m.mercenary); if (live) live.dead = true; Save.saveChar(pl); this.renderMercenary();
+    }); p.appendChild(dismiss);
   },
   head(p, title) {
     p.innerHTML = `<span class="close-x">✕</span><h2>${title}</h2>`;
@@ -155,6 +282,7 @@ const UI = {
   renderInv() {
     const p = this.panel('inv'), pl = G.player;
     this.head(p, 'INVENTORY');
+    const controller = this.inventoryGrid;
     const eq = document.createElement('div');
     eq.className = 'equip-grid';
     const slots = [['helm', 'Helm'], ['amulet', 'Amulet'], ['weapon', 'Weapon'], ['chest', 'Chest'], ['offhand', 'Off-hand'],
@@ -162,34 +290,64 @@ const UI = {
     for (const [slot, label] of slots) {
       const cell = document.createElement('div');
       cell.className = 'eq-slot';
+      cell.dataset.slot = slot;
       cell.innerHTML = `<span class="eq-label">${label}</span>`;
       const it = pl.equip[slot];
       if (it) {
         const cv = Sprites.itemIcon(it, 52);
+        cv.draggable = true;
+        cv.addEventListener('dragstart', e => controller.begin(e, { kind: 'equip', slot }));
         cell.appendChild(cv);
         cell.style.borderColor = Items.rarityColor(it.rarity);
         this.hookTip(cell, () => Items.tooltip(it, pl));
         cell.addEventListener('click', () => { Game.unequip(slot); this.renderInv(); });
       }
+      cell.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+      cell.addEventListener('drop', e => { e.preventDefault(); if (controller.equip(controller.source(e), slot)) this.renderInv(); });
       eq.appendChild(cell);
     }
     p.appendChild(eq);
+    const toolbar = document.createElement('div');
+    toolbar.className = 'inv-toolbar';
+    toolbar.innerHTML = `<input class="inv-search" type="text" aria-label="Search inventory" placeholder="Search inventory" value="${U.esc(controller.query)}">
+      <select class="inv-sort" aria-label="Sort inventory"><option value="position">Grid position</option><option value="name">Name</option><option value="rarity">Rarity</option><option value="slot">Item type</option></select>
+      ${['all', 'equipment', 'common', 'magic', 'rare', 'set', 'unique'].map(filter => `<button class="inv-filter-chip${controller.filter === filter ? ' active' : ''}" data-filter="${filter}">${filter[0].toUpperCase() + filter.slice(1)}</button>`).join('')}`;
+    toolbar.querySelector('.inv-sort').value = controller.sort;
+    toolbar.querySelector('.inv-search').addEventListener('input', e => { controller.query = e.target.value; this.renderInv(); const input = p.querySelector('.inv-search'); input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
+    toolbar.querySelector('.inv-sort').addEventListener('change', e => { controller.sort = e.target.value; this.renderInv(); });
+    toolbar.querySelectorAll('.inv-filter-chip').forEach(button => button.addEventListener('click', () => { controller.filter = button.dataset.filter; this.renderInv(); }));
+    p.appendChild(toolbar);
     const grid = document.createElement('div');
     grid.className = 'inv-grid';
-    for (let i = 0; i < 48; i++) {
+    for (const entry of controller.entries(pl.inv)) {
+      const i = entry.position;
       const cell = document.createElement('div');
       cell.className = 'inv-cell';
-      const it = pl.inv[i];
+      cell.dataset.position = i;
+      const it = entry.item;
       if (it) {
-        cell.appendChild(Sprites.itemIcon(it, 44));
+        const icon = Sprites.itemIcon(it, 44);
+        icon.draggable = true;
+        icon.addEventListener('dragstart', e => controller.begin(e, { kind: 'inv', position: i }));
+        cell.appendChild(icon);
         cell.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
+        cell.classList.toggle('filtered-out', !controller.matches(it));
         this.hookTip(cell, () => Items.tooltip(it, pl) +
           `<div style="color:#847252;margin-top:4px;font-size:11px">${this.openPanel === 'vendor' ? 'Click: SELL' : 'Click: equip · Right-click: sell later'}</div>`);
         cell.addEventListener('click', () => { Game.equipFromInv(i); this.renderInv(); });
       }
+      cell.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+      cell.addEventListener('drop', e => { e.preventDefault(); if (controller.moveToPosition(controller.source(e), i)) this.renderInv(); });
       grid.appendChild(cell);
     }
     p.appendChild(grid);
+    const worldDrop = document.createElement('div');
+    worldDrop.className = 'world-drop';
+    worldDrop.textContent = 'Drag here to drop in the world';
+    worldDrop.addEventListener('dragover', e => { e.preventDefault(); worldDrop.classList.add('ready'); });
+    worldDrop.addEventListener('dragleave', () => worldDrop.classList.remove('ready'));
+    worldDrop.addEventListener('drop', e => { e.preventDefault(); if (controller.dropToWorld(controller.source(e))) this.renderInv(); });
+    p.appendChild(worldDrop);
     const gold = document.createElement('div');
     gold.className = 'gold-row';
     gold.innerHTML = `⛁ ${U.fmt(pl.gold)} gold`;
@@ -325,20 +483,37 @@ const UI = {
     });
     p.appendChild(tabs);
     const grid = document.createElement('div');
-    grid.className = 'skill-grid';
+    grid.className = 'skill-tree';
     const tree = cls.trees[this.treeTab];
-    tree.skills.forEach((sk, i) => {
-      const req = skillReqLvl(i);
+    const connectors = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    connectors.classList.add('skill-connectors');
+    connectors.setAttribute('viewBox', '0 0 100 100');
+    connectors.setAttribute('preserveAspectRatio', 'none');
+    tree.skills.forEach(sk => sk.prereqIds.forEach(prereqId => {
+      const from = SKILL_BY_ID[prereqId];
+      if (!from) return;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', 25 + from.x * 50); line.setAttribute('y1', 10 + from.y * 20);
+      line.setAttribute('x2', 25 + sk.x * 50); line.setAttribute('y2', 10 + sk.y * 20);
+      if ((pl.skills[prereqId] || 0) > 0) line.classList.add('active');
+      connectors.appendChild(line);
+    }));
+    grid.appendChild(connectors);
+    tree.skills.forEach(sk => {
+      const req = sk.reqLvl;
       const lvl = pl.skills[sk.id] || 0;
-      const locked = pl.lvl < req;
+      const unmetPrereqs = sk.prereqIds.filter(id => !(pl.skills[id] > 0));
+      const locked = pl.lvl < req || unmetPrereqs.length > 0;
       const row = document.createElement('div');
-      row.className = 'skill-row' + (locked ? ' locked' : '');
+      row.className = 'skill-node' + (locked ? ' locked' : '') + (lvl ? ' learned' : '');
+      row.style.gridColumn = String(sk.x + 1);
+      row.style.gridRow = String(sk.y + 1);
       const icon = Sprites.skillIcon(sk, 40);
       row.appendChild(icon);
       const info = document.createElement('div');
       info.className = 'skill-info';
       info.innerHTML = `<div class="skill-name">${sk.name} <span class="skill-lvl">${lvl}/${sk.maxLvl}</span></div>
-        <div class="skill-desc">${U.esc(sk.desc)} ${locked ? `<span style="color:#c96a52">(requires level ${req})</span>` : ''}</div>
+        <div class="skill-desc">Tier ${sk.tier}${locked ? ' · locked' : ''}</div>
         <div class="skill-desc" style="color:#6f8a5a">${this.bindLabel(sk.id)}</div>`;
       row.appendChild(info);
       const plus = document.createElement('button');
@@ -347,17 +522,20 @@ const UI = {
       plus.disabled = locked || pl.skillPts <= 0 || lvl >= sk.maxLvl;
       plus.addEventListener('click', e => {
         e.stopPropagation();
-        if (pl.skillPts > 0 && lvl < sk.maxLvl) {
-          pl.skills[sk.id] = lvl + 1;
+        const current = pl.skills[sk.id] || 0;
+        const canAllocate = pl.skillPts > 0 && current < sk.maxLvl && pl.lvl >= sk.reqLvl &&
+          sk.prereqIds.every(id => (pl.skills[id] || 0) > 0);
+        if (canAllocate) {
+          pl.skills[sk.id] = current + 1;
           pl.skillPts--;
-          if (lvl === 0 && sk.arch !== 'passive') WUI.ensurePlayer(pl), this.autoBind(sk.id);
+          if (current === 0 && sk.arch !== 'passive') WUI.ensurePlayer(pl), this.autoBind(sk.id);
           Ent.computeDerived(pl);
           sfx('levelup');
           this.renderSkills();
         }
       });
       row.appendChild(plus);
-      this.hookTip(row, () => this.skillTip(sk, Math.max(1, Ent.skillLvl(pl, sk.id))));
+      this.hookTip(row, () => this.skillTip(sk, Ent.skillLvl(pl, sk.id)));
       if (sk.arch !== 'passive') {
         // pick the skill up onto the cursor, WoW-style, then drop it on an action slot
         row.addEventListener('mousedown', e => {
@@ -399,27 +577,44 @@ const UI = {
   skillTip(sk, lvl) {
     const pl = G.player;
     let h = `<div class="tt-name" style="color:${ELEM[sk.elem].color}">${sk.name}</div>`;
-    h += `<div class="tt-type">${sk.arch.toUpperCase()} · ${ELEM[sk.elem].name} · Level ${lvl}</div>`;
-    h += `<div>${U.esc(sk.desc)}</div><div style="margin-top:5px">`;
-    if (sk.wd) h += `<div class="tt-stat">${Math.round(sk.wd + (sk.wdLvl || 0) * (lvl - 1))}% weapon damage</div>`;
-    if (sk.dmg) {
-      const g = 1 + (sk.dmgLvl || 0.3) * (lvl - 1);
-      const sp = pl.derived ? pl.derived.spellPower : 1;
-      h += `<div class="tt-stat">${Math.floor(sk.dmg[0] * g * sp)}–${Math.floor(sk.dmg[1] * g * sp)} ${ELEM[sk.elem].name.toLowerCase()} damage</div>`;
-    }
-    if (sk.count) h += `<div class="tt-stat">${sk.count + Math.floor((sk.countLvl || 0) * (lvl - 1))} projectiles</div>`;
-    if (sk.buff) { for (const k in sk.buff) h += `<div class="tt-stat">${Items.statLine(k, Math.round(sk.buff[k] * (1 + 0.14 * (lvl - 1)) * 10) / 10)}</div>`; }
-    if (sk.passive) { for (const k in sk.passive) h += `<div class="tt-stat">${Items.statLine(k, Math.round(sk.passive[k] * lvl * 10) / 10)} (total)</div>`; }
-    if (sk.debuff) {
-      if (sk.debuff.slow) h += `<div class="tt-stat">Slows by ${Math.round(sk.debuff.slow * 100)}%</div>`;
-      if (sk.debuff.dmgTaken) h += `<div class="tt-stat">+${Math.round(sk.debuff.dmgTaken * 100)}% damage taken</div>`;
-      if (sk.debuff.weaken) h += `<div class="tt-stat">-${Math.round(sk.debuff.weaken * 100)}% enemy damage</div>`;
-      if (sk.debuff.dot) h += `<div class="tt-stat">${Math.round(sk.debuff.dot)} damage/sec</div>`;
-    }
-    if (sk.heal) h += `<div class="tt-stat">Heals ${Math.round(sk.heal + (sk.healLvl || 0) * (lvl - 1))}</div>`;
-    if (sk.arch !== 'passive') h += `<div style="color:#6a8aff">Mana: ${Ent.manaCost(sk, lvl)}</div>`;
-    if (sk.cd) h += `<div style="color:#847252">Cooldown: ${sk.cd}s</div>`;
-    h += '</div>';
+    h += `<div class="tt-type">${sk.arch.toUpperCase()} · ${ELEM[sk.elem].name} · Tier ${sk.tier} · Rank ${lvl}/${sk.maxLvl}</div>`;
+    h += `<div>${U.esc(sk.desc)}</div>`;
+
+    const rankStats = rank => {
+      let out = '';
+      if (sk.wd) out += `<div class="tt-stat">${Math.round(sk.wd + (sk.wdLvl || 0) * (rank - 1))}% weapon damage</div>`;
+      if (sk.dmg) {
+        const g = 1 + (sk.dmgLvl || 0.3) * (rank - 1);
+        const sp = pl.derived ? pl.derived.spellPower : 1;
+        out += `<div class="tt-stat">${Math.floor(sk.dmg[0] * g * sp)}–${Math.floor(sk.dmg[1] * g * sp)} ${ELEM[sk.elem].name.toLowerCase()} damage</div>`;
+      }
+      if (sk.count) out += `<div class="tt-stat">${sk.count + Math.floor((sk.countLvl || 0) * (rank - 1))} projectiles</div>`;
+      if (sk.buff) for (const k in sk.buff) out += `<div class="tt-stat">${Items.statLine(k, Math.round(sk.buff[k] * (1 + 0.14 * (rank - 1)) * 10) / 10)}</div>`;
+      if (sk.passive) for (const k in sk.passive) out += `<div class="tt-stat">${Items.statLine(k, Math.round(sk.passive[k] * rank * 10) / 10)} (total)</div>`;
+      if (sk.debuff) {
+        if (sk.debuff.slow) out += `<div class="tt-stat">Slows by ${Math.round(sk.debuff.slow * 100)}%</div>`;
+        if (sk.debuff.dmgTaken) out += `<div class="tt-stat">+${Math.round(sk.debuff.dmgTaken * 100)}% damage taken</div>`;
+        if (sk.debuff.weaken) out += `<div class="tt-stat">-${Math.round(sk.debuff.weaken * 100)}% enemy damage</div>`;
+        if (sk.debuff.dot) out += `<div class="tt-stat">${Math.round(sk.debuff.dot)} damage/sec</div>`;
+      }
+      if (sk.heal) out += `<div class="tt-stat">Heals ${Math.round(sk.heal + (sk.healLvl || 0) * (rank - 1))}</div>`;
+      if (sk.arch !== 'passive') out += `<div style="color:#6a8aff">Mana: ${Ent.manaCost(sk, rank)}</div>`;
+      if (sk.cd) out += `<div style="color:#847252">Cooldown: ${sk.cd}s</div>`;
+      return out;
+    };
+    if (lvl > 0) h += `<div class="tt-rank"><b>Rank ${lvl}</b>${rankStats(lvl)}</div>`;
+    if (lvl < sk.maxLvl) h += `<div class="tt-rank tt-next"><b>${lvl ? 'Next rank' : 'Rank 1'}</b>${rankStats(lvl + 1)}</div>`;
+
+    h += '<div class="tt-requirements"><b>Requirements</b>';
+    const requirements = [
+      { met: pl.lvl >= sk.reqLvl, text: `Character level ${sk.reqLvl}` },
+      ...sk.prereqIds.map(id => ({ met: (pl.skills[id] || 0) > 0, text: `${SKILL_BY_ID[id].name} rank 1` })),
+      { met: pl.skillPts > 0, text: '1 available skill point' },
+      { met: lvl < sk.maxLvl, text: `Below maximum rank ${sk.maxLvl}` },
+    ];
+    h += requirements.map(r => `<div class="${r.met ? 'tt-met' : 'tt-unmet'}">${r.met ? '✓' : '✕'} ${U.esc(r.text)}</div>`).join('') + '</div>';
+    if (sk.synergies.length) h += '<div class="tt-synergy"><b>Synergies</b>' + sk.synergies.map(s =>
+      `<div>+${s.bonusPerRank}% ${s.bonus} per rank of ${SKILL_BY_ID[s.skillId].name}</div>`).join('') + '</div>';
     return h;
   },
 
@@ -427,6 +622,7 @@ const UI = {
   renderVendor() {
     const p = this.panel('vendor'), pl = G.player;
     this.head(p, 'KORGA\'S FORGE');
+    if (Factions.isHostile(pl.reputation, 'ironsong')) { p.insertAdjacentHTML('beforeend', '<div class="npc-line">“The Compact does not trade with its enemies.”</div>'); return; }
     p.insertAdjacentHTML('beforeend', `<div class="npc-line">“${U.esc(U.pick(U.rand, NPCS.find(n => n.id === 'smith').lines))}”</div>
       <div class="gold-row">⛁ ${U.fmt(pl.gold)} gold</div>
       <h2 style="font-size:14px;margin-top:8px">FOR SALE</h2>`);
@@ -439,10 +635,11 @@ const UI = {
       cell.style.width = '54px'; cell.style.height = '54px';
       cell.appendChild(Sprites.itemIcon(it, 50));
       cell.style.borderColor = Items.rarityColor(it.rarity);
-      this.hookTip(cell, () => Items.tooltip(it, pl) + `<div class="q-gold">Buy for ${U.fmt(it.price)} gold</div>`);
+      const buyPrice = Factions.price(it.price, pl.reputation, 'ironsong');
+      this.hookTip(cell, () => Items.tooltip(it, pl) + `<div class="q-gold">Buy for ${U.fmt(buyPrice)} gold</div>`);
       cell.addEventListener('click', () => {
-        if (pl.gold >= it.price && pl.inv.filter(Boolean).length < 48) {
-          pl.gold -= it.price; Game.giveItem(it); G.shopStock[i] = null;
+        if (pl.gold >= buyPrice && pl.inv.filter(Boolean).length < 48) {
+          pl.gold -= buyPrice; Game.giveItem(it); G.shopStock[i] = null;
           sfx('gold'); this.renderVendor();
         } else sfx('nope');
       });
@@ -539,6 +736,7 @@ const UI = {
     p.appendChild(inv);
   },
 
+  npcDialog(npc, nodeId, trail) {
   npcDialog(npc, nodeId) {
     const p = this.panel('npc');
     this.closeAll();
@@ -546,6 +744,22 @@ const UI = {
     p.classList.remove('hidden');
     this.head(p, npc.def.name.toUpperCase());
     const pl = G.player;
+    const graph = DialogueGraphs[npc.id];
+    if (!graph || !graph.nodes) return this.closeAll();
+    const pl = G.player;
+    const id = graph.nodes[nodeId] ? nodeId : graph.start;
+    const node = graph.nodes[id];
+    trail = Array.isArray(trail) ? trail : [];
+    const state = pl.dialogue = DialogueState.migrate(pl.dialogue);
+    state.visited[`${npc.id}:${id}`] = true;
+    Save.saveChar(pl);
+    p.insertAdjacentHTML('beforeend', `<div class="npc-line">“${U.esc(node.text)}”</div>`);
+    const pl = G.player;
+    const npcFaction = { elder: 'haven', healer: 'light', smith: 'ironsong', gambler: 'haven' }[npc.id];
+    if (npcFaction && Factions.isHostile(pl.reputation, npcFaction)) {
+      p.insertAdjacentHTML('beforeend', `<div class="npc-line">“You are an enemy of ${U.esc(Factions.byId[npcFaction].name)}. Leave.”</div>`);
+      return;
+    }
     pl.dialogue = Dialogue.migrate(pl.dialogue);
     const graph = Dialogue.graphs[npc.id];
     const currentId = graph && graph.nodes[nodeId] ? nodeId : graph && graph.start;
@@ -564,6 +778,51 @@ const UI = {
       b.addEventListener('click', fn);
       opts.appendChild(b);
     };
+    const conditionMet = c => !c || (typeof c === 'object' &&
+      Object.keys(c).every(k => ['level', 'gold', 'visited', 'notVisited', 'flag', 'notFlag'].includes(k)) &&
+      (c.level === undefined || pl.lvl >= c.level) && (c.gold === undefined || pl.gold >= c.gold) &&
+      (!c.visited || !!state.visited[c.visited]) && (!c.notVisited || !state.visited[c.notVisited]) &&
+      (!c.flag || !!state.flags[c.flag]) && (!c.notFlag || !state.flags[c.notFlag]));
+    const validEffects = e => !e || (typeof e === 'object' &&
+      Object.keys(e).every(k => ['gold', 'hpPotions', 'mpPotions', 'heal', 'setFlag'].includes(k)) &&
+      ['gold', 'hpPotions', 'mpPotions'].every(k => e[k] === undefined || Number.isFinite(e[k])) &&
+      (e.setFlag === undefined || typeof e.setFlag === 'string') && (e.heal === undefined || typeof e.heal === 'boolean'));
+    const applyEffects = e => {
+      if (!validEffects(e)) return false;
+      const gold = pl.gold + (e && e.gold || 0), hp = pl.potions.hp + (e && e.hpPotions || 0), mp = pl.potions.mp + (e && e.mpPotions || 0);
+      if (gold < 0 || hp < 0 || hp > 20 || mp < 0 || mp > 20) return false;
+      pl.gold = gold; pl.potions.hp = hp; pl.potions.mp = mp;
+      if (e && e.heal) { pl.hp = pl.derived.maxHp; pl.mp = pl.derived.maxMp; }
+      if (e && e.setFlag) state.flags[e.setFlag] = true;
+      return true;
+    };
+    const go = next => this.npcDialog(npc, graph.nodes[next] ? next : id, trail.concat(id));
+    const actions = {
+      heal: () => { applyEffects({ heal: true }); sfx('shrine'); this.announce('You feel whole again.', '#6be26b'); this.closeAll(); },
+      buyHp: () => applyEffects({ gold: -(20 + pl.lvl * 6), hpPotions: 1 }) ? (sfx('gold'), this.npcDialog(npc, id, trail)) : sfx('nope'),
+      buyMp: () => applyEffects({ gold: -(20 + pl.lvl * 6), mpPotions: 1 }) ? (sfx('gold'), this.npcDialog(npc, id, trail)) : sfx('nope'),
+      vendor: () => { Game.restock(); this.open('vendor'); }, gamble: () => this.open('gamble'), stash: () => this.open('stash'),
+    };
+    for (const choice of node.choices || []) {
+      const choiceKey = `${npc.id}:${id}:${choice.id}`;
+      if (!choice.id || !choice.text || !conditionMet(choice.condition) || (choice.remember && state.choices[choiceKey])) continue;
+      let label = choice.text;
+      if (choice.action === 'buyHp' || choice.action === 'buyMp') label += ` — ${20 + pl.lvl * 6}g`;
+      add(label, () => {
+        if (choice.action) { if (actions[choice.action]) actions[choice.action](); return; }
+        let result = choice;
+        if (choice.skillCheck) {
+          const check = choice.skillCheck, stat = pl.derived && pl.derived[check.stat];
+          if (!Number.isFinite(stat) || !Number.isFinite(check.difficulty)) return sfx('nope');
+          const old = state.checks[choiceKey];
+          const passed = old === 'success' || (old !== 'failure' && stat >= check.difficulty);
+          state.checks[choiceKey] = passed ? 'success' : 'failure'; result = passed ? check.success : check.failure;
+        }
+        if (!result || !applyEffects(result.effects)) return sfx('nope');
+        if (choice.remember) state.choices[choiceKey] = true;
+        Save.saveChar(pl);
+        result.next ? go(result.next) : this.npcDialog(npc, id, trail);
+      });
     if (node) for (const choice of node.choices || []) {
       const consequenceId = `${npc.id}.${choice.id}`;
       if (!Dialogue.meets(choice.condition, pl, pl.dialogue, npc.id)) continue;
@@ -596,6 +855,7 @@ const UI = {
       case 'gambler': add('Gamble', () => this.open('gamble')); break;
       case 'stash': add('Open the vault', () => this.open('stash')); break;
     }
+    if (trail.length) add('← Back', () => this.npcDialog(npc, trail[trail.length - 1], trail.slice(0, -1)));
     add('Farewell', () => this.closeAll());
     p.appendChild(opts);
   },

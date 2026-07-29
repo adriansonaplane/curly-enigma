@@ -22,9 +22,12 @@ const Items = {
     leechHp: '#% Life Leech', leechMp: '#% Mana Leech',
     mf: '+#% Magic Find', goldFind: '+#% Gold Find', lightRad: '+# Light Radius',
     allSkills: '+# to All Skills', thorns: 'Reflects # Damage', minionDmg: '+#% Minion Damage',
-    minionHp: '+#% Minion Life', stunOnHit: 'Stuns on Hit', pierce: 'Attacks Pierce', xpGain: '+#% Experience',
+    minionHp: '+#% Minion Life', stunOnHit: '20% Chance to Stun for # Seconds',
+    pierce: 'Weapon Projectiles Pierce # Additional Targets', xpGain: '+#% Experience',
   },
   statLine(k, v) {
+    if (k === 'stunOnHit') return `20% Chance to Stun for ${Math.round(v * 10) / 10} ${v === 1 ? 'Second' : 'Seconds'}`;
+    if (k === 'pierce') return `Weapon Projectiles Pierce ${Math.round(v)} Additional ${v === 1 ? 'Target' : 'Targets'}`;
     const t = this.STAT_LABELS[k] || ('+# ' + k);
     return t.replace('#', (Math.round(v * 10) / 10));
   },

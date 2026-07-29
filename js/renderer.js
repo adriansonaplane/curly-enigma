@@ -16,7 +16,7 @@ const Render = {
   cv: null, gl: null,            // gl = the WebGL canvas, cv = the overlay
   ctx: null,
   W: 0, H: 0, dpr: 1,
-  mmCv: null, mmCtx: null,
+  mmCv: null, mmCtx: null, mapCv: null, mapCtx: null,
   exploreT: 0,
   _minimapYaw: NaN, _minimapDir: NaN, _minimapX: NaN, _minimapY: NaN,
 
@@ -75,6 +75,8 @@ const Render = {
 
     this.mmCv = document.getElementById('minimap');
     if (this.mmCv) { this.mmCv.width = 220; this.mmCv.height = 220; this.mmCtx = this.mmCv.getContext('2d'); }
+    this.mapCv = document.getElementById('map-overlay-canvas');
+    if (this.mapCv) this.mapCtx = this.mapCv.getContext('2d');
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
@@ -317,6 +319,7 @@ const Render = {
     // Camera-up maps must respond in the same frame as an orbit or a turn.
     // Position is included so the player remains exactly centred while moving.
     if (minimapDirty) this.drawMinimap();
+    if (typeof WUI !== 'undefined' && WUI.mapOpen) this.drawMapOverlay();
 
     // ---------- 3D pass ----------
     this.activeLights = World3.updateLights(t, pl.x, pl.y);
@@ -519,88 +522,82 @@ const Render = {
     ctx.restore();
   },
 
-  // Camera-up, player-centred minimap. World space is rotated by -R3.yaw, so
-  // the top of this map always agrees with the top of the game camera. The
-  // screen-fixed hero arrow compensates by the same angle and therefore still
-  // describes the hero's world heading.
-  drawMinimap() {
-    const map = G.map, pl = G.player, m = this.mmCtx;
-    if (!m || !map || !pl) return;
-    const S = 220, C = S / 2, R = C - 6, sc = 9;
-    const yaw = Number.isFinite(R3.yaw) ? R3.yaw : (Cam.yaw || 0);
-    this._minimapYaw = yaw; this._minimapDir = pl.dir;
-    this._minimapX = pl.x; this._minimapY = pl.y;
-    m.clearRect(0, 0, S, S);
-
-    // Frame effects remain in screen space and are not allowed to drift with
-    // the dungeon transform.
-    m.save();
-    m.beginPath(); m.arc(C, C, R, 0, Math.PI * 2); m.clip();
-    m.fillStyle = 'rgba(5,7,10,0.94)'; m.fillRect(0, 0, S, S);
-    m.strokeStyle = 'rgba(190,205,210,0.055)'; m.lineWidth = 1;
-    for (let p = C % sc; p < S; p += sc) {
-      m.beginPath(); m.moveTo(p, 0); m.lineTo(p, S); m.stroke();
-      m.beginPath(); m.moveTo(0, p); m.lineTo(S, p); m.stroke();
-    }
-
-    // Every world marker uses this one transform: centre, inverse camera yaw,
-    // tile scale, then player translation. It naturally handles map edges by
-    // showing empty space rather than pulling the player away from centre.
-    m.save();
-    m.translate(C, C); m.rotate(-yaw); m.scale(sc, sc); m.translate(-pl.x, -pl.y);
-    for (let y = 0; y < map.h; y++) {
-      for (let x = 0; x < map.w; x++) {
-        const i = y * map.w + x;
-        if (!map.explored[i]) continue;
-        const tl = map.t[i];
-        if (tl === TILE.WALL) m.fillStyle = 'rgba(120,110,90,0.55)';
-        else if (tl === TILE.EXIT) m.fillStyle = '#ff8a2f';
-        else if (tl === TILE.ENTRY) m.fillStyle = '#8fc8ff';
-        else if (map.haz[i] === HAZ.LAVA) m.fillStyle = 'rgba(200,70,10,0.8)';
-        else if (map.haz[i] === HAZ.WATER) m.fillStyle = 'rgba(40,90,140,0.8)';
-        else if (isVent(map.haz[i])) m.fillStyle = U.rgba(VENT_KINDS[map.haz[i]].color, 0.8);
-        else m.fillStyle = 'rgba(52,48,40,0.8)';
-        m.fillRect(x, y, 1.04, 1.04);
-      }
-    }
-    const exploredAt = (x, y) => {
+  // Build the marker list once for both map surfaces. Filters are applied by
+  // drawMap, so exploration visibility and marker semantics cannot diverge.
+  mapMarkers(map) {
+    const out = [], exploredAt = (x, y) => {
       x = Math.floor(x); y = Math.floor(y);
       return x >= 0 && y >= 0 && x < map.w && y < map.h && map.explored[y * map.w + x];
     };
-    for (const mo of G.monsters) {
-      if (mo.dead) continue;
-      if (!exploredAt(mo.x, mo.y)) continue;
-      m.fillStyle = mo.ally ? '#6be26b' : mo.boss ? '#ff5a3c' : mo.rank === 'elite' ? '#ffd94f' : '#c0392b';
-      m.fillRect(mo.x - 0.22, mo.y - 0.22, 0.44, 0.44);
+    for (const mo of G.monsters) if (!mo.dead && exploredAt(mo.x, mo.y))
+      out.push({ x: mo.x, y: mo.y, kind: mo.ally ? 'allies' : 'enemies', color: mo.ally ? '#6be26b' : mo.boss ? '#ff5a3c' : mo.rank === 'elite' ? '#ffd94f' : '#c0392b', size: .48, entity: mo });
+    for (const n of G.npcs) if (exploredAt(n.x, n.y)) out.push({ x: n.x, y: n.y, kind: 'npcs', color: '#ffe9a8', size: .52, entity: n });
+    const portal = G.portalOnMap(map);
+    if (portal && exploredAt(portal.x, portal.y)) out.push({ ...portal, kind: 'travel', color: '#4f8fff', size: .68 });
+    if (map.waypoint && exploredAt(map.waypoint.x, map.waypoint.y)) out.push({ ...map.waypoint, kind: 'travel', color: '#8fc8ff', size: .68 });
+    if (typeof QuestState !== 'undefined' && G.player && G.player.quests) {
+      const active = new Set([QuestState.STATES.ACCEPTED, QuestState.STATES.OBJECTIVE_PROGRESS, QuestState.STATES.READY]);
+      for (const q of QuestState.quests) {
+        const state = QuestState.status(q, G.player);
+        if (!active.has(state)) continue;
+        if (state === QuestState.STATES.READY) {
+          for (const n of G.npcs) if ((n.id || n.kind || n.name || '').toLowerCase().includes(q.turnInNpc) && exploredAt(n.x, n.y))
+            out.push({ x:n.x, y:n.y, kind:'quests', color:'#ffd94f', size:.82 });
+        } else for (const obj of QuestState.activeObjectives(q, G.player)) {
+          if (obj.act !== undefined && map.actIdx !== obj.act) continue;
+          if (obj.type === 'boss' || obj.type === 'kill') for (const mo of G.monsters)
+            if (!mo.dead && !mo.ally && exploredAt(mo.x, mo.y) && (obj.type !== 'boss' || mo.boss))
+              out.push({ x:mo.x, y:mo.y, kind:'quests', color:'#ffd94f', size:.72 });
+        }
+      }
     }
-    for (const n of G.npcs) if (exploredAt(n.x, n.y)) {
-      m.fillStyle = '#ffe9a8'; m.fillRect(n.x - 0.25, n.y - 0.25, 0.5, 0.5);
-    }
-    const ppM = G.portalOnMap(map);
-    if (ppM && exploredAt(ppM.x, ppM.y)) {
-      m.fillStyle = '#4f8fff'; m.fillRect(ppM.x - 0.32, ppM.y - 0.32, 0.64, 0.64);
-    }
-    if (map.waypoint && exploredAt(map.waypoint.x, map.waypoint.y)) {
-      m.fillStyle = '#8fc8ff';
-      m.fillRect(map.waypoint.x - 0.32, map.waypoint.y - 0.32, 0.64, 0.64);
-    }
-    m.restore();
+    return out;
+  },
 
-    // Fade only the rim; unlike the world layer this radial gradient is stable
-    // while the camera rotates.
-    const fade = m.createRadialGradient(C, C, R * 0.72, C, C, R);
-    fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,0.78)');
-    m.fillStyle = fade; m.fillRect(0, 0, S, S);
-    m.restore();
+  // Shared explored-tile and marker renderer used by both minimap and overlay.
+  drawMap(ctx, options = {}) {
+    const map = G.map, pl = G.player;
+    if (!ctx || !map || !pl) return;
+    const W = options.width || ctx.canvas.width, H = options.height || ctx.canvas.height;
+    const scale = options.scale || 9, yaw = options.northUp ? 0 : (Number.isFinite(R3.yaw) ? R3.yaw : (Cam.yaw || 0));
+    const center = options.center || pl, filters = options.filters || {};
+    ctx.clearRect(0, 0, W, H); ctx.save();
+    if (options.clipCircle) { ctx.beginPath(); ctx.arc(W/2,H/2,Math.min(W,H)/2-6,0,Math.PI*2); ctx.clip(); }
+    ctx.fillStyle = 'rgba(5,7,10,0.94)'; ctx.fillRect(0,0,W,H);
+    ctx.save(); ctx.translate(W/2,H/2); ctx.rotate(-yaw); ctx.scale(scale,scale); ctx.translate(-center.x,-center.y);
+    for (let y=0;y<map.h;y++) for (let x=0;x<map.w;x++) {
+      const i=y*map.w+x; if (!map.explored[i]) continue; const tl=map.t[i];
+      ctx.fillStyle = tl===TILE.WALL ? 'rgba(120,110,90,.55)' : tl===TILE.EXIT ? '#ff8a2f' : tl===TILE.ENTRY ? '#8fc8ff' : map.haz[i]===HAZ.LAVA ? 'rgba(200,70,10,.8)' : map.haz[i]===HAZ.WATER ? 'rgba(40,90,140,.8)' : isVent(map.haz[i]) ? U.rgba(VENT_KINDS[map.haz[i]].color,.8) : 'rgba(52,48,40,.8)';
+      ctx.fillRect(x,y,1.04,1.04);
+    }
+    for (const marker of this.mapMarkers(map)) {
+      if (filters[marker.kind] === false) continue;
+      ctx.fillStyle=marker.color; const z=marker.size;
+      if (marker.kind === 'quests') { ctx.strokeStyle='#2a1900'; ctx.lineWidth=.14; ctx.beginPath(); ctx.arc(marker.x,marker.y,z*.62,0,Math.PI*2); ctx.fill(); ctx.stroke(); }
+      else ctx.fillRect(marker.x-z/2,marker.y-z/2,z,z);
+    }
+    ctx.restore();
+    ctx.save(); ctx.translate(W/2+(pl.x-center.x)*scale, H/2+(pl.y-center.y)*scale); ctx.rotate((Number.isFinite(pl.dir)?pl.dir:0)-yaw);
+    ctx.beginPath(); ctx.moveTo(9,0); ctx.lineTo(-6,-6); ctx.lineTo(-3,0); ctx.lineTo(-6,6); ctx.closePath(); ctx.fillStyle='#fff7cf'; ctx.shadowColor='#ffd36a'; ctx.shadowBlur=6; ctx.fill(); ctx.strokeStyle='#241500'; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
+    ctx.restore();
+  },
 
-    // Hero heading is world radians (0 points right in canvas/world space).
-    m.save(); m.translate(C, C); m.rotate((Number.isFinite(pl.dir) ? pl.dir : 0) - yaw);
-    m.beginPath(); m.moveTo(9, 0); m.lineTo(-6, -6); m.lineTo(-3, 0);
-    m.lineTo(-6, 6); m.closePath();
-    m.fillStyle = '#fff7cf'; m.shadowColor = '#ffd36a'; m.shadowBlur = 6; m.fill();
-    m.strokeStyle = '#241500'; m.lineWidth = 1.5; m.stroke(); m.restore();
+  drawMinimap() {
+    const pl=G.player; if (!pl || !this.mmCtx) return;
+    const yaw=Number.isFinite(R3.yaw)?R3.yaw:(Cam.yaw||0);
+    this._minimapYaw=yaw; this._minimapDir=pl.dir; this._minimapX=pl.x; this._minimapY=pl.y;
+    this.drawMap(this.mmCtx,{width:220,height:220,scale:9,clipCircle:true,center:pl});
+    const m=this.mmCtx,C=110,R=104,fade=m.createRadialGradient(C,C,R*.72,C,C,R); fade.addColorStop(0,'rgba(0,0,0,0)'); fade.addColorStop(1,'rgba(0,0,0,.78)');
+    m.save(); m.beginPath(); m.arc(C,C,R,0,Math.PI*2); m.clip(); m.fillStyle=fade; m.fillRect(0,0,220,220); m.restore();
+    m.beginPath(); m.arc(C,C,R,0,Math.PI*2); m.strokeStyle='rgba(151,126,72,.95)'; m.lineWidth=3; m.stroke();
+  },
 
-    m.beginPath(); m.arc(C, C, R, 0, Math.PI * 2);
-    m.strokeStyle = 'rgba(151,126,72,0.95)'; m.lineWidth = 3; m.stroke();
+  drawMapOverlay() {
+    if (!this.mapCv || !this.mapCtx || typeof WUI === 'undefined') return;
+    const rect=this.mapCv.getBoundingClientRect(), dpr=Math.min(devicePixelRatio||1,2), w=Math.max(1,Math.round(rect.width*dpr)), h=Math.max(1,Math.round(rect.height*dpr));
+    if (this.mapCv.width!==w || this.mapCv.height!==h) { this.mapCv.width=w; this.mapCv.height=h; }
+    this.mapCtx.setTransform(dpr,0,0,dpr,0,0);
+    const s=WUI.set, pan=WUI.mapPan || {x:0,y:0};
+    this.drawMap(this.mapCtx,{width:rect.width,height:rect.height,scale:Number(s.mapZoom)||12,northUp:s.mapNorthUp!==false,center:{x:G.player.x+pan.x,y:G.player.y+pan.y},filters:{enemies:s.mapEnemies,allies:s.mapAllies,npcs:s.mapNpcs,travel:s.mapTravel,quests:s.mapQuests}});
   },
 };
