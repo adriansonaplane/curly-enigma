@@ -240,15 +240,52 @@ test('representative combat effects reach visible Three.js pools', async ({ page
     FX3.sync(G.time);
     return {
       particles: FX3.add.geometry.drawRange.count + FX3.norm.geometry.drawRange.count,
-      rings: FX3.rings.filter(m => m.visible).length,
-      flashes: FX3.flashes.filter(m => m.visible).length,
-      bolts: FX3.bolts.filter(m => m.visible).length,
+      rings: FX3.rings.count,
+      flashes: FX3.flashes.count,
+      bolts: FX3.bolts.count,
     };
   }, mutation === 'combat');
   expect(result.particles).toBeGreaterThan(0);
   expect(result.rings).toBeGreaterThan(0);
   expect(result.flashes).toBeGreaterThan(0);
   expect(result.bolts).toBeGreaterThan(0);
+});
+
+test('maximum effects and markers stay bounded by instance categories', async ({ page }) => {
+  const errors = [];
+  await openGame(page, errors); await startGame(page);
+  const result = await page.evaluate(() => {
+    const x = G.player.x, y = G.player.y;
+    G.parts.length = 0; G.rings.length = 0; G.flashes.length = 0;
+    G.bolts.length = 0; G.projs.length = 0;
+    for (let i = 0; i < FX3.MAX; i++) G.parts.push({
+      x, y, z: 8, life: 1, maxLife: 1, color: '#ffffff', size: 2,
+      add: !!(i & 1), vx: 0, vy: 0, vz: 0, grav: 0,
+    });
+    for (let i = 0; i < FX3.RINGS; i++) G.rings.push({ x, y, r: 1, maxR: 2, t: 1, maxT: 1, color: '#fff' });
+    for (let i = 0; i < FX3.FLASHES; i++) G.flashes.push({ x, y, r: 2, t: 1, maxT: 1, color: '#fff' });
+    for (let i = 0; i < FX3.BOLTS; i++) G.bolts.push({ x, y, t: 1, maxT: 1, color: '#fff' });
+    for (let i = 0; i < FX3.PROJS; i++) G.projs.push({ x, y, vx: 1, vy: 0, elem: 'phys', kind: i & 1 ? 'arrow' : 'orb' });
+    G.groundItems = Array.from({ length: Render.MARKERS }, (_, i) => ({ x: x + i * 0.01, y, gold: true }));
+    FX3.sync(G.time);
+    const map = G.map; G.map = null; Render.syncMarkers(G.time); G.map = map;
+
+    const keep = new Set([FX3.group, Render.markerColumns, Render.markerBeads]);
+    const visibility = R3.scene.children.map(o => [o, o.visible]);
+    for (const [o] of visibility) o.visible = keep.has(o);
+    R3.renderer.info.reset(); R3.renderer.render(R3.scene, R3.cam);
+    const calls = R3.renderer.info.render.calls;
+    for (const [o, visible] of visibility) o.visible = visible;
+    return {
+      calls,
+      counts: [FX3.rings.count, FX3.flashes.count, FX3.bolts.count,
+        FX3.beads.count, FX3.shafts.count, Render.markerColumns.count, Render.markerBeads.count],
+    };
+  });
+  expect(result.counts).toEqual([24, 16, 12, 64, 32, 48, 48]);
+  // Nine logical batches; transparent DoubleSide categories may use two GPU passes.
+  expect(result.calls).toBeLessThanOrEqual(14);
+  expect(errors).toEqual([]);
 });
 
 test('damage numbers retain their screen-space overlay payload', async ({ page }) => {

@@ -85,28 +85,28 @@ const Render = {
   },
 
   // ---- world markers: exits, portals, waypoints, loot ----
-  // Small pooled meshes rather than instanced sets, because unlike props these
-  // come and go while the map is live.
+  // Marker state is packed as x, z, r, g, b, height, radius, bead-height.
+  // Two dynamic instance buffers replace the old 48 groups / 96 meshes.
   MARKERS: 48,
-  _marks: [],
+  _markerState: null, markerColumns: null, markerBeads: null,
   markers(map) {
-    if (this._marks.length) return;
+    if (this.markerColumns) return;
     const geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16, 1, true);
     const bead = new THREE.SphereGeometry(0.14, 8, 6);
-    for (let i = 0; i < this.MARKERS; i++) {
-      const g = new THREE.Group();
-      const col = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-        color: 0xffffff, transparent: true, opacity: 0.3,
-        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-      }));
-      const b = new THREE.Mesh(bead, new THREE.MeshBasicMaterial({
-        color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      }));
-      g.add(col, b);
-      g.visible = false;
-      R3.scene.add(g);
-      this._marks.push({ g, col, bead: b });
+    const material = opacity => new THREE.MeshBasicMaterial({
+      color: 0xffffff, vertexColors: true, transparent: true, opacity,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    });
+    this.markerColumns = new THREE.InstancedMesh(geo, material(1), this.MARKERS);
+    this.markerBeads = new THREE.InstancedMesh(bead, material(1), this.MARKERS);
+    for (const mesh of [this.markerColumns, this.markerBeads]) {
+      mesh.count = 0; mesh.frustumCulled = false;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.setColorAt(0, new THREE.Color());
+      mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+      R3.scene.add(mesh);
     }
+    this._markerState = new Float32Array(this.MARKERS * 8);
   },
 
   syncMarkers(t) {
@@ -114,21 +114,9 @@ const Render = {
     let n = 0;
     const use = (x, y, color, h, r, beadY) => {
       if (n >= this.MARKERS) return;
-      const m = this._marks[n++];
-      m.g.visible = true;
-      m.g.position.set(x, 0, y);
-      m.col.visible = h > 0;
-      m.col.scale.set(r, h, r);
-      m.col.position.y = h / 2;
-      m.col.material.color.set(color);
-      // faint: this is a wayfinding hint standing where the player spawns,
-      // not a spotlight to stand inside
-      m.col.material.opacity = 0.07 + Math.sin(t * 3 + x + y) * 0.025;
-      m.bead.visible = beadY !== undefined;
-      if (beadY !== undefined) {
-        m.bead.position.y = beadY + Math.sin(t * 2.4 + x * 3) * 0.06;
-        m.bead.material.color.set(color);
-      }
+      const i = n++ * 8, c = new THREE.Color(color), a = this._markerState;
+      a[i] = x; a[i + 1] = y; a[i + 2] = c.r; a[i + 3] = c.g; a[i + 4] = c.b;
+      a[i + 5] = h; a[i + 6] = r; a[i + 7] = beadY === undefined ? -1 : beadY;
     };
 
     if (map) {
@@ -144,7 +132,28 @@ const Render = {
         : (gi.item && Items.rarityColor ? Items.rarityColor(gi.item.rarity) : '#cfcfcf');
       use(gi.x, gi.y, c, 0.6, 0.34, 0.3);
     }
-    for (; n < this.MARKERS; n++) this._marks[n].g.visible = false;
+    const dummy = new THREE.Object3D(), col = new THREE.Color();
+    let nc = 0, nb = 0;
+    for (let j = 0; j < n; j++) {
+      const i = j * 8, a = this._markerState, x = a[i], y = a[i + 1];
+      col.setRGB(a[i + 2], a[i + 3], a[i + 4]);
+      if (a[i + 5] > 0) {
+        dummy.position.set(x, a[i + 5] / 2, y); dummy.rotation.set(0, 0, 0);
+        dummy.scale.set(a[i + 6], a[i + 5], a[i + 6]); dummy.updateMatrix();
+        this.markerColumns.setMatrixAt(nc, dummy.matrix);
+        // Preserve the old faint, pulsing column opacity through additive RGB.
+        const pulse = 0.07 + Math.sin(t * 3 + x + y) * 0.025;
+        this.markerColumns.setColorAt(nc++, col.clone().multiplyScalar(pulse));
+      }
+      if (a[i + 7] >= 0) {
+        dummy.position.set(x, a[i + 7] + Math.sin(t * 2.4 + x * 3) * 0.06, y);
+        dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+        this.markerBeads.setMatrixAt(nb, dummy.matrix); this.markerBeads.setColorAt(nb++, col);
+      }
+    }
+    for (const [mesh, count] of [[this.markerColumns, nc], [this.markerBeads, nb]]) {
+      mesh.count = count; mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true;
+    }
   },
 
   // ---- coordinate helpers, kept API-compatible ----
