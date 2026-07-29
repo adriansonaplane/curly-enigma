@@ -12,6 +12,29 @@ const ELEM = {
   holy: { color: '#ffe9b0', res: 'arc',  name: 'Holy'      },
 };
 
+// ---------- Mercenaries ----------
+// Permanent retainers deliberately live outside the skill-summon definitions.
+// Their save records survive zone changes and contain their own level, equipment
+// and death state; summoned creatures remain disposable entries with a ttl.
+const MERCENARY_ARCHETYPES = [
+  { id: 'ironwolf', name: 'Mara Voss', title: 'Iron Wolf', role: 'Vanguard',
+    desc: 'A shield-first veteran who pins enemies beside her employer.', ai: 'melee', elem: 'phys',
+    body: 'humanoid', pal: { main: '#8c7355', dark: '#343944', eye: '#e8d089' },
+    baseHp: 105, hpLvl: 18, dmg: [7, 12], dmgLvl: 1.8, spd: 2.7, hireCost: 350,
+    slots: ['weapon', 'offhand', 'helm', 'chest'], resurrectionBase: 120 },
+  { id: 'ashranger', name: 'Tamsin Reed', title: 'Ash Ranger', role: 'Marksman',
+    desc: 'A mobile bow-for-hire who keeps a clear firing lane.', ai: 'ranged', elem: 'phys',
+    body: 'humanoid', pal: { main: '#65724e', dark: '#302b25', eye: '#ffb04f' },
+    baseHp: 72, hpLvl: 13, dmg: [9, 15], dmgLvl: 2.1, spd: 3.1, hireCost: 425,
+    slots: ['weapon', 'helm', 'chest', 'boots'], resurrectionBase: 140 },
+  { id: 'embermage', name: 'Orin Vale', title: 'Ember Adept', role: 'Arcanist',
+    desc: 'A cautious fire caster who attacks from behind the battle line.', ai: 'caster', elem: 'fire',
+    body: 'humanoid', pal: { main: '#703b32', dark: '#29213c', eye: '#ff7a2f' },
+    baseHp: 64, hpLvl: 12, dmg: [11, 18], dmgLvl: 2.35, spd: 2.8, hireCost: 500,
+    slots: ['weapon', 'offhand', 'helm', 'chest'], resurrectionBase: 165 },
+];
+const MERCENARY_BY_ID = Object.fromEntries(MERCENARY_ARCHETYPES.map(m => [m.id, m]));
+
 // ---------- Skill factory ----------
 // Archetypes: strike, slam, proj, nova, beam, meteor, chain, summon, trap,
 //             storm, buff, curse, dash, passive, heal
