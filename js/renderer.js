@@ -584,9 +584,11 @@ const Render = {
 
   drawMinimap() {
     const pl=G.player; if (!pl || !this.mmCtx) return;
+    const s=typeof WUI !== 'undefined' && WUI.set ? WUI.set : {};
     const yaw=Number.isFinite(R3.yaw)?R3.yaw:(Cam.yaw||0);
     this._minimapYaw=yaw; this._minimapDir=pl.dir; this._minimapX=pl.x; this._minimapY=pl.y;
-    this.drawMap(this.mmCtx,{width:220,height:220,scale:9,clipCircle:true,center:pl});
+    this.drawMap(this.mmCtx,{width:220,height:220,scale:U.clamp(Number(s.minimapScale)||9,5,18),northUp:s.minimapNorthUp===true,clipCircle:true,center:pl,
+      filters:{enemies:s.minimapEnemies!==false,allies:s.minimapAllies!==false,npcs:s.minimapNpcs!==false,travel:s.minimapTravel!==false,quests:s.minimapQuests!==false}});
     const m=this.mmCtx,C=110,R=104,fade=m.createRadialGradient(C,C,R*.72,C,C,R); fade.addColorStop(0,'rgba(0,0,0,0)'); fade.addColorStop(1,'rgba(0,0,0,.78)');
     m.save(); m.beginPath(); m.arc(C,C,R,0,Math.PI*2); m.clip(); m.fillStyle=fade; m.fillRect(0,0,220,220); m.restore();
     m.beginPath(); m.arc(C,C,R,0,Math.PI*2); m.strokeStyle='rgba(151,126,72,.95)'; m.lineWidth=3; m.stroke();

@@ -18,6 +18,8 @@ const WUI = {
     ctIn: true, ctOut: true, bubbles: true, physics: true,
     fPlayer: true, fParty: true, fPets: true, fTarget: true, fBuffs: true, fChat: true, fDps: true, fTracker: true,
     fFriends: true, fGuild: true, fBar2: false, fCombatLog: true,
+    fMinimap: true, minimapScale: 9, minimapNorthUp: false,
+    minimapEnemies: true, minimapAllies: true, minimapNpcs: true, minimapTravel: true, minimapQuests: true,
     mapOpacity: 82, mapZoom: 12, mapNorthUp: true,
     mapEnemies: true, mapAllies: true, mapNpcs: true, mapTravel: true, mapQuests: true, mapLegend: true,
     theme: 'gold',
@@ -1518,6 +1520,19 @@ const WUI = {
     this.wsToggle(body, 'Action bar 2', 'A second bar with its own bindable slots', 'fBar2');
     this.wsToggle(body, 'Chat & emote bubbles', 'Speech bubbles over characters in the world', 'bubbles');
 
+    this.settingsSection(body, 'Minimap', 'Compact map presentation and marker filters');
+    this.wsToggle(body, 'Show minimap', 'Display the movable minimap frame', 'fMinimap');
+    const minimapRow = (label, hint, control) => { const r=document.createElement('div'); r.className='ws-row'; r.innerHTML=`<span class="ws-label">${label}<span class="ws-hint">${hint}</span></span>`; r.appendChild(control); body.appendChild(r); };
+    const minimapScale=document.createElement('input'); minimapScale.type='range'; minimapScale.min=5; minimapScale.max=18; minimapScale.value=this.set.minimapScale;
+    minimapScale.addEventListener('input',()=>{ this.set.minimapScale=+minimapScale.value; this.saveSet(); this.applySettings(); }); minimapRow('Minimap scale','Tile scale around the player',minimapScale);
+    const minimapOrientation=document.createElement('select'); minimapOrientation.innerHTML='<option value="camera">Camera up</option><option value="north">North up</option>'; minimapOrientation.value=this.set.minimapNorthUp?'north':'camera';
+    minimapOrientation.addEventListener('change',()=>{ this.set.minimapNorthUp=minimapOrientation.value==='north'; this.saveSet(); this.applySettings(); }); minimapRow('Minimap orientation','Rotate with the camera or keep north fixed',minimapOrientation);
+    this.wsToggle(body,'Minimap enemies','Hostile and elite markers','minimapEnemies');
+    this.wsToggle(body,'Minimap allies','Minions and friendly combatants','minimapAllies');
+    this.wsToggle(body,'Minimap NPCs','Explored non-player characters','minimapNpcs');
+    this.wsToggle(body,'Minimap travel markers','Portals and waypoints','minimapTravel');
+    this.wsToggle(body,'Minimap quest objectives','Active targets and turn-in locations','minimapQuests');
+
     this.settingsSection(body, 'Area map', 'Overlay presentation and shared marker filters');
     const mapRow = (label, hint, control) => { const r=document.createElement('div'); r.className='ws-row'; r.innerHTML=`<span class="ws-label">${label}<span class="ws-hint">${hint}</span></span>`; r.appendChild(control); body.appendChild(r); };
     const opacity=document.createElement('input'); opacity.type='range'; opacity.min=25; opacity.max=100; opacity.value=this.set.mapOpacity;
@@ -1689,13 +1704,14 @@ const WUI = {
     if (s.quality !== 'auto') Render.quality = s.quality;
     else if (Render.quality) Render.quality = 'high'; // re-probe from high
     // frames
-    const vis = { player: s.fPlayer, party: s.fParty, pets: s.fPets, target: s.fTarget, buffs: s.fBuffs, chat: s.fChat, dps: s.fDps, tracker: s.fTracker, friends: s.fFriends, guildf: s.fGuild, bar2: s.fBar2, cl: s.fCombatLog };
+    const vis = { player: s.fPlayer, party: s.fParty, pets: s.fPets, target: s.fTarget, buffs: s.fBuffs, chat: s.fChat, dps: s.fDps, tracker: s.fTracker, friends: s.fFriends, guildf: s.fGuild, bar2: s.fBar2, cl: s.fCombatLog, minimap: s.fMinimap };
     for (const id in vis) {
       const f = this.frames[id];
       if (f) f.el.classList.toggle('wui-hidden', !vis[id]);
     }
     const fps = document.getElementById('wui-fps');
     if (fps) fps.style.display = Render.showFps ? 'block' : 'none';
+    if (Render.mmCtx) Render.drawMinimap();
     this.updateMapOverlay();
     this.applyTheme();
   },
