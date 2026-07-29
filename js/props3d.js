@@ -16,6 +16,8 @@
 // far worse than letting the lights do it.
 
 const Props3 = {
+  authoredModels: true,
+  configure(config) { this.authoredModels = config.authoredModels !== false; },
   group: null,
   sets: [],                 // { kind, meshes: [InstancedMesh], count }
   slot: new WeakMap(),      // prop object -> { set, i, base }
@@ -533,6 +535,7 @@ const Props3 = {
   },
 
   _requestAuthored(kind, spec, fallbackDraws, token) {
+    if (!this.authoredModels) return;
     if (this._authored.has(spec.slug) || this._requests.has(spec.slug)) return;
     const url = 'assets/models/baked/' + encodeURIComponent(spec.slug) + '.scene.json';
     const p = fetch(url).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })

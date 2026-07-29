@@ -834,15 +834,37 @@ function showRendererRecovery() {
   message.style.cssText = 'position:fixed;inset:0;z-index:10000;display:grid;place-content:center;text-align:center;padding:32px;background:#100b09;color:#ead9bf;font:18px/1.5 serif';
   message.innerHTML = `<div style="max-width:680px"><h1 style="color:#d88b55">Graphics could not start</h1>
     <p>Reload the page or close other GPU-heavy tabs. If this continues, update your graphics driver, try disabling hardware acceleration, or select Safe graphics mode.</p>
-    <pre id="renderer-init-diagnostic" style="max-width:680px;overflow:auto;text-align:left;white-space:pre-wrap;font:12px/1.4 monospace;color:#bdab97"></pre>
+    <div aria-label="Startup graphics options" style="display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin:18px 0">
+      <button id="renderer-reset-graphics" class="big-btn dark">RESET GRAPHICS CONFIGURATION</button>
+      <button id="renderer-safe-mode" class="big-btn dark">SAFE MODE</button>
+      <button id="renderer-compatibility" class="big-btn dark">WEBGL 1 / COMPATIBILITY MODE</button>
+      <button id="renderer-copy-diagnostic" class="big-btn dark">COPY DIAGNOSTICS</button>
+    </div>
+    <pre id="renderer-init-diagnostic" style="max-width:680px;max-height:240px;overflow:auto;text-align:left;white-space:pre-wrap;font:12px/1.4 monospace;color:#bdab97"></pre>
     <button id="renderer-reload" class="big-btn">RELOAD</button>
-    <button id="renderer-safe-mode" class="big-btn dark">SAFE GRAPHICS MODE</button></div>`;
+    </div>`;
   document.body.appendChild(message);
-  document.getElementById('renderer-init-diagnostic').textContent = JSON.stringify(diagnostic, null, 2);
+  const report = JSON.stringify({ renderer: diagnostic,
+    graphics: typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.diagnostics() : null,
+    userAgent: navigator.userAgent }, null, 2);
+  document.getElementById('renderer-init-diagnostic').textContent = report;
   document.getElementById('renderer-reload').addEventListener('click', () => location.reload());
-  document.getElementById('renderer-safe-mode').addEventListener('click', () => {
-    try { sessionStorage.setItem(R3.PROFILE_SESSION_KEY, 'conservative'); } catch (_) {}
+  document.getElementById('renderer-reset-graphics').addEventListener('click', () => {
+    GraphicsConfig.reset();
+    try { sessionStorage.removeItem(R3.PROFILE_SESSION_KEY); } catch (_) {}
     location.reload();
+  });
+  document.getElementById('renderer-safe-mode').addEventListener('click', () => {
+    GraphicsConfig.safeMode();
+    location.reload();
+  });
+  document.getElementById('renderer-compatibility').addEventListener('click', () => {
+    GraphicsConfig.compatibilityMode();
+    location.reload();
+  });
+  document.getElementById('renderer-copy-diagnostic').addEventListener('click', async event => {
+    try { await navigator.clipboard.writeText(report); event.currentTarget.textContent = 'COPIED'; }
+    catch (_) { event.currentTarget.textContent = 'COPY FAILED — SELECT TEXT BELOW'; }
   });
 }
 

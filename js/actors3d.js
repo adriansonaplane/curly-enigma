@@ -12,6 +12,8 @@
 // skeletons is twenty transforms over one set of buffers, not twenty rigs.
 
 const Actors3 = {
+  authoredModels: true,
+  configure(config) { this.authoredModels = config.authoredModels !== false; },
   _geo: null,
   _mats: Object.create(null),     // kind -> { main, dark, eye }
   // Authored models replace the procedural rig for a species when the compiled
@@ -524,7 +526,7 @@ const Actors3 = {
         const spec = this.modelSpec(m);
         // Start the authored request before constructing the visible fallback.
         // Keeping that fallback during I/O avoids invisible/untargetable actors.
-        const requested = spec && this.requestModel(spec);
+        const requested = this.authoredModels && spec && this.requestModel(spec);
         const size = (def.size || 1) * (m.boss ? 1.3 : 1);
         m._rig = this.build(def.body, id, def.pal, size);
         m._phase = (m.x * 7.3 + m.y * 3.1) % 6.28;

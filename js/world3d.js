@@ -13,6 +13,8 @@
 // Both were workarounds for not having a GPU do the work.
 
 const World3 = {
+  options: { fog: true, shafts: true },
+  configure(config) { this.options = { fog: config.fog !== false, shafts: config.shafts !== false }; },
   group: null,
   map: null,
   lights: [],          // { light, src } — src is the map.lights entry
@@ -188,7 +190,7 @@ const World3 = {
     // the per-theme weights stay as authored.
     const density = map.theme === 'town' ? 0.00035 : (th.fog ? th.fog[1] * this.FOG_MUL : 0.0015);
     this.fog = th.fog ? new THREE.FogExp2(new THREE.Color(th.fog[0]), density) : null;
-    this.updateAtmosphere(true);
+    this.updateAtmosphere(this.options.fog);
   },
 
   updateAtmosphere(enabled) {
@@ -199,7 +201,7 @@ const World3 = {
   buildShafts(map) {
     const th = THEMES[map.theme];
     this.shafts = [];
-    if (!th.shaft) return;
+    if (!this.options.shafts || !th.shaft) return;
     const geo = new THREE.ConeGeometry(1, 7, 12, 1, true);
     for (const src of map.shafts || []) {
       const mat = new THREE.MeshBasicMaterial({
@@ -220,7 +222,7 @@ const World3 = {
     const fx = R3.focus;
     for (const e of this.shafts) {
       const dx = e.src.x - fx.x, dz = e.src.y - fx.z;
-      e.mesh.visible = !!enabled && dx * dx + dz * dz < 34 * 34;
+      e.mesh.visible = this.options.shafts && !!enabled && dx * dx + dz * dz < 34 * 34;
       if (e.mesh.visible) e.mesh.material.opacity = 0.06 + Math.sin(t * 0.7 + e.src.phase) * 0.018;
     }
   },

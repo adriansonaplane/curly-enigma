@@ -58,6 +58,16 @@ const Render = {
     // A failed context request can poison a canvas. R3 may therefore recover
     // with an equivalent replacement, which becomes the input/WebGL surface.
     this.gl = R3.canvas;
+    const config = typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.current : {};
+    this.renderScale = config.renderScale === undefined ? this.renderScale : config.renderScale;
+    this.fx.shadows = config.shadows !== false;
+    this.fx.grade = config.grading !== false;
+    this.fx.fog = config.fog !== false;
+    this.fx.shafts = config.shafts !== false;
+    World3.configure(config);
+    Props3.configure(config);
+    Actors3.configure(config);
+    FX3.configure(config);
     FX3.init();
     Actors3.clear();
     Hero3.destroy();
@@ -264,8 +274,9 @@ const Render = {
     // permanent default (with twelve as opt-in) dimmed every scene at full
     // quality to buy headroom the governor is there to buy on demand. Full
     // quality is twelve again; the steps down are 8 and then 6.
-    const requestedLights = this.qualityMode === 'ultra' ? 12
-      : (step >= 5 ? 6 : (step >= 3 ? 8 : 12));
+    const configuredLights = typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.current.lightBudget : 12;
+    const requestedLights = Math.min(configuredLights, this.qualityMode === 'ultra' ? 12
+      : (step >= 5 ? 6 : (step >= 3 ? 8 : 12)));
     const lossLightCap = this._contextLossLevel ? 6 : requestedLights;
     R3.maxLights = Math.min(requestedLights, lossLightCap,
       R3.profile ? R3.profile.maxLights : requestedLights);
