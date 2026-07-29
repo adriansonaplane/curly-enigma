@@ -59,6 +59,8 @@ const Ent = {
     d.regenHp = 0.3 + (g.regenHp || 0); d.regenMp = 1.2 + d.ene * 0.015 + (g.regenMp || 0);
     d.minionDmg = (g.minionDmg || 0); d.minionHp = (g.minionHp || 0);
     d.xpGain = (g.xpGain || 0);
+    d.stunOnHit = (g.stunOnHit || 0);
+    d.pierce = Math.max(0, Math.floor(g.pierce || 0));
     d.flatElem = { fire: g.fireDmg || 0, cold: g.coldDmg || 0, lite: g.liteDmg || 0, pois: g.poisDmg || 0, arc: g.arcDmg || 0, holy: g.holyDmg || 0 };
     pl.derived = d;
     return d;
@@ -155,6 +157,7 @@ const Ent = {
             const crit = U.chance(U.rand, d.critCh / 100);
             if (crit) dmg *= d.critDmg;
             this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
+            if (sk.wd) this.applyWeaponHitEffects(m, pl);
             if (sk.dot) this.applyDebuff(m, { dot: sk.dot * (1 + 0.2 * (lvl - 1)), dotElem: sk.elem === 'phys' ? 'pois' : sk.elem }, 4);
             if (sk.stun) m.stunT = Math.max(m.stunT, sk.stun);
             if (sk.slowHit) this.applyDebuff(m, { slow: sk.slowHit }, 2.5);
@@ -178,6 +181,7 @@ const Ent = {
           const crit = U.chance(U.rand, d.critCh / 100);
           if (crit) dmg *= d.critDmg;
           this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
+          if (sk.wd) this.applyWeaponHitEffects(m, pl);
           if (sk.stun) m.stunT = Math.max(m.stunT, sk.stun);
         }
         FX.ring(pl.x, pl.y, radius, ELEM[sk.elem].color);
@@ -198,9 +202,10 @@ const Ent = {
           G.projs.push({
             x: pl.x, y: pl.y, vx: Math.cos(a) * sk.speed, vy: Math.sin(a) * sk.speed,
             dmg, elem: elems ? elems[i % 3] : sk.elem, ally: true, from: pl, r: 0.3,
-            ttl: 2.2, pierce: sk.pierce || 0, explodeR: sk.explodeR || 0,
+            ttl: 2.2, pierce: (sk.pierce || 0) + (sk.wd ? d.pierce : 0), explodeR: sk.explodeR || 0,
             homing: sk.homing, wobble: sk.wobble, orb: sk.orb, orbT: 0, orbRate: sk.orbRate,
             slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: sk.orb ? 'orb' : 'bolt', srcName,
+            weaponHit: !!sk.wd,
           });
         }
         break;
@@ -216,6 +221,7 @@ const Ent = {
             x: pl.x, y: pl.y, vx: Math.cos(a) * sk.speed, vy: Math.sin(a) * sk.speed,
             dmg, elem: sk.elem, ally: true, from: pl, r: 0.3, ttl: 1.1,
             slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: 'bolt', srcName,
+            weaponHit: !!sk.wd, pierce: sk.wd ? d.pierce : 0,
           });
         }
         FX.ring(pl.x, pl.y, 1.2, ELEM[sk.elem].color);
@@ -370,6 +376,15 @@ const Ent = {
     return d.flatElem.fire + d.flatElem.cold + d.flatElem.lite + d.flatElem.pois + d.flatElem.arc + d.flatElem.holy;
   },
 
+  // stunOnHit's value is the stun duration in seconds. A qualifying weapon hit
+  // rolls this fixed chance once; multiple sources add duration, not chance.
+  STUN_ON_HIT_CHANCE: 0.2,
+  applyWeaponHitEffects(target, attacker) {
+    const duration = attacker && attacker.derived ? attacker.derived.stunOnHit : 0;
+    if (duration > 0 && U.chance(U.rand, this.STUN_ON_HIT_CHANCE))
+      target.stunT = Math.max(target.stunT || 0, duration);
+  },
+
   basicAttack(pl, tx, ty) {
     if (pl.gcd > 0) return false;
     this._src = 'Attack';
@@ -388,6 +403,7 @@ const Ent = {
         x: pl.x, y: pl.y, vx: Math.cos(pl.dir) * 14, vy: Math.sin(pl.dir) * 14,
         dmg, elem: caster ? 'arc' : 'phys', ally: true, from: pl, r: 0.28, ttl: 1.8,
         crit: U.chance(U.rand, d.critCh / 100), kind: caster ? 'orb' : 'arrow', srcName: 'Attack',
+        weaponHit: true, pierce: d.pierce,
       });
     } else {
       sfx('swing');
@@ -400,6 +416,7 @@ const Ent = {
         const crit = U.chance(U.rand, d.critCh / 100);
         if (crit) dmg *= d.critDmg;
         this.damageMonster(m, dmg, 'phys', { crit, from: pl, srcName: 'Attack' });
+        this.applyWeaponHitEffects(m, pl);
         any = true;
       }
       FX.slash(pl.x, pl.y, pl.dir, 1.7, '#cfcfcf');
@@ -971,6 +988,7 @@ const Ent = {
           let dmg = p.dmg;
           if (p.crit && p.from === G.player) dmg *= G.player.derived.critDmg;
           this.damageMonster(m, dmg, p.elem, { crit: p.crit, from: p.from, srcName: p.srcName });
+          if (p.weaponHit) this.applyWeaponHitEffects(m, p.from);
           if (p.slowHit) this.applyDebuff(m, { slow: p.slowHit }, 2.5);
           if (p.jumps && p.jumps > 0) {
             let best = null, bd = 30;
