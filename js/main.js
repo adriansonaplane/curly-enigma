@@ -826,12 +826,32 @@ const Game = {
 };
 
 // ---------------- boot ----------------
+function showRendererRecovery() {
+  const message = document.createElement('div');
+  message.id = 'renderer-init-error';
+  message.setAttribute('role', 'alert');
+  message.style.cssText = 'position:fixed;inset:0;z-index:10000;display:grid;place-content:center;text-align:center;padding:32px;background:#100b09;color:#ead9bf;font:18px/1.5 serif';
+  message.innerHTML = `<div style="max-width:680px"><h1 style="color:#d88b55">Graphics could not start</h1>
+    <p>Reload the page or close other GPU-heavy tabs. If this continues, update your graphics driver, try disabling hardware acceleration, or select Safe graphics mode.</p>
+    <button id="renderer-reload" class="big-btn">RELOAD</button>
+    <button id="renderer-safe-mode" class="big-btn dark">SAFE GRAPHICS MODE</button></div>`;
+  document.body.appendChild(message);
+  document.getElementById('renderer-reload').addEventListener('click', () => location.reload());
+  document.getElementById('renderer-safe-mode').addEventListener('click', () => {
+    try { sessionStorage.setItem(R3.PROFILE_SESSION_KEY, 'conservative'); } catch (_) {}
+    location.reload();
+  });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   Assets.absorbPacks();   // curated per-act slugs win over generic name matches
   // Baked effect sheets load in the background. Nothing waits on them: until
   // they arrive (or if they never do) every effect keeps drawing procedurally.
   Assets.loadSheets();
-  Render.init();
+  if (!Render.init()) {
+    showRendererRecovery();
+    return;
+  }
   Cam.init();
   UI.init();
   WUI.init();

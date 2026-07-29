@@ -49,6 +49,8 @@ const Render = {
     this.cv = ov;
     this.ctx = ov.getContext('2d');
 
+    // Nothing below this point is safe without a working WebGL renderer. In
+    // particular, these modules allocate objects against R3.scene.
     if (!R3.init(this.gl)) return false;
     FX3.init();
     Actors3.clear();
