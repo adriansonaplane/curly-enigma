@@ -583,6 +583,7 @@ const UI = {
   renderVendor() {
     const p = this.panel('vendor'), pl = G.player;
     this.head(p, 'KORGA\'S FORGE');
+    if (Factions.isHostile(pl.reputation, 'ironsong')) { p.insertAdjacentHTML('beforeend', '<div class="npc-line">“The Compact does not trade with its enemies.”</div>'); return; }
     p.insertAdjacentHTML('beforeend', `<div class="npc-line">“${U.esc(U.pick(U.rand, NPCS.find(n => n.id === 'smith').lines))}”</div>
       <div class="gold-row">⛁ ${U.fmt(pl.gold)} gold</div>
       <h2 style="font-size:14px;margin-top:8px">FOR SALE</h2>`);
@@ -595,10 +596,11 @@ const UI = {
       cell.style.width = '54px'; cell.style.height = '54px';
       cell.appendChild(Sprites.itemIcon(it, 50));
       cell.style.borderColor = Items.rarityColor(it.rarity);
-      this.hookTip(cell, () => Items.tooltip(it, pl) + `<div class="q-gold">Buy for ${U.fmt(it.price)} gold</div>`);
+      const buyPrice = Factions.price(it.price, pl.reputation, 'ironsong');
+      this.hookTip(cell, () => Items.tooltip(it, pl) + `<div class="q-gold">Buy for ${U.fmt(buyPrice)} gold</div>`);
       cell.addEventListener('click', () => {
-        if (pl.gold >= it.price && pl.inv.filter(Boolean).length < 48) {
-          pl.gold -= it.price; Game.giveItem(it); G.shopStock[i] = null;
+        if (pl.gold >= buyPrice && pl.inv.filter(Boolean).length < 48) {
+          pl.gold -= buyPrice; Game.giveItem(it); G.shopStock[i] = null;
           sfx('gold'); this.renderVendor();
         } else sfx('nope');
       });
@@ -702,6 +704,11 @@ const UI = {
     p.classList.remove('hidden');
     this.head(p, npc.def.name.toUpperCase());
     const pl = G.player;
+    const npcFaction = { elder: 'haven', healer: 'light', smith: 'ironsong', gambler: 'haven' }[npc.id];
+    if (npcFaction && Factions.isHostile(pl.reputation, npcFaction)) {
+      p.insertAdjacentHTML('beforeend', `<div class="npc-line">“You are an enemy of ${U.esc(Factions.byId[npcFaction].name)}. Leave.”</div>`);
+      return;
+    }
     pl.dialogue = Dialogue.migrate(pl.dialogue);
     const graph = Dialogue.graphs[npc.id];
     const currentId = graph && graph.nodes[nodeId] ? nodeId : graph && graph.start;

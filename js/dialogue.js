@@ -65,13 +65,14 @@ const Dialogue = (() => {
     if (condition.level !== undefined && pl.lvl < condition.level) return false;
     if (condition.gold !== undefined && pl.gold < condition.gold) return false;
     if (condition.stat && stat(pl, condition.stat) < Number(condition.atLeast || 0)) return false;
+    if (condition.faction && (typeof Factions === 'undefined' || Factions.value(pl.reputation, condition.faction) < Number(condition.reputation || 0))) return false;
     return true;
   }
 
   function validateEffects(effects, pl) {
     const copy = { gold: pl.gold, hp: pl.potions.hp, mp: pl.potions.mp };
     for (const effect of effects || []) {
-      if (!effect || !['gold', 'potion', 'flag'].includes(effect.type)) return false;
+      if (!effect || !['gold', 'potion', 'flag', 'reputation'].includes(effect.type)) return false;
       if (effect.type === 'gold') copy.gold += Number(effect.amount) || 0;
       if (effect.type === 'potion') {
         if (!['hp', 'mp'].includes(effect.kind)) return false;
@@ -80,6 +81,7 @@ const Dialogue = (() => {
       }
       if (copy.gold < 0) return false;
       if (effect.type === 'flag' && typeof effect.key !== 'string') return false;
+      if (effect.type === 'reputation' && (typeof Factions === 'undefined' || !Factions.byId[effect.faction] || !Number.isFinite(Number(effect.amount)))) return false;
     }
     return true;
   }
@@ -89,6 +91,7 @@ const Dialogue = (() => {
     for (const effect of effects || []) {
       if (effect.type === 'gold') pl.gold += Number(effect.amount) || 0;
       else if (effect.type === 'potion') pl.potions[effect.kind] += Number(effect.amount) || 0;
+      else if (effect.type === 'reputation') Factions.change(pl.reputation, effect.faction, effect.amount);
       else state.flags[effect.key] = effect.value === undefined ? true : effect.value;
     }
     return true;

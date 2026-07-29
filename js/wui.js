@@ -301,13 +301,14 @@ const WUI = {
       btns.insertBefore(b, document.getElementById('btn-mute'));
     };
     addBtn('J', 'Quest Log (' + this.keyLabel('quests') + ')', () => UI.toggle('quests'));
+    addBtn('R', 'Faction Reputation', () => UI.toggle('reputation'));
     addBtn('U', 'Social (' + this.keyLabel('social') + ')', () => UI.toggle('social'));
     addBtn('G', 'Guild (' + this.keyLabel('guildp') + ')', () => UI.toggle('guild'));
     addBtn('⚙', 'Settings (' + this.keyLabel('settings') + ')', () => UI.toggle('settings'));
 
     // panels
     document.getElementById('panels').insertAdjacentHTML('beforeend',
-      '<div id="panel-settings" class="panel wide hidden"></div><div id="panel-quests" class="panel hidden"></div>' +
+      '<div id="panel-settings" class="panel wide hidden"></div><div id="panel-quests" class="panel hidden"></div><div id="panel-reputation" class="panel wide hidden"></div>' +
       '<div id="panel-social" class="panel hidden"></div><div id="panel-guild" class="panel hidden"></div>');
 
     // edit banner
@@ -1066,6 +1067,18 @@ const WUI = {
   },
 
   // ================= QUESTS =================
+  renderReputation() {
+    const p = UI.panel('reputation'), state = G.player.reputation;
+    UI.head(p, 'FACTIONS & REPUTATION');
+    p.insertAdjacentHTML('beforeend', '<div class="npc-line">Your deeds open doors, change prices, and make enemies. Reputation is bounded from −6,000 to +6,000.</div>' +
+      '<div class="rep-grid">' + Factions.definitions.map(f => {
+        const score = Factions.value(state, f.id), tier = Factions.tier(score), next = Factions.nextTier(score);
+        const pct = (score - Factions.MIN) / (Factions.MAX - Factions.MIN) * 100;
+        const rivals = f.rivals.map(id => Factions.byId[id].name).join(', ');
+        return `<section class="rep-card"><div class="rep-name" style="color:${f.color}">${U.esc(f.name)} <b>${U.esc(tier.name)}</b></div><div class="rep-score">${score > 0 ? '+' : ''}${U.fmt(score)} / ${U.fmt(Factions.MAX)}</div><div class="rep-track"><i style="width:${pct}%;background:${f.color}"></i></div><p>${U.esc(f.description)}</p><small>Rivals: ${U.esc(rivals)}${next ? ` · Next tier at ${U.fmt(next.min)}` : ' · Maximum standing'}<br>${Factions.isHostile(state, f.id) ? '⚠ Hostile: services and access denied' : `Vendor rate: ${Math.round(Factions.price(100, state, f.id))}%`}</small></section>`;
+      }).join('') + '</div>');
+  },
+
   QUESTS: QuestState.quests,
 
   questAvailable(q) {
@@ -1106,6 +1119,7 @@ const WUI = {
     });
     if (!reward) return;
     G.player.gold += reward.gold || 0;
+    if (q.faction) Factions.change(G.player.reputation, q.faction, q.reputation || 0);
     if (reward.xp) G.awardXp(Math.round(reward.xp));
     sfx('shrine');
     UI.announce(`Quest complete: ${q.name}`, '#6be26b', 3000);
@@ -1145,7 +1159,7 @@ const WUI = {
         <div class="q-name">${U.esc(q.name)}<span class="q-tag">${U.esc(state.toUpperCase())}</span></div>
         <div class="q-desc">${U.esc(q.desc)}</div>
         <div class="q-prog">${U.fmt(prog)} / ${U.fmt(q.need)}<span class="q-bar"><i style="width:${Math.round(prog / q.need * 100)}%"></i></span></div>
-        <div class="q-gold">${U.esc(q.giverNpc)} → ${U.esc(q.turnInNpc)} · Reward: ${U.fmt(q.rewards.gold)} gold${q.rewards.xp ? ' · ' + U.fmt(Math.round(q.rewards.xp)) + ' xp' : ''}</div>
+        <div class="q-gold">${U.esc(q.giverNpc)} → ${U.esc(q.turnInNpc)} · Reward: ${U.fmt(q.rewards.gold)} gold${q.rewards.xp ? ' · ' + U.fmt(Math.round(q.rewards.xp)) + ' xp' : ''}${q.faction ? ` · +${q.reputation} ${U.esc(Factions.byId[q.faction].name)}` : ''}</div>
         ${state === QuestState.STATES.OFFERED ? (q.branches.length
           ? q.branches.map(branch => `<button onclick="WUI.acceptQuest('${q.id}','${branch.id}')">${U.esc(branch.label)}</button>`).join('')
           : `<button onclick="WUI.acceptQuest('${q.id}')">Accept</button>`) : ''}
@@ -1741,6 +1755,7 @@ const WUI = {
       _open(name);
       if (name === 'settings') self.renderSettings();
       if (name === 'quests') self.renderQuests();
+      if (name === 'reputation') self.renderReputation();
     };
   },
 
