@@ -10,7 +10,7 @@ const WUI = {
   set: null, keymap: null, layout: {},
   DEF_SET: {
     vol: 0.5, mute: false,
-    quality: 'auto', renderScale: 1, fpsLimit: 0, authoredModels: true,
+    quality: 'auto', renderScale: 1, fpsLimit: 0, authoredModels: true, advancedEffects: true,
     fog: true, shafts: true, grade: true, fps: false,
     mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
@@ -68,6 +68,9 @@ const WUI = {
     // preference supplies the default for saves created before this option.
     if (!Object.prototype.hasOwnProperty.call(savedSet, 'authoredModels'))
       savedSet.authoredModels = R3.authoredModels;
+    // This is a startup capability: GraphicsConfig is authoritative so a WUI
+    // save from another profile cannot make the checkbox disagree with boot.
+    savedSet.advancedEffects = typeof GraphicsConfig === 'undefined' || GraphicsConfig.current.advancedEffects !== false;
     const hadRetiredVideoSettings = 'ao' in savedSet || 'reflections' in savedSet;
     delete savedSet.ao;
     delete savedSet.reflections;
@@ -1217,6 +1220,16 @@ const WUI = {
       v => {
         R3.setAuthoredModels(v);
         if (G.map) Props3.build(G.map);
+      });
+
+    this.wsToggle(body, 'Advanced GPU effects',
+      'Custom particle shaders and optional effect meshes; disabling also skips baked effect sheets',
+      'advancedEffects', v => {
+        if (typeof GraphicsConfig !== 'undefined') GraphicsConfig.save(Object.assign({},
+          GraphicsConfig.current, { advancedEffects: v }));
+        FX3.configure({ advancedEffects: v });
+        FX3.init();
+        if (v && typeof Assets !== 'undefined' && !Assets.sheetsReady) Assets.loadSheets();
       });
 
     const mood = document.createElement('div');

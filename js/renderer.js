@@ -362,6 +362,7 @@ const Render = {
           minChunkInstances: Props3.CHUNK_MIN_INSTANCES }, propInstances),
       },
       authoredModels: !!R3.authoredModels,
+      effects: FX3.stats ? FX3.stats() : null,
       props: { authoredModels: !!R3.authoredModels,
         diagnostics: (Props3.diagnostics || []).map(d => Object.assign({}, d)) },
     });

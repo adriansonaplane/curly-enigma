@@ -841,8 +841,8 @@ function showRendererRecovery() {
       <button id="renderer-copy-diagnostic" class="big-btn dark">COPY DIAGNOSTICS</button>
     </div>
     <pre id="renderer-init-diagnostic" style="max-width:680px;max-height:240px;overflow:auto;text-align:left;white-space:pre-wrap;font:12px/1.4 monospace;color:#bdab97"></pre>
-    <pre id="renderer-init-diagnostic" style="max-width:680px;overflow:auto;text-align:left;white-space:pre-wrap;font:12px/1.4 monospace;color:#bdab97"></pre>
     <label style="display:block;margin:16px"><input id="renderer-fallback-models" type="checkbox"> Force fallback models</label>
+    <label style="display:block;margin:16px"><input id="renderer-advanced-effects" type="checkbox"> Advanced GPU effects</label>
     <button id="renderer-reload" class="big-btn">RELOAD</button>
     </div>`;
   document.body.appendChild(message);
@@ -853,6 +853,10 @@ function showRendererRecovery() {
   const fallbackModels = document.getElementById('renderer-fallback-models');
   fallbackModels.checked = !R3.authoredModels;
   fallbackModels.addEventListener('change', () => R3.setAuthoredModels(!fallbackModels.checked));
+  const advancedEffects = document.getElementById('renderer-advanced-effects');
+  advancedEffects.checked = GraphicsConfig.current.advancedEffects !== false;
+  advancedEffects.addEventListener('change', () => GraphicsConfig.save(Object.assign({},
+    GraphicsConfig.current, { advancedEffects: advancedEffects.checked })));
   document.getElementById('renderer-reload').addEventListener('click', () => location.reload());
   document.getElementById('renderer-reset-graphics').addEventListener('click', () => {
     GraphicsConfig.reset();
@@ -877,7 +881,8 @@ window.addEventListener('DOMContentLoaded', () => {
   Assets.absorbPacks();   // curated per-act slugs win over generic name matches
   // Baked effect sheets load in the background. Nothing waits on them: until
   // they arrive (or if they never do) every effect keeps drawing procedurally.
-  Assets.loadSheets();
+  if (typeof GraphicsConfig === 'undefined' || GraphicsConfig.current.advancedEffects !== false)
+    Assets.loadSheets();
   if (!Render.init()) {
     showRendererRecovery();
     return;
