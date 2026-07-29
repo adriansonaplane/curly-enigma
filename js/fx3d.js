@@ -182,6 +182,14 @@ const FX3 = {
     this.group = g;
     R3.scene.add(g);
 
+    // Simplified mode deliberately has no GPU effect resources. The gameplay
+    // arrays continue to be advanced by update(), but no custom particle
+    // programs or optional effect meshes are constructed or submitted.
+    if (!this.advancedEffects) {
+      this.ready = true;
+      return true;
+    }
+
     this.add = this._points(THREE.AdditiveBlending, true);
     this.norm = this._points(THREE.NormalBlending, false);
     g.add(this.add, this.norm);
@@ -218,6 +226,8 @@ const FX3 = {
   // objects: the pools above are the only meshes that ever exist.
   sync(t) {
     if (!this.ready) return null;
+    if (!this.advancedEffects || !this.add || !this.norm)
+      return { mode: 'simplified', parts: 0, add: 0, norm: 0, rings: 0, flashes: 0, bolts: 0, projs: 0 };
     const col = new THREE.Color();
 
     // Both camera presets use the same perspective projection.
@@ -335,6 +345,16 @@ const FX3 = {
 
     return { parts: na + nn, add: na, norm: nn,
       rings: nr, flashes: nf, bolts: nb, projs: np };
+  },
+
+  stats() {
+    return {
+      mode: this.advancedEffects ? 'advanced' : 'simplified',
+      advancedEffects: !!this.advancedEffects,
+      ready: !!this.ready,
+      customParticleShaders: !!(this.add && this.add.material && this.add.material.isShaderMaterial),
+      gpuResources: this.group ? this.group.children.length : 0,
+    };
   },
 
   dispose() {
