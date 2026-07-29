@@ -38,6 +38,8 @@ const QuestState = (() => {
   add({ id: 'chests', name: 'Treasure Hunter', type: 'chest', need: 5, desc: 'Loot 5 treasure chests.', gold: 400, xp: 500, giverNpc: 'gambler', turnInNpc: 'gambler',
     branches: [{ id: 'keep', label: 'Keep the spoils' }, { id: 'share', label: 'Share with the village' }] });
   add({ id: 'rich', name: 'Filthy Rich', type: 'gold', need: 10000, desc: 'Hold 10,000 gold at once.', gold: 1000, xp: 800, giverNpc: 'gambler', turnInNpc: 'gambler' });
+  add({ id: 'investigate-depths', name: 'Signs in the Depths', type: 'narrative', need: 3,
+    desc: 'Inspect 3 clues or encounters in the dungeons.', gold: 300, xp: 450, giverNpc: 'elder', faction: 'haven' });
 
   // Freeze nested authored data as well as the definitions themselves.
   for (const q of quests) {

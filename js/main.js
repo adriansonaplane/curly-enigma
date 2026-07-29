@@ -123,7 +123,7 @@ const Save = {
       lvl: pl.lvl, xp: pl.xp, stats: pl.stats, statPts: pl.statPts, skillPts: pl.skillPts,
       skills: pl.skills, hotbar: pl.hotbar, equip: pl.equip, inv: pl.inv,
       gold: pl.gold, potions: pl.potions, progress: pl.progress,
-      bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: Dialogue.migrate(pl.dialogue), lore: Lore.migrate(pl.lore), reputation: Factions.migrate(pl.reputation),
+      bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: Dialogue.migrate(pl.dialogue), lore: Lore.migrate(pl.lore), narrative: Narrative.migrate(pl.narrative), reputation: Factions.migrate(pl.reputation),
       mercenary: this.migrateMercenary(pl.mercenary),
       kills: G.stats.kills, season: SEASON.current().num,
     };
@@ -191,6 +191,7 @@ const Game = {
       gold: 120, potions: { hp: 3, mp: 2 },
       dialogue: DialogueState.create(),
       lore: Lore.create(),
+      narrative: Narrative.create(),
       progress: { actUnlocked: 0, bossKilled: [false, false, false, false, false], abyssBest: 0 },
       mercenary: null,
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
@@ -213,7 +214,7 @@ const Game = {
       lvl: c.lvl, xp: c.xp, stats: c.stats, statPts: c.statPts, skillPts: c.skillPts,
       skills: c.skills || {}, cds: {}, buffs: [],
       hotbar: c.hotbar, equip: c.equip, inv: c.inv || new Array(48).fill(null),
-      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue), lore: Lore.migrate(c.lore), reputation: Factions.migrate(c.reputation || c.factions),
+      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue), lore: Lore.migrate(c.lore), narrative: Narrative.migrate(c.narrative), reputation: Factions.migrate(c.reputation || c.factions),
       gold: c.gold, potions: c.potions, progress: c.progress,
       mercenary: Save.migrateMercenary(c.mercenary || c.merc),
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
@@ -228,6 +229,7 @@ const Game = {
     pl.quests = QuestState.migrate(pl.quests);
     pl.dialogue = Dialogue.migrate(pl.dialogue);
     pl.lore = Lore.migrate(pl.lore);
+    pl.narrative = Narrative.migrate(pl.narrative);
     pl.reputation = Factions.migrate(pl.reputation);
     G.player = pl;
     Save.loadStash();
@@ -272,7 +274,7 @@ const Game = {
     this.clearWorld();
     G.portal = null; G.dungeonSave = null;
     const seed = (Math.random() * 0xffffffff) >>> 0;
-    const map = Dungeon.generate({ actIdx, depth, abyssFloor, seed });
+    const map = Dungeon.generate({ actIdx, depth, abyssFloor, seed, narrativeState: G.player.narrative });
     this.loadMap(map);
     if (actIdx === 'abyss') {
       const pl = G.player;
@@ -443,6 +445,9 @@ const Game = {
   // ---------------- interaction ----------------
   interactables() {
     const list = [];
+    for (const site of [...(G.map.clues || []), ...(G.map.encounters || [])])
+      list.push({ kind: 'narrative', x: site.x, y: site.y, site,
+        label: site.changed ? (Narrative.byId[site.definitionId].changedTitle || 'Inspect again') : site.prompt });
     for (const th of G.map.things) {
       if (th.kind === 'barrel' && th.hp <= 0) continue;
       if (th.kind === 'chest' && th.opened) continue;
@@ -524,6 +529,22 @@ const Game = {
       }
       case 'thing': this.useThing(it.th); break;
       case 'prop': this.useProp(it.pr); break;
+      case 'narrative': this.useNarrative(it.site); break;
+    }
+  },
+
+  useNarrative(site) {
+    const pl = G.player, def = Narrative.byId[site.definitionId]; if (!def) return;
+    if (site.changed) { UI.announce(`${def.changedTitle || def.title}: nothing more remains to be done.`, '#8a7444', 2200); return; }
+    const first = Narrative.record(pl.narrative, site, true);
+    UI.announce(def.discovered, def.kind === 'clue' ? '#d8c18a' : '#8fc8ff', 4200);
+    if (first) {
+      if (def.lore) for (const entry of Lore.discover(pl.lore, def.lore, { location: G.map.name, site: site.id }))
+        UI.announce(`Codex updated: ${entry.title}`, '#c8a8ff', 2400);
+      QuestState.bump(pl, 'narrative', G.map.actIdx, 1);
+      if (def.faction) Factions.change(pl.reputation, def.faction, def.reputation || 0, { rivals: false });
+      if (def.dialogue) pl.dialogue.consequences[`narrative:${def.dialogue}`] = true;
+      Save.saveChar(pl);
     }
   },
 

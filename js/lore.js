@@ -29,6 +29,12 @@ const Lore = (() => {
       content: 'The final name in the purge ledger is not a villager. It is the name engraved on the bell that never rings.',
       source: { type: 'deduction', location: 'Codex cross-reference' },
       unlock: { all: ['history.first-purge', 'mystery.heart-below'] } },
+    { id: 'clue.seventh-bell-ledger', title: 'The Seventh-Bell Ledger', category: 'Clues',
+      content: 'A sealed parish ledger names a forbidden seventh bell hidden below the nave.',
+      source: { type: 'clue', id: 'parish-ledger', location: 'The Old Parish' } },
+    { id: 'clue.cabal-trail', title: 'Cabal Trail Marks', category: 'Clues',
+      content: 'Soot marks encode a route through the deep roads and bear the Cinder Cabal cipher.',
+      source: { type: 'clue', id: 'cabal-mark', location: 'The deep roads' } },
   ];
 
   const entries = authored.map(raw => {
