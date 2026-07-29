@@ -208,6 +208,33 @@ test('ultra explicitly opts into twelve lights while high uses eight', async ({ 
   expect(errors).toEqual([]);
 });
 
+test('spatial batch experiment preserves instances and publishes its control', async ({ page }) => {
+  const errors = [];
+  await openGame(page, errors); await startGame(page);
+  const result = await page.evaluate(() => {
+    const control = Render.configureSpatialBatches({ world: 0, props: 0 });
+    const chunked = Render.configureSpatialBatches({ world: 12, props: 12, minProps: 1 });
+    const boundsContainInstances = World3.batches.every(im => {
+      const matrix = new THREE.Matrix4(), point = new THREE.Vector3();
+      for (let i = 0; i < im.count; i++) {
+        im.getMatrixAt(i, matrix); point.setFromMatrixPosition(matrix);
+        if (!im.geometry.boundingBox.containsPoint(point)) return false;
+      }
+      return !!im.geometry.boundingSphere && !im.geometry.boundingSphere.isEmpty();
+    });
+    Render.configureSpatialBatches({ world: 16, props: 16, minProps: 48 });
+    return { control: control.instances, chunked: chunked.instances, boundsContainInstances };
+  });
+  expect(result.control.world.chunkSize).toBe(0);
+  expect(result.control.props.chunkSize).toBe(0);
+  expect(result.chunked.world.chunkSize).toBe(12);
+  expect(result.chunked.props.chunkSize).toBe(12);
+  expect(result.chunked.totalInstances).toBe(result.control.totalInstances);
+  expect(result.chunked.calls).toBeGreaterThanOrEqual(result.control.calls);
+  expect(result.boundsContainInstances).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 for (const mode of ['elevated', 'third']) {
   test(`movement is camera-relative in ${mode} mode`, async ({ page }) => {
     const errors = [];

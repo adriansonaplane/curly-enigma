@@ -303,6 +303,22 @@ const Render = {
     });
   },
 
+  // Switch layouts between captures. Call this, allow authored prop rebuilds
+  // and the GPU timer to settle, then sample diagnosticSnapshot() in both
+  // camera presets. `world: 0, props: 0` is the pre-chunking control.
+  configureSpatialBatches(options) {
+    options = options || {};
+    const world = options.world === undefined ? World3.CHUNK_SIZE : options.world;
+    const props = options.props === undefined ? Props3.CHUNK_SIZE : options.props;
+    const minProps = options.minProps === undefined ? Props3.CHUNK_MIN_INSTANCES : options.minProps;
+    // Defer both rebuilds until all knobs are set; otherwise the first rebuild
+    // briefly combines the old prop layout with the new world layout.
+    World3.setChunkSize(world, false);
+    Props3.setChunking(props, minProps, false);
+    if (G.map) { World3.build(G.map); Props3.build(G.map); }
+    return this.diagnosticSnapshot();
+  },
+
   // Nameplates and health bars: screen-space by nature, so they stay 2D and
   // stay crisp instead of being billboarded quads that fight the depth buffer.
   drawPlates(ctx, t) {
