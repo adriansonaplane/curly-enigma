@@ -112,16 +112,25 @@ const R3 = {
       return false;
     }
     this.canvas = canvas;
-    let storedProfile = 'default';
-    try { storedProfile = sessionStorage.getItem(this.PROFILE_SESSION_KEY) || 'default'; } catch (_) {}
+    const config = typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.current : {};
+    let storedProfile = config.profile || 'default';
+    // Retain the old session escape hatch for links/bookmarks from older builds.
+    try { storedProfile = sessionStorage.getItem(this.PROFILE_SESSION_KEY) || storedProfile; } catch (_) {}
     const profile = this.selectProfile(storedProfile);
+    this.dprCap = config.dprCap === undefined ? profile.dprCap : config.dprCap;
+    this.renderScale = Math.min(config.renderScale === undefined ? 1 : config.renderScale, profile.renderScaleCap);
+    this.shadows = config.shadows !== false && profile.pointLightShadows;
+    this.maxLights = Math.min(config.lightBudget === undefined ? profile.maxLights : config.lightBudget, profile.maxLights);
+    this.gradeEnabled = config.grading !== false && profile.grading;
+    this.gpuTimersEnabled = config.gpuTimers !== false;
     this.authoredModels = profile.authoredModels !== false;
     try {
       const storedModels = localStorage.getItem(this.AUTHORED_MODELS_KEY);
       if (storedModels !== null) this.authoredModels = JSON.parse(storedModels) !== false;
     } catch (_) {}
     const attempts = this.profileName === 'default' ? [
-      { antialias: profile.antialias, powerPreference: 'high-performance' },
+      { antialias: config.antialias === undefined ? profile.antialias : config.antialias,
+        powerPreference: config.powerPreference || 'high-performance' },
       { antialias: false, powerPreference: null },
       { antialias: false, powerPreference: 'low-power' },
     ] : [
@@ -141,6 +150,13 @@ const R3 = {
       const options = { canvas, antialias: attempt.antialias, alpha: false };
       if (attempt.powerPreference) options.powerPreference = attempt.powerPreference;
       try {
+        if (config.webglVersion === 1 || config.webglVersion === 2) {
+          const contextName = config.webglVersion === 2 ? 'webgl2' : 'webgl';
+          const contextOptions = Object.assign({}, options); delete contextOptions.canvas;
+          const context = canvas.getContext(contextName, contextOptions);
+          if (!context) throw new Error('Requested ' + contextName + ' context is unavailable');
+          options.context = context;
+        }
         this.renderer = new THREE.WebGLRenderer(options);
         this.canvas = canvas;
         const webglVersion = this.renderer.capabilities && this.renderer.capabilities.isWebGL2 ? 2 : 1;
@@ -175,7 +191,7 @@ const R3 = {
       console.error('[R3] WebGL renderer initialization failed', failures);
       return false;
     }
-    this.renderer.shadowMap.enabled = profile.pointLightShadows;
+    this.renderer.shadowMap.enabled = this.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     // Keep the counters across the world and grade renders so callers can
@@ -189,13 +205,13 @@ const R3 = {
     // One texture lookup is enough for the deliberately restrained grade.
     // Keeping it here (rather than tinting hundreds of materials) also makes
     // the setting instant and leaves the sRGB output conversion intact.
-    this._target = profile.grading ? new THREE.WebGLRenderTarget(1, 1, {
+    this._target = this.gradeEnabled ? new THREE.WebGLRenderTarget(1, 1, {
       minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter,
       format: THREE.RGBAFormat, depthBuffer: true,
     }) : null;
-    this._postScene = profile.grading ? new THREE.Scene() : null;
-    this._postCam = profile.grading ? new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) : null;
-    this._postMat = profile.grading ? new THREE.ShaderMaterial({
+    this._postScene = this.gradeEnabled ? new THREE.Scene() : null;
+    this._postCam = this.gradeEnabled ? new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) : null;
+    this._postMat = this.gradeEnabled ? new THREE.ShaderMaterial({
       uniforms: {
         map: { value: this._target.texture }, top: { value: new THREE.Color() },
         bottom: { value: new THREE.Color() }, amount: { value: 0 }, vignette: { value: 0 },
@@ -425,6 +441,10 @@ const R3 = {
   },
 
   _initGpuTimer() {
+    if (this.gpuTimersEnabled === false) {
+      this._gpu = { supported: false, status: 'disabled', ms: null, ext: null, active: null, pending: [] };
+      return;
+    }
     const gl = this.renderer && this.renderer.getContext();
     if (!gl || gl.isContextLost()) {
       this._gpu = { supported: false, status: 'context-lost', ms: null, ext: null, active: null, pending: [] };

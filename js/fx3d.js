@@ -89,6 +89,8 @@ const FX = {
 };
 
 const FX3 = {
+  advancedEffects: true,
+  configure(config) { this.advancedEffects = config.advancedEffects !== false; },
   PX: 1 / 32,               // the old renderer's pixels-per-tile
   MAX: 1500,                // matches FX.push's own cap
   RINGS: 24, FLASHES: 16, BOLTS: 12, PROJS: 64,
@@ -288,7 +290,7 @@ const FX3 = {
     // Each compatible effect category is one draw call, irrespective of its count.
     let nr = 0;
     for (const r of G.rings) {
-      if (nr >= this.RINGS) break;
+      if (!this.advancedEffects || nr >= this.RINGS) break;
       const k = U.clamp(r.t / (r.maxT || 1), 0, 1);
       const rad = r.r + (r.maxR - r.r) * (1 - k);
       dummy.position.set(r.x, 0.09, r.y); dummy.rotation.set(-Math.PI / 2, 0, 0);
@@ -298,7 +300,7 @@ const FX3 = {
     }
     let nf = 0;
     for (const f of G.flashes) {
-      if (nf >= this.FLASHES) break;
+      if (!this.advancedEffects || nf >= this.FLASHES) break;
       const k = U.clamp(f.t / (f.maxT || 1), 0, 1);
       dummy.position.set(f.x, 0.07, f.y); dummy.rotation.set(-Math.PI / 2, 0, 0);
       dummy.scale.set(f.r * k, f.r * k, 1); col.set(f.color).multiplyScalar(0.42 * k);
@@ -306,7 +308,7 @@ const FX3 = {
     }
     let nb = 0;
     for (const bl of G.bolts) {
-      if (nb >= this.BOLTS) break;
+      if (!this.advancedEffects || nb >= this.BOLTS) break;
       const k = U.clamp(bl.t / (bl.maxT || 1), 0, 1);
       dummy.position.set(bl.x, 1.6, bl.y); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 3.2, 1);
       col.set(bl.color).multiplyScalar(0.75 * k); upload(this.bolts, nb++, col);
