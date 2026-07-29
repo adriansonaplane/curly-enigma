@@ -95,7 +95,7 @@ const FX3 = {
 
   group: null,
   add: null, norm: null,    // two Points objects: additive and normal blending
-  rings: [], flashes: [], bolts: [], projs: [],
+  rings: null, flashes: null, bolts: null, beads: null, shafts: null,
   ambient: [], ambientTheme: null,
   ready: false,
 
@@ -163,6 +163,17 @@ const FX3 = {
     return p;
   },
 
+  _instances(geo, material, capacity) {
+    const mesh = new THREE.InstancedMesh(geo, material, capacity);
+    mesh.count = 0;
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Allocate instanceColor up front; setColorAt creates it lazily otherwise.
+    mesh.setColorAt(0, new THREE.Color(0xffffff));
+    mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+    return mesh;
+  },
+
   init() {
     this.dispose();
     const g = new THREE.Group();
@@ -178,47 +189,23 @@ const FX3 = {
     const ringGeo = new THREE.RingGeometry(0.72, 1, 32);
     const discGeo = new THREE.CircleGeometry(1, 28);
     const boltGeo = new THREE.CylinderGeometry(0.08, 0.02, 1, 7, 1, true);
-    const mk = (geo, n, arr, y) => {
-      for (let i = 0; i < n; i++) {
-        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
-          color: 0xffffff, transparent: true, opacity: 0,
-          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-        }));
-        m.rotation.x = -Math.PI / 2;
-        m.position.y = y;
-        m.visible = false;
-        g.add(m);
-        arr.push(m);
-      }
-    };
-    mk(ringGeo, this.RINGS, this.rings, 0.09);
-    mk(discGeo, this.FLASHES, this.flashes, 0.07);
-    for (let i = 0; i < this.BOLTS; i++) {
-      const m = new THREE.Mesh(boltGeo, new THREE.MeshBasicMaterial({
-        color: 0xffffff, transparent: true, opacity: 0,
-        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-      }));
-      m.visible = false;
-      g.add(m);
-      this.bolts.push(m);
-    }
+    const additive = () => new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, side: THREE.DoubleSide, vertexColors: true,
+    });
+    this.rings = this._instances(ringGeo, additive(), this.RINGS);
+    this.flashes = this._instances(discGeo, additive(), this.FLASHES);
+    this.bolts = this._instances(boltGeo, additive(), this.BOLTS);
+    g.add(this.rings, this.flashes, this.bolts);
 
     // Projectiles: an arrow is a shaft, everything else is a glowing bead.
     const beadGeo = new THREE.SphereGeometry(0.16, 8, 6);
     const shaftGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.62, 5);
-    for (let i = 0; i < this.PROJS; i++) {
-      const o = new THREE.Group();
-      const bead = new THREE.Mesh(beadGeo, new THREE.MeshBasicMaterial({
-        color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      }));
-      const shaft = new THREE.Mesh(shaftGeo, new THREE.MeshBasicMaterial({ color: 0xd8cba8 }));
-      shaft.rotation.z = Math.PI / 2;   // lie along +X, then yaw to the heading
-      shaft.visible = false;
-      o.add(bead, shaft);
-      o.visible = false;
-      g.add(o);
-      this.projs.push({ o, bead, shaft });
-    }
+    this.beads = this._instances(beadGeo, additive(), this.PROJS);
+    this.shafts = this._instances(shaftGeo, new THREE.MeshBasicMaterial({
+      color: 0xffffff, vertexColors: true,
+    }), this.PROJS);
+    g.add(this.beads, this.shafts);
 
     this.ready = true;
     return true;
@@ -294,62 +281,58 @@ const FX3 = {
     this.norm.geometry.setDrawRange(0, nn);
     for (const a of [A, N]) { a.position.needsUpdate = true; a.color.needsUpdate = true; a.size.needsUpdate = true; }
 
-    // expanding rings
-    for (let i = 0; i < this.rings.length; i++) {
-      const m = this.rings[i], r = G.rings[i];
-      if (!r) { m.visible = false; continue; }
+    const dummy = new THREE.Object3D();
+    const upload = (mesh, i, color) => {
+      dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix); mesh.setColorAt(i, color);
+    };
+    // Each compatible effect category is one draw call, irrespective of its count.
+    let nr = 0;
+    for (const r of G.rings) {
+      if (nr >= this.RINGS) break;
       const k = U.clamp(r.t / (r.maxT || 1), 0, 1);
       const rad = r.r + (r.maxR - r.r) * (1 - k);
-      m.visible = true;
-      m.position.set(r.x, 0.09, r.y);
-      m.scale.set(rad, rad, 1);
-      m.material.color.set(r.color);
-      m.material.opacity = (r.alpha === undefined ? 0.9 : r.alpha) * k;
+      dummy.position.set(r.x, 0.09, r.y); dummy.rotation.set(-Math.PI / 2, 0, 0);
+      dummy.scale.set(rad, rad, 1);
+      col.set(r.color).multiplyScalar((r.alpha === undefined ? 0.9 : r.alpha) * k);
+      upload(this.rings, nr++, col);
     }
-    // ground flashes
-    for (let i = 0; i < this.flashes.length; i++) {
-      const m = this.flashes[i], f = G.flashes[i];
-      if (!f) { m.visible = false; continue; }
+    let nf = 0;
+    for (const f of G.flashes) {
+      if (nf >= this.FLASHES) break;
       const k = U.clamp(f.t / (f.maxT || 1), 0, 1);
-      m.visible = true;
-      m.position.set(f.x, 0.07, f.y);
-      m.scale.set(f.r * k, f.r * k, 1);
-      m.material.color.set(f.color);
-      m.material.opacity = 0.42 * k;
+      dummy.position.set(f.x, 0.07, f.y); dummy.rotation.set(-Math.PI / 2, 0, 0);
+      dummy.scale.set(f.r * k, f.r * k, 1); col.set(f.color).multiplyScalar(0.42 * k);
+      upload(this.flashes, nf++, col);
     }
-    // strike bolts — a column of light where something was hit
-    for (let i = 0; i < this.bolts.length; i++) {
-      const m = this.bolts[i], bl = G.bolts[i];
-      if (!bl) { m.visible = false; continue; }
+    let nb = 0;
+    for (const bl of G.bolts) {
+      if (nb >= this.BOLTS) break;
       const k = U.clamp(bl.t / (bl.maxT || 1), 0, 1);
-      m.visible = true;
-      m.position.set(bl.x, 1.6, bl.y);
-      m.scale.set(1, 3.2, 1);
-      m.material.color.set(bl.color);
-      m.material.opacity = 0.75 * k;
+      dummy.position.set(bl.x, 1.6, bl.y); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 3.2, 1);
+      col.set(bl.color).multiplyScalar(0.75 * k); upload(this.bolts, nb++, col);
     }
 
     // projectiles
-    for (let i = 0; i < this.projs.length; i++) {
-      const e = this.projs[i], p = G.projs[i];
-      if (!p) { e.o.visible = false; continue; }
+    let np = 0, ns = 0;
+    for (const p of G.projs) {
+      if (np >= this.PROJS) break;
       const c = (ELEM[p.elem] || ELEM.phys).color;
-      e.o.visible = true;
-      e.o.position.set(p.x, 0.55, p.y);
       const arrow = p.kind === 'arrow';
-      e.shaft.visible = arrow;
-      e.bead.visible = true;
-      e.bead.scale.setScalar(arrow ? 0.5 : p.kind === 'orb' ? 1.25 : 1);
-      e.bead.material.color.set(c);
-      if (arrow) e.o.rotation.y = Math.atan2(-p.vy, p.vx);   // shaft lies along local +X
-      else e.o.rotation.y = t * 3;
+      dummy.position.set(p.x, 0.55, p.y); dummy.rotation.set(0, arrow ? Math.atan2(-p.vy, p.vx) : t * 3, 0);
+      dummy.scale.setScalar(arrow ? 0.5 : p.kind === 'orb' ? 1.25 : 1);
+      col.set(c); upload(this.beads, np++, col);
+      if (arrow) {
+        dummy.scale.set(1, 1, 1); dummy.rotation.set(0, Math.atan2(-p.vy, p.vx), Math.PI / 2);
+        col.set(0xd8cba8); upload(this.shafts, ns++, col);
+      }
+    }
+    for (const [mesh, count] of [[this.rings, nr], [this.flashes, nf], [this.bolts, nb],
+      [this.beads, np], [this.shafts, ns]]) {
+      mesh.count = count; mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true;
     }
 
     return { parts: na + nn, add: na, norm: nn,
-      rings: Math.min(G.rings.length, this.RINGS),
-      flashes: Math.min(G.flashes.length, this.FLASHES),
-      bolts: Math.min(G.bolts.length, this.BOLTS),
-      projs: Math.min(G.projs.length, this.PROJS) };
+      rings: nr, flashes: nf, bolts: nb, projs: np };
   },
 
   dispose() {
@@ -364,7 +347,7 @@ const FX3 = {
       });
     }
     this.group = null; this.add = null; this.norm = null;
-    this.rings = []; this.flashes = []; this.bolts = []; this.projs = [];
+    this.rings = null; this.flashes = null; this.bolts = null; this.beads = null; this.shafts = null;
     this.ambient = []; this.ambientTheme = null;
     this.ready = false;
   },
