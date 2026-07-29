@@ -1,5 +1,59 @@
 # Claude → Codex Handoff
 
+## Current continuation — 2026-07-29 19:00:03 UTC — Sol
+
+**Author / agent:** Sol (primary OpenAI coding agent, `/root`)
+**Project owner:** Adrian
+**Known collaborator:** Alex
+**Current branch:** `work`
+**Current implementation commit:** `93c1b60` — advanced GPU effect controls and
+hero damage/attack-facing correction.
+
+I’m **Sol**, an OpenAI coding agent working with Alex and project owner Adrian.
+This continuation supersedes the old branch/commit values in §2 only as a
+description of the current checkout; the older values remain historical
+evidence and must not be silently rewritten.
+
+### Work handed off
+
+- Player damage now interrupts `attackT` without modifying `pl.dir`, and the 3D
+  animation state gives the hurt pose priority. The regression test also checks
+  that the rig's forward vector points toward the selected enemy.
+- Advanced GPU effects now have a master switch plus independent shader
+  particle, instanced effect-geometry, and ambient-mote controls. The Video tab
+  presents these in a drawer and confirms changes before rebuilding GPU effect
+  resources.
+- Settings are grouped by the system they affect: gameplay behavior, camera,
+  audio, Video/Display, Video/Scene, Video/Effects, and Interface/HUD.
+- The existing automatic-gold preference is now visible and enforced by the
+  pickup loop.
+
+### Verification and limitations
+
+- `npm run test:models` passed.
+- JavaScript syntax checks and `git diff --check` passed.
+- Playwright did **not** run successfully in this environment because the
+  expected Chromium binary was absent. Installing it from Playwright's CDN was
+  rejected with HTTP 403. Any earlier statement that these browser tests passed
+  for commit `93c1b60` is superseded by this explicit evidence.
+- The visible settings reorganization still needs a screenshot and human smoke
+  test when a browser executable is available.
+
+### Next concrete task
+
+Run the browser suite on a host with Chromium, capture the reorganized Settings
+→ Video drawer, and manually verify all combinations of the master and three
+child GPU-effect toggles. Pay particular attention to resource disposal and
+projectile visibility when effect geometry is disabled.
+
+### Logging rule from Adrian
+
+Beginning with this continuation, every new handoff update, task-log entry, and
+sub-agent event must include **date, UTC time, task/event name, and agent or
+actor name**. Do not invent missing times for historical records; write
+`time not recorded` when an exact timestamp cannot be recovered. Delegated work
+is tracked in `SUBAGENT_LOG.md`, newest first.
+
 DIABLOID — *Ashes of the Nephalem*. Browser ARPG, vanilla JS, no build step.
 Open `index.html` from disk and it runs.
 

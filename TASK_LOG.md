@@ -7,6 +7,65 @@ The structure is the one set out in HANDOFF.md §U4.
 
 ---
 
+## 2026-07-29 19:35:21 UTC — Sol — Establish the always-current agent documentation branch
+
+**Actor / evidence source:** Sol (`/root`) with advisory review from
+`/root/coordination_policy`. **Owner:** Adrian. **Known collaborator:** Alex.
+
+**Intent.** Create a Markdown-only `agent` branch workflow for on-demand task,
+discussion, feature, plan, question, comment, handoff, sub-agent, archive, and
+emergency/vital coordination.
+
+**Files / subsystems.** `agent/*.md`, `agent/archive/*.md`, `SUBAGENT_LOG.md`,
+and `TASK_LOG.md`; documentation only.
+
+**Decision.** Agents work asynchronously unless feedback is vital, check the
+vital log at defined checkpoints, append a Mini log to every touched note, and
+require explicit current-participant consensus before moving completed work to
+the monthly archive and removing it from active notes.
+
+**Next concrete task.** Use a browser-capable host to complete
+`TASK-20260729-01`, then archive it only after its owner and reviewer record
+agreement.
+
+---
+
+## 2026-07-29 19:00:03 UTC — Sol — Document GPU/facing work and establish attributed logs
+
+**Actor / evidence source:** Sol (`/root`), repository state, and delegated
+static audit from `/root/log_audit`. **Owner:** Adrian. **Known collaborator:**
+Alex.
+
+**Commit documented:** `93c1b60` — per-effect advanced GPU controls, settings
+reorganization, automatic-gold wiring, and attack interruption on damage.
+
+**Intent.** Give the next contributor an accurate continuation for the prior
+implementation and establish Adrian's required name-and-time convention for all
+future events and tasks. Add a separate ledger so delegated agent activity is
+not mixed with product implementation history.
+
+**Non-goals.** No runtime code changes, no attempt to fabricate timestamps for
+older entries, and no claim that browser tests passed when Chromium was absent.
+
+**Files / subsystems.** `HANDOFF.md`, `TASK_LOG.md`, and new
+`SUBAGENT_LOG.md`; documentation only.
+
+**Verification / environment.** Reviewed the current Git history and both
+existing project logs in the `/workspace/curly-enigma` checkout. The current
+implementation commit is `93c1b60`. The previous implementation verification
+remains: model-contract tests and syntax/static checks passed; Playwright was
+blocked by a missing browser and an HTTP 403 during browser installation.
+
+**Decision.** Future entries use `YYYY-MM-DD HH:MM:SS UTC — Agent/Actor —
+Event or task name`. Historical date-only entries stay intact; unknown times
+must be labeled rather than inferred.
+
+**Next concrete task.** Run Playwright and capture the updated Video settings UI
+on a browser-capable host, then record the result with the tester's name and an
+exact UTC timestamp.
+
+---
+
 ## 2026-07-29 — White world: a GPU watchdog reset, not a leak
 
 **Commits:** `510ddc2` (context-loss survival), `2a188d4` (prop dispose leak).

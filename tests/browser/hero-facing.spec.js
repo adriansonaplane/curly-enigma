@@ -71,3 +71,33 @@ test('successful camera-relative movement updates hero facing during attacks', a
   expect(new Set(samples.map(sample => sample.player.toFixed(6))).size).toBe(4);
   expect(new Set(samples.map(sample => sample.rig.toFixed(6))).size).toBe(4);
 });
+
+test('damage interrupts attack pose without changing target-facing heading', async ({ page }) => {
+  await startGame(page);
+  const state = await page.evaluate(() => {
+    G.map.town = false;
+    const pl = G.player;
+    const enemy = { x: pl.x + 3, y: pl.y + 4, lvl: 1, dead: false };
+    Ent.basicAttack(pl, enemy.x, enemy.y);
+    const expected = Math.atan2(enemy.y - pl.y, enemy.x - pl.x);
+    const before = { dir: pl.dir, anim: Hero3.anim(pl, G.time).anim };
+    Ent.damagePlayer(1, 'phys', enemy);
+    Hero3.sync(pl, G.time);
+    return {
+      expected, before, afterDir: pl.dir, attackT: pl.attackT,
+      anim: Hero3.anim(pl, G.time).anim, rig: Hero3.rig.rotation.y,
+      forward: {
+        x: Math.sin(Hero3.rig.rotation.y),
+        y: Math.cos(Hero3.rig.rotation.y),
+      },
+    };
+  });
+  expect(state.before.anim).toBe('attack');
+  expect(state.before.dir).toBeCloseTo(state.expected, 10);
+  expect(state.afterDir).toBeCloseTo(state.expected, 10);
+  expect(state.attackT).toBe(0);
+  expect(state.anim).toBe('hurt');
+  expect(state.rig).toBeCloseTo(Math.PI / 2 - state.expected, 10);
+  expect(state.forward.x).toBeCloseTo(Math.cos(state.expected), 10);
+  expect(state.forward.y).toBeCloseTo(Math.sin(state.expected), 10);
+});
