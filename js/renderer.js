@@ -27,6 +27,7 @@ const Render = {
   renderScale: 1, targetFps: 60,
   _fpsN: 0, _fpsT: 0, _qualityStep: 0, _headroomWindows: 0,
   _mapBuilt: null,
+  _shadows: null,
 
   init() {
     this.gl = document.getElementById('game');
@@ -199,7 +200,11 @@ const Render = {
     const step = this.qualityMode === 'auto' ? this._qualityStep : (this.quality === 'low' ? 6 : 0);
     const scaleCaps = [1, 0.85, 0.75, 0.75, 0.75, 0.75, 0.75];
     R3.setRenderScale(Math.min(this.renderScale, scaleCaps[step]));
-    R3.shadows = step < 6 && this.fx.shadows !== false;
+    const shadows = step < 6 && this.fx.shadows !== false;
+    if (this._shadows !== shadows) {
+      this._shadows = shadows;
+      World3.setShadows(shadows);
+    }
     R3.maxLights = step >= 5 ? 6 : step >= 4 ? 8 : 12;
     World3.updateAtmosphere(this.fx.fog !== false);
     // Expensive atmosphere yields before lights/readability under the governor.

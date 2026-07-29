@@ -119,6 +119,40 @@ test('torch light and emissive instance transition through light and snuff', asy
   expect(result.lit).toBe(false);
 });
 
+test('shadow quality changes update the live world without rebuilding it', async ({ page }) => {
+  const errors = [];
+  await openGame(page, errors); await startGame(page);
+  const result = await page.evaluate(broken => {
+    const map = Dungeon.generate({ actIdx: 0, depth: 1, seed: 8675309 });
+    Game.clearWorld(); Game.loadMap(map); Render.onMap(map);
+    Render.qualityMode = 'high'; Render.quality = 'high'; Render.fx.shadows = true;
+    Render.frame(1 / 60, G.time);
+    const group = World3.group;
+    const enabled = {
+      hero: World3.hero.castShadow,
+      renderer: R3.renderer.shadowMap.enabled,
+    };
+
+    Render.qualityMode = 'low';
+    Render.frame(1 / 60, G.time);
+    if (broken) World3.hero.castShadow = true;
+    return {
+      enabled,
+      disabled: {
+        hero: World3.hero.castShadow,
+        renderer: R3.renderer.shadowMap.enabled,
+      },
+      sameWorld: World3.group === group,
+    };
+  }, mutation === 'shadows');
+  expect(result).toEqual({
+    enabled: { hero: true, renderer: true },
+    disabled: { hero: false, renderer: false },
+    sameWorld: true,
+  });
+  expect(errors).toEqual([]);
+});
+
 for (const mode of ['elevated', 'third']) {
   test(`movement is camera-relative in ${mode} mode`, async ({ page }) => {
     const errors = [];
