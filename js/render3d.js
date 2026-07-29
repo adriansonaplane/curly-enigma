@@ -71,6 +71,8 @@ const R3 = {
   gradeEnabled: true,
   grade: null,
   _target: null, _postScene: null, _postCam: null, _postMat: null,
+  _sceneCounters: null, _frameCounters: null,
+  _gpu: { supported: false, status: 'unsupported', ms: null, ext: null, active: null, pending: [] },
 
   init(canvas) {
     if (typeof THREE === 'undefined') {
@@ -84,6 +86,10 @@ const R3 = {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputEncoding = THREE.sRGBEncoding;
+    // Keep the counters across the world and grade renders so callers can
+    // snapshot both boundaries. We reset explicitly once per frame.
+    this.renderer.info.autoReset = false;
+    this._initGpuTimer();
 
     this.scene = new THREE.Scene();
 
@@ -247,20 +253,72 @@ const R3 = {
     return { fx, fz, rx: -fz, rz: fx };
   },
 
-  render() {
+  _counterSnapshot() {
+    const r = this.renderer && this.renderer.info.render;
+    return {
+      calls: r ? r.calls : 0, triangles: r ? r.triangles : 0,
+      points: r ? r.points : 0, lines: r ? r.lines : 0,
+    };
+  },
+
+  _initGpuTimer() {
+    const gl = this.renderer && this.renderer.getContext();
+    const ext = gl && gl.getExtension('EXT_disjoint_timer_query_webgl2');
+    this._gpu = { supported: !!ext, status: ext ? 'pending' : 'unsupported',
+      ms: null, ext, active: null, pending: [] };
+  },
+
+  _pollGpuTimer() {
+    const gpu = this._gpu;
+    if (!gpu.supported) return;
+    const gl = this.renderer.getContext();
+    if (gl.getParameter(gpu.ext.GPU_DISJOINT_EXT)) {
+      for (const q of gpu.pending) gl.deleteQuery(q);
+      gpu.pending.length = 0; gpu.ms = null; gpu.status = 'disjoint';
+      return;
+    }
+    // Availability polling is explicitly asynchronous. Never substitute
+    // gl.finish(), readPixels(), or a blocking QUERY_RESULT request.
+    while (gpu.pending.length && gl.getQueryParameter(gpu.pending[0], gl.QUERY_RESULT_AVAILABLE)) {
+      const q = gpu.pending.shift();
+      gpu.ms = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6;
+      gpu.status = 'available';
+      gl.deleteQuery(q);
+    }
+  },
+
+  render(onBoundary) {
     if (!this.ready) return;
     this.updateCamera();
-    if (this.gradeEnabled && this.grade && this._postMat) {
+    this._pollGpuTimer();
+    const gl = this.renderer.getContext(), gpu = this._gpu;
+    if (gpu.supported && !gpu.active && gpu.pending.length < 2) {
+      gpu.active = gl.createQuery();
+      gl.beginQuery(gpu.ext.TIME_ELAPSED_EXT, gpu.active);
+    }
+    this.renderer.info.reset();
+    const gradeActive = !!(this.gradeEnabled && this.grade && this._postMat);
+    if (gradeActive) {
       const u = this._postMat.uniforms;
       u.top.value.set(this.grade[0]); u.bottom.value.set(this.grade[1]);
       u.amount.value = this.grade[2]; u.vignette.value = Math.min(0.22, this.grade[2] * 1.15);
       this.renderer.setRenderTarget(this._target);
       this.renderer.render(this.scene, this.cam);
-      this.renderer.setRenderTarget(null);
-      this.renderer.render(this._postScene, this._postCam);
     } else {
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.cam);
+    }
+    this._sceneCounters = this._counterSnapshot();
+    if (onBoundary) onBoundary('scene', this._sceneCounters);
+    if (gradeActive) {
+      this.renderer.setRenderTarget(null);
+      this.renderer.render(this._postScene, this._postCam);
+    }
+    this._frameCounters = this._counterSnapshot();
+    if (onBoundary) onBoundary('frame', this._frameCounters);
+    if (gpu.active) {
+      gl.endQuery(gpu.ext.TIME_ELAPSED_EXT);
+      gpu.pending.push(gpu.active); gpu.active = null;
     }
   },
 
@@ -281,11 +339,22 @@ const R3 = {
   },
 
   stats() {
-    const r = this.renderer ? this.renderer.info.render : null;
+    const frame = this._frameCounters || this._counterSnapshot();
+    const scene = this._sceneCounters || frame;
+    const gradeActive = !!(this.gradeEnabled && this.grade && this._postMat);
     return {
       mode: this.mode, yaw: +this.yaw.toFixed(3), pitch: +this.pitch.toFixed(3),
       zoom: +this.zoom.toFixed(2), ortho: false,
-      calls: r ? r.calls : 0, tris: r ? r.triangles : 0,
+      framebuffer: { width: this.renderW, height: this.renderH },
+      effectiveDpr: +this.effectivePixelRatio.toFixed(3),
+      dpr: +this.effectivePixelRatio.toFixed(3), renderScale: this.renderScale,
+      calls: frame.calls, triangles: frame.triangles, tris: frame.triangles,
+      points: frame.points, lines: frame.lines,
+      scene: Object.assign({}, scene), frame: Object.assign({}, frame),
+      shadows: !!(this.shadows && this.renderer && this.renderer.shadowMap.enabled),
+      grade: gradeActive,
+      gpu: { supported: this._gpu.supported, status: this._gpu.status,
+        ms: this._gpu.ms === null ? null : +this._gpu.ms.toFixed(3) },
       objects: this.scene ? this.scene.children.length : 0,
     };
   },

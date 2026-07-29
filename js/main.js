@@ -817,7 +817,9 @@ const Game = {
     const dt = Math.min(0.05, (acceptedAt - this._last) / 1000);
     this._last = acceptedAt;
     if (G.state === 'game') {
+      const updateStart = performance.now();
       this.update(dt);
+      Render.cpuUpdateMs = performance.now() - updateStart;
       Render.frame(dt, G.time);
     }
   },
