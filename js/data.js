@@ -12,6 +12,29 @@ const ELEM = {
   holy: { color: '#ffe9b0', res: 'arc',  name: 'Holy'      },
 };
 
+// ---------- Mercenaries ----------
+// Permanent retainers deliberately live outside the skill-summon definitions.
+// Their save records survive zone changes and contain their own level, equipment
+// and death state; summoned creatures remain disposable entries with a ttl.
+const MERCENARY_ARCHETYPES = [
+  { id: 'ironwolf', name: 'Mara Voss', title: 'Iron Wolf', role: 'Vanguard',
+    desc: 'A shield-first veteran who pins enemies beside her employer.', ai: 'melee', elem: 'phys',
+    body: 'humanoid', pal: { main: '#8c7355', dark: '#343944', eye: '#e8d089' },
+    baseHp: 105, hpLvl: 18, dmg: [7, 12], dmgLvl: 1.8, spd: 2.7, hireCost: 350,
+    slots: ['weapon', 'offhand', 'helm', 'chest'], resurrectionBase: 120 },
+  { id: 'ashranger', name: 'Tamsin Reed', title: 'Ash Ranger', role: 'Marksman',
+    desc: 'A mobile bow-for-hire who keeps a clear firing lane.', ai: 'ranged', elem: 'phys',
+    body: 'humanoid', pal: { main: '#65724e', dark: '#302b25', eye: '#ffb04f' },
+    baseHp: 72, hpLvl: 13, dmg: [9, 15], dmgLvl: 2.1, spd: 3.1, hireCost: 425,
+    slots: ['weapon', 'helm', 'chest', 'boots'], resurrectionBase: 140 },
+  { id: 'embermage', name: 'Orin Vale', title: 'Ember Adept', role: 'Arcanist',
+    desc: 'A cautious fire caster who attacks from behind the battle line.', ai: 'caster', elem: 'fire',
+    body: 'humanoid', pal: { main: '#703b32', dark: '#29213c', eye: '#ff7a2f' },
+    baseHp: 64, hpLvl: 12, dmg: [11, 18], dmgLvl: 2.35, spd: 2.8, hireCost: 500,
+    slots: ['weapon', 'offhand', 'helm', 'chest'], resurrectionBase: 165 },
+];
+const MERCENARY_BY_ID = Object.fromEntries(MERCENARY_ARCHETYPES.map(m => [m.id, m]));
+
 // ---------- Skill factory ----------
 // Archetypes: strike, slam, proj, nova, beam, meteor, chain, summon, trap,
 //             storm, buff, curse, dash, passive, heal
@@ -19,7 +42,8 @@ let _skillSeq = 0;
 function S(name, arch, elem, o = {}) {
   const sk = Object.assign({
     id: 'sk' + (_skillSeq++), name, arch, elem,
-    maxLvl: 20, mana: 4, cd: 0, desc: '',
+    maxLvl: 20, mana: 4, cd: 0, desc: '', x: 0, y: 0, tier: 1,
+    prereqIds: [], synergies: [],
   }, o);
   return sk;
 }
@@ -346,6 +370,25 @@ const CLASSES = [
 
 // Unlock level for skill index i within a tree (rows of 2).
 function skillReqLvl(i) { return [1, 1, 7, 7, 13, 13, 19, 19, 25, 25][i] || 1; }
+
+// Every tree shares a readable two-branch layout. Keeping this metadata on the
+// definitions (rather than in the UI) lets other views and save tooling reason
+// about the same graph. Each branch advances independently through five tiers.
+for (const c of CLASSES) for (const tree of c.trees) {
+  tree.skills.forEach((skill, index) => {
+    const tier = Math.floor(index / 2) + 1;
+    skill.x = index % 2;
+    skill.y = tier - 1;
+    skill.tier = tier;
+    skill.reqLvl = skillReqLvl(index);
+    skill.prereqIds = tier === 1 ? [] : [tree.skills[index - 2].id];
+    skill.synergies = [{
+      skillId: tree.skills[index ^ 1].id,
+      bonus: 'damage',
+      bonusPerRank: 2,
+    }];
+  });
+}
 
 // Skill lookup table
 const SKILL_BY_ID = {};

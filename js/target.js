@@ -21,6 +21,7 @@ const Target = {
   // type, so kind is inferred from the shape of the object.
   kindOf(u) {
     if (!u) return null;
+    if (u.partyMember) return 'player';
     if (u.sim) return 'player';
     if (u.def && u.def.role) return 'npc';
     if (u.ally) return 'pet';
@@ -30,7 +31,8 @@ const Target = {
   isAlive(u) {
     if (!u) return false;
     const k = this.kindOf(u);
-    if (k === 'npc' || k === 'player') return true;
+    if (k === 'npc') return true;
+    if (k === 'player') return u.online !== false && !u.dead;
     return !u.dead;
   },
   nameOf(u) {

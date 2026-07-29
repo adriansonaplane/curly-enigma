@@ -116,16 +116,48 @@ const Save = {
     return Object.values(all).sort((a, b) => b.lvl - a.lvl);
   },
   saveChar(pl) {
+    this.normalizeItems(pl);
     const all = this._all();
     all[pl.name.toLowerCase()] = {
       name: pl.name, cls: pl.cls, hardcore: pl.hardcore, dead: !!pl.deadForever,
       lvl: pl.lvl, xp: pl.xp, stats: pl.stats, statPts: pl.statPts, skillPts: pl.skillPts,
       skills: pl.skills, hotbar: pl.hotbar, equip: pl.equip, inv: pl.inv,
       gold: pl.gold, potions: pl.potions, progress: pl.progress,
-      bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: DialogueState.migrate(pl.dialogue),
+      bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: Dialogue.migrate(pl.dialogue), reputation: Factions.migrate(pl.reputation),
+      mercenary: this.migrateMercenary(pl.mercenary),
       kills: G.stats.kills, season: SEASON.current().num,
     };
     try { localStorage.setItem(this.CHARS, JSON.stringify(all)); } catch (e) { /* storage full */ }
+  },
+  migrateMercenary(raw) {
+    if (!raw) return null;
+    // Early prototypes used `merc`, `type`, `level`, `gear`, and `isDead`.
+    const id = raw.archetypeId || raw.type || raw.id;
+    if (!MERCENARY_BY_ID[id]) return null;
+    const equipment = raw.equipment || raw.gear || {};
+    return {
+      archetypeId: id, level: Math.max(1, +(raw.level || raw.lvl) || 1), xp: Math.max(0, +raw.xp || 0),
+      equipment: Object.assign({}, equipment), dead: !!(raw.dead || raw.isDead),
+    };
+  },
+  normalizeItems(pl) {
+    const seen = new Set();
+    const locations = Object.keys(pl.equip || {}).map(slot => ['equip-' + slot, pl.equip[slot]])
+      .concat((pl.inv || []).map((item, i) => ['inv-' + i, item]))
+      .concat(Object.entries(pl.mercenary && pl.mercenary.equipment || {})
+        .map(([slot, item]) => ['merc-' + slot, item]));
+    for (const [location, item] of locations) {
+      if (!item) continue;
+      let id = item.id && String(item.id);
+      if (!id || seen.has(id)) {
+        const stem = String(item.type || item.potion || 'item').replace(/[^a-z0-9_-]/gi, '-');
+        id = `legacy-${stem}-${location}`;
+        let suffix = 2;
+        while (seen.has(id)) id = `legacy-${stem}-${location}-${suffix++}`;
+        item.id = id;
+      }
+      seen.add(id);
+    }
   },
   loadChar(name) { return this._all()[name.toLowerCase()] || null; },
   deleteChar(name, permanent) {
@@ -159,6 +191,7 @@ const Game = {
       gold: 120, potions: { hp: 3, mp: 2 },
       dialogue: DialogueState.create(),
       progress: { actUnlocked: 0, bossKilled: [false, false, false, false, false], abyssBest: 0 },
+      mercenary: null,
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
     // starter kit: class weapon + first skill of first tree
@@ -179,18 +212,21 @@ const Game = {
       lvl: c.lvl, xp: c.xp, stats: c.stats, statPts: c.statPts, skillPts: c.skillPts,
       skills: c.skills || {}, cds: {}, buffs: [],
       hotbar: c.hotbar, equip: c.equip, inv: c.inv || new Array(48).fill(null),
-      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: DialogueState.migrate(c.dialogue),
+      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue), reputation: Factions.migrate(c.reputation || c.factions),
       gold: c.gold, potions: c.potions, progress: c.progress,
+      mercenary: Save.migrateMercenary(c.mercenary || c.merc),
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
     pl.inv.length = 48;
+    Save.normalizeItems(pl);
     G.stats.kills = c.kills || 0;
     this.start(pl);
   },
 
   start(pl) {
     pl.quests = QuestState.migrate(pl.quests);
-    pl.dialogue = DialogueState.migrate(pl.dialogue);
+    pl.dialogue = Dialogue.migrate(pl.dialogue);
+    pl.reputation = Factions.migrate(pl.reputation);
     G.player = pl;
     Save.loadStash();
     Ent.computeDerived(pl);
@@ -225,6 +261,7 @@ const Game = {
     Ent.computeDerived(pl);
     pl.hp = pl.derived.maxHp; pl.mp = pl.derived.maxMp;
     G.stairsCd = 1.2;
+    Ent.syncMercenary();
     Save.saveChar(pl);
     Render.drawMinimap();
   },
@@ -254,6 +291,7 @@ const Game = {
     pl.x = map.entry.x; pl.y = map.entry.y;
     G.stairsCd = 1.5;
     for (const pack of map.packs) Ent.spawnPack(pack, map);
+    Ent.syncMercenary();
     if (map.isBoss && map.bossSpot) {
       const bossKey = ACTS[map.actIdx].boss;
       map.bossKey = bossKey;
@@ -311,6 +349,7 @@ const Game = {
       G.monsters = savedMonsters;
       G.groundItems = savedItems;
       pl.x = G.portal.x; pl.y = G.portal.y;
+      Ent.syncMercenary();
       Render.drawMinimap();
     } else {
       G.dungeonSave = { monsters: G.monsters, groundItems: G.groundItems };
@@ -320,6 +359,7 @@ const Game = {
       G.map = G.town;
       pl.x = G.town.portalSpot.x + 1; pl.y = G.town.portalSpot.y + 1;
       G.npcs = NPCS.map(def => ({ id: def.id, def, x: G.town.npcSpots[def.id].x, y: G.town.npcSpots[def.id].y }));
+      Ent.syncMercenary();
       pl.hp = pl.derived.maxHp; pl.mp = pl.derived.maxMp;
       Save.saveChar(pl);
       Render.drawMinimap();
@@ -900,6 +940,7 @@ window.addEventListener('DOMContentLoaded', () => {
   UI.init();
   WUI.init();
   Social.init();
+  Party.init();
   UI.initMenu();
   Game.bindInput();
   requestAnimationFrame(t => Game.loop(t));

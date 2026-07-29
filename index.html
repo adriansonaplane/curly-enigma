@@ -18,6 +18,17 @@
   <div id="buff-bar"></div>
   <div id="announce"></div>
   <canvas id="minimap" width="220" height="220"></canvas>
+  <section id="map-overlay" class="hidden" aria-label="Area map">
+    <header><strong>AREA MAP</strong><span id="map-overlay-zone"></span><button id="map-overlay-close" aria-label="Close map">&times;</button></header>
+    <canvas id="map-overlay-canvas" width="720" height="520"></canvas>
+    <div class="map-overlay-tools">
+      <button data-map-action="zoom-out" title="Zoom out">&minus;</button>
+      <button data-map-action="zoom-in" title="Zoom in">+</button>
+      <button data-map-action="center" title="Center on hero">Center</button>
+      <span>Drag to pan &middot; Wheel to zoom</span>
+    </div>
+    <div id="map-overlay-legend" aria-label="Map legend"></div>
+  </section>
 
   <div id="bottom-hud">
     <div class="globe-wrap">
@@ -44,6 +55,7 @@
     <button data-panel="inv" title="Inventory (I)">I</button>
     <button data-panel="char" title="Character (C)">C</button>
     <button data-panel="skills" title="Skills (K)">K</button>
+    <button data-panel="mercenary" title="Mercenary">M</button>
     <button data-panel="ladder" title="Ladder (L)">L</button>
     <button id="btn-mute" title="Mute (N)">♪</button>
   </div>
@@ -54,6 +66,7 @@
   <div id="panel-inv" class="panel hidden"></div>
   <div id="panel-char" class="panel hidden"></div>
   <div id="panel-skills" class="panel wide hidden"></div>
+  <div id="panel-mercenary" class="panel wide hidden"></div>
   <div id="panel-vendor" class="panel wide hidden"></div>
   <div id="panel-stash" class="panel hidden"></div>
   <div id="panel-gamble" class="panel hidden"></div>
@@ -117,6 +130,7 @@
 <script src="js/figure.js"></script>
 <script src="js/target.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/party.js"></script>
 <script src="js/wui.js"></script>
 <script src="js/social.js"></script>
 <script src="js/main.js"></script>

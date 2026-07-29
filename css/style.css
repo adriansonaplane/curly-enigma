@@ -11,6 +11,17 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 #announce { position:absolute; top:22%; left:50%; transform:translateX(-50%); font-size:30px; color:#ffd77a; text-shadow:0 0 18px #a33d00,0 2px 6px #000; opacity:0; transition:opacity .4s; text-align:center; letter-spacing:3px; white-space:nowrap; }
 #announce.show { opacity:1; }
 #minimap { position:absolute; top:12px; right:12px; border:0; border-radius:50%; background:rgba(4,4,8,.72); box-shadow:0 0 18px #000,0 0 7px rgba(142,111,53,.35); }
+#map-overlay { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:min(76vw,760px); height:min(76vh,600px); z-index:24; pointer-events:auto; border:2px solid #735b2c; border-radius:8px; overflow:hidden; background:#05070a; box-shadow:0 0 70px #000; }
+#map-overlay header { position:absolute; inset:0 0 auto; height:38px; z-index:2; display:flex; align-items:center; gap:14px; padding:0 12px; color:#e8d089; letter-spacing:2px; background:linear-gradient(rgba(26,18,8,.98),rgba(13,9,5,.88)); border-bottom:1px solid #59431d; }
+#map-overlay-zone { color:#8f8162; font-size:11px; letter-spacing:1px; flex:1; }
+#map-overlay-close { border:0; background:none; color:#a89261; font-size:24px; cursor:pointer; }
+#map-overlay-canvas { position:absolute; inset:38px 0 44px; width:100%; height:calc(100% - 82px); cursor:grab; }
+#map-overlay-canvas.dragging { cursor:grabbing; }
+.map-overlay-tools { position:absolute; z-index:2; left:0; right:0; bottom:0; height:44px; display:flex; align-items:center; gap:7px; padding:6px 10px; background:rgba(15,10,5,.96); border-top:1px solid #59431d; }
+.map-overlay-tools button { min-width:30px; height:27px; padding:0 8px; background:#21170b; color:#e8d089; border:1px solid #5d4926; border-radius:3px; cursor:pointer; }
+.map-overlay-tools span { color:#75694f; font-size:10px; }
+#map-overlay-legend { position:absolute; right:10px; top:49px; z-index:2; padding:7px 9px; border:1px solid rgba(115,91,44,.65); border-radius:3px; background:rgba(7,8,10,.78); font-size:10px; line-height:18px; }
+.map-legend-item { display:inline-block; margin-left:10px; white-space:nowrap; }.map-legend-dot { display:inline-block; width:8px; height:8px; margin-right:4px; border-radius:50%; box-shadow:0 0 3px #000; }
 
 #boss-bar { position:absolute; top:52px; left:50%; transform:translateX(-50%); width:520px; text-align:center; }
 #boss-name { font-size:15px; color:#ff9a7a; letter-spacing:2px; text-shadow:0 1px 3px #000; margin-bottom:3px; }
@@ -74,11 +85,15 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .tree-tabs { display:flex; gap:6px; justify-content:center; margin-bottom:12px; }
 .tree-tab { padding:6px 16px; background:#160f07; border:2px solid #4a3a1c; border-radius:6px; cursor:pointer; font-size:14px; color:#b09c68; }
 .tree-tab.active { background:#2e2008; color:#ffe9a8; border-color:#8a6b31; }
-.skill-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
-.skill-row { display:flex; gap:10px; padding:8px; background:rgba(255,255,255,.02); border:1px solid #2c2210; border-radius:8px; cursor:pointer; align-items:center; }
-.skill-row:hover { border-color:#8a6b31; background:rgba(255,220,130,.05); }
-.skill-row.locked { opacity:.42; }
-.skill-row canvas { flex:none; border-radius:6px; border:1px solid #443311; }
+.skill-tree { position:relative; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(5,86px); column-gap:110px; row-gap:22px; padding:8px 34px; }
+.skill-connectors { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; overflow:visible; }
+.skill-connectors line { vector-effect:non-scaling-stroke; stroke:#3a2c16; stroke-width:3; }
+.skill-connectors line.active { stroke:#8aa83f; filter:drop-shadow(0 0 3px #658523); }
+.skill-node { z-index:1; display:flex; gap:8px; padding:7px; background:linear-gradient(#21170b,#100b05); border:2px solid #3b2d16; border-radius:9px; cursor:pointer; align-items:center; min-width:0; box-shadow:0 3px 10px #000; }
+.skill-node:hover { border-color:#8a6b31; background:linear-gradient(#30210d,#160e05); }
+.skill-node.locked { filter:grayscale(.7); opacity:.55; }
+.skill-node.learned { border-color:#638333; box-shadow:0 0 10px rgba(115,160,45,.22); }
+.skill-node canvas { flex:none; width:40px; height:40px; border-radius:6px; border:1px solid #443311; }
 .skill-info { flex:1; min-width:0; }
 .skill-name { font-size:14px; color:#f0dfa8; }
 .skill-lvl { float:right; color:#8f8; font-size:13px; }
@@ -86,12 +101,23 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .skill-plus { flex:none; width:26px; height:26px; background:#213307; color:#bf6; border:1px solid #4c6b1a; border-radius:5px; cursor:pointer; font-weight:bold; font-size:15px; }
 .skill-plus:disabled { opacity:.25; cursor:default; }
 .pts-banner { text-align:center; margin-bottom:8px; color:#9be26b; font-size:14px; }
+.tt-rank { margin-top:7px; padding-top:5px; border-top:1px solid #342710; }
+.tt-next b { color:#9be26b; }
+.tt-requirements, .tt-synergy { margin-top:8px; color:#aa9567; }
+.tt-met { color:#78a958; } .tt-unmet { color:#d16958; }
+.tt-synergy div { color:#8fae69; }
 
 .shop-list { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+.rep-grid { display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:10px }
+.rep-card { padding:12px;background:#100c07;border:1px solid #4b391d;border-radius:7px }
+.rep-name { font-size:16px }.rep-name b { float:right;font-size:12px;text-transform:uppercase }
+.rep-score { margin:6px 0;color:#c9b98d }.rep-track { height:7px;background:#251b0d;border-radius:5px;overflow:hidden }.rep-track i { display:block;height:100% }
+.rep-card p,.rep-card small { color:#8f8265;line-height:1.45 }
 .npc-line { font-style:italic; color:#b3a077; text-align:center; margin:8px 0 14px; font-size:14px; line-height:1.5; }
 .npc-opts { display:flex; flex-direction:column; gap:8px; }
 .npc-opts button, .menu-list button { padding:10px; background:#1c1309; color:#e0cd94; border:2px solid #57431f; border-radius:7px; font-size:15px; cursor:pointer; letter-spacing:1px; }
 .npc-opts button:hover, .menu-list button:hover { background:#2e2008; border-color:#8a6b31; }
+.npc-opts button:disabled { opacity:.45; cursor:not-allowed; }
 .menu-list { display:flex; flex-direction:column; gap:8px; }
 
 .ladder-tabs { display:flex; gap:6px; justify-content:center; margin-bottom:10px; flex-wrap:wrap; }
