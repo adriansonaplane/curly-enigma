@@ -197,6 +197,20 @@ const UI = {
   },
 
   // ---------------- character ----------------
+  // Gear score is deliberately based only on persisted item fields so the same
+  // equipment always produces the same score:
+  //   item level + (5 * (tier + 1)) + rarity bonus, summed for all slots.
+  // Rarity bonuses: common 0, magic 5, rare 10, set 15, unique 20.
+  gearScore(equip) {
+    const rarityBonus = { common: 0, magic: 5, rare: 10, set: 15, unique: 20 };
+    return Object.values(equip || {}).reduce((total, item) => {
+      if (!item) return total;
+      const ilvl = Number.isFinite(+item.ilvl) ? +item.ilvl : 0;
+      const tier = Number.isFinite(+item.tier) ? +item.tier : 0;
+      return total + Math.max(0, Math.round(ilvl + 5 * (tier + 1) + (rarityBonus[item.rarity] || 0)));
+    }, 0);
+  },
+
   renderChar() {
     const p = this.panel('char'), pl = G.player;
     const d = pl.derived;
@@ -225,6 +239,8 @@ const UI = {
     ];
     let h = '';
     if (pl.statPts > 0) h += `<div class="pts-banner">✦ ${pl.statPts} stat points to spend</div>`;
+    h += '<div class="paperdoll-wrap"><div class="paperdoll"><div class="pd-silhouette"></div></div><div class="char-stats">';
+    h += `<div class="gear-score"><span class="gs-num">${this.gearScore(pl.equip)}</span><span class="gs-label">GEAR SCORE</span></div>`;
     h += '<table class="stat-table">';
     for (const r of rows) {
       if (r[0] === 'hr') { h += '<tr><td colspan="2" style="border-color:#45351a"></td></tr>'; continue; }
@@ -232,8 +248,55 @@ const UI = {
       const btn = statKey && pl.statPts > 0 ? `<button class="stat-btn" data-stat="${statKey}">+</button>` : '';
       h += `<tr><td>${r[0]}</td><td>${r[1]}${btn}</td></tr>`;
     }
-    h += '</table>';
+    h += '</table></div></div>';
     p.insertAdjacentHTML('beforeend', h);
+
+    // Use the actual equipment object as the source of truth, rather than a
+    // shortened display list, so new equipment slots cannot silently disappear.
+    const paperdoll = p.querySelector('.paperdoll');
+    const slotMeta = {
+      helm: ['Helm', 82, 9], amulet: ['Amulet', 151, 26],
+      weapon: ['Weapon', 12, 67], chest: ['Chest', 82, 67], offhand: ['Off-hand', 151, 84],
+      gloves: ['Gloves', 12, 142], belt: ['Belt', 82, 142],
+      ring1: ['Ring 1', 12, 217], ring2: ['Ring 2', 151, 217], boots: ['Boots', 82, 234],
+    };
+    Object.keys(pl.equip).forEach((slot, index) => {
+      const meta = slotMeta[slot] || [slot.replace(/([A-Z])/g, ' $1'), 12 + (index % 3) * 69, 9 + Math.floor(index / 3) * 75];
+      const cell = document.createElement('div');
+      cell.className = 'pd-slot';
+      cell.dataset.slot = slot;
+      cell.style.left = meta[1] + 'px';
+      cell.style.top = meta[2] + 'px';
+      cell.innerHTML = `<span class="pd-label">${U.esc(meta[0])}</span>`;
+      const item = pl.equip[slot];
+      if (item) {
+        cell.appendChild(Sprites.itemIcon(item, 42));
+        cell.style.borderColor = Items.rarityColor(item.rarity);
+        cell.setAttribute('aria-label', `Inspect ${item.name}`);
+        this.hookTip(cell, () => Items.tooltip(item, pl) +
+          '<div style="color:#847252;margin-top:4px;font-size:11px">Inspect item · Use × to unequip</div>');
+
+        const unequip = document.createElement('button');
+        unequip.className = 'pd-unequip';
+        unequip.type = 'button';
+        unequip.textContent = '×';
+        unequip.title = `Unequip ${item.name}`;
+        unequip.setAttribute('aria-label', `Unequip ${item.name}`);
+        unequip.addEventListener('click', e => {
+          e.stopPropagation();
+          this.hideTip();
+          Game.unequip(slot);
+          this.renderChar();
+        });
+        cell.appendChild(unequip);
+      }
+      paperdoll.appendChild(cell);
+    });
+
+    this.hookTip(p.querySelector('.gear-score'), () =>
+      '<div class="tt-compare-label">GEAR SCORE FORMULA</div>' +
+      '<div class="tt-formula">Σ [item level + 5 × (tier + 1) + rarity bonus]\n' +
+      'Common 0 · Magic 5 · Rare 10 · Set 15 · Unique 20</div>');
     p.querySelectorAll('.stat-btn').forEach(b => b.addEventListener('click', () => {
       if (G.player.statPts > 0) {
         G.player.stats[b.dataset.stat] = (G.player.stats[b.dataset.stat] || 0) + 1;

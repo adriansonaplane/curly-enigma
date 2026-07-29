@@ -472,6 +472,16 @@ body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
   position: absolute; bottom: -13px; width: 100%; text-align: center;
   font-size: 8px; color: var(--wui-text-dim); pointer-events: none; white-space: nowrap;
 }
+.paperdoll .pd-unequip {
+  position: absolute; z-index: 2; top: -7px; right: -7px; width: 17px; height: 17px;
+  padding: 0; border: 1px solid #7f3328; border-radius: 50%; background: #24100c;
+  color: #d98b78; font: bold 13px/14px sans-serif; cursor: pointer; opacity: 0;
+}
+.paperdoll .pd-slot:hover .pd-unequip, .paperdoll .pd-unequip:focus { opacity: 1; }
+.paperdoll .pd-unequip:hover { color: #fff; border-color: #d76048; background: #572016; }
+.char-stats { flex: 1; min-width: 0; }
+.char-stats .stat-table { font-size: 12px; }
+.char-stats .stat-table td { padding: 2px 4px; }
 .gear-score {
   display: inline-flex; align-items: baseline; gap: 6px; margin: 6px 0;
   padding: 4px 10px; border: 1px solid var(--wui-border-hi); border-radius: 4px;
