@@ -65,7 +65,7 @@ const R3 = {
 
   // quality knobs, driven by the settings UI
   shadows: true,
-  maxLights: 12,            // WebGL has a real cost per light; nearest-N wins
+  maxLights: 8,             // profiled high default; 12 is reserved for ultra
   mood: 'spooky',
   heroLightMul: 0.42,
   gradeEnabled: true,
@@ -353,6 +353,7 @@ const R3 = {
       scene: Object.assign({}, scene), frame: Object.assign({}, frame),
       shadows: !!(this.shadows && this.renderer && this.renderer.shadowMap.enabled),
       grade: gradeActive,
+      lightBudget: this.maxLights,
       gpu: { supported: this._gpu.supported, status: this._gpu.status,
         ms: this._gpu.ms === null ? null : +this._gpu.ms.toFixed(3) },
       objects: this.scene ? this.scene.children.length : 0,

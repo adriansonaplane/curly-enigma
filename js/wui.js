@@ -931,7 +931,7 @@ const WUI = {
     const row = document.createElement('div');
     row.className = 'ws-row';
     row.innerHTML = `<span class="ws-label">Render quality<span class="ws-hint">Auto silently reduces effects if frame rate drops</span></span>
-      <select><option value="auto">Auto</option><option value="high">High</option><option value="low">Low</option></select>`;
+      <select><option value="auto">Auto</option><option value="ultra">Ultra (12 lights)</option><option value="high">High</option><option value="low">Low</option></select>`;
     const sel = row.querySelector('select');
     sel.value = this.set.quality;
     sel.addEventListener('change', () => { this.set.quality = sel.value; this.saveSet(); this.applySettings(); sfx('ui'); });

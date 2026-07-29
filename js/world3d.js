@@ -19,6 +19,8 @@ const World3 = {
   ambient: null,
   shafts: [],
   built: false,
+  _lightSelection: null,
+  LIGHT_RESELECT_D2: 0.75 * 0.75,
 
   // ---- materials ----
   _mat(theme) {
@@ -225,7 +227,51 @@ const World3 = {
       this.hero.shadow.bias = -0.004;
     }
     this.group.add(this.hero);
+    this._lightSelection = null;
     this.setShadows(R3.shadows);
+  },
+
+  // Rebuilding Three's light program is substantially more expensive than
+  // updating a few intensities. Cull by each light's influence sphere against
+  // the camera frustum, then keep that set until movement is meaningful.
+  // The state stamp makes lighting/snuffing a sconce invalidate immediately.
+  _selectLights(px, pz, budget) {
+    const cam = R3.cam;
+    // updateLights runs after lookAt but before render(), so refresh the rig
+    // here before deriving the visibility volume.
+    R3.updateCamera();
+    const state = this.lights.map(e => e.src.lit === false ? '0' : '1').join('');
+    const old = this._lightSelection;
+    const cameraStamp = [R3.mode, R3.yaw.toFixed(2), R3.pitch.toFixed(2), R3.zoom.toFixed(2)].join(':');
+    const moved = !old || (px - old.x) ** 2 + (pz - old.z) ** 2 >= this.LIGHT_RESELECT_D2;
+    if (old && !moved && old.budget === budget && old.state === state && old.camera === cameraStamp) return old.selected;
+
+    cam.updateMatrixWorld(true);
+    const matrix = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    const frustum = new THREE.Frustum().setFromProjectionMatrix(matrix);
+    const sphere = new THREE.Sphere();
+    const candidates = [];
+    for (const e of this.lights) {
+      if (e.src.lit === false) continue; // cold sconces never consume the budget
+      const radius = e.light.distance || e.src.r * 1.6;
+      sphere.center.set(e.src.x, e.light.position.y, e.src.y);
+      sphere.radius = radius;
+      // A sphere test is deliberately conservative: off-screen sources remain
+      // eligible when their illumination can still reach visible geometry.
+      if (!frustum.intersectsSphere(sphere)) continue;
+      const dx = e.src.x - px, dz = e.src.y - pz;
+      e.d2 = dx * dx + dz * dz;
+      candidates.push(e);
+    }
+    candidates.sort((a, b) => a.d2 - b.d2);
+    const selected = new Set(candidates.slice(0, budget));
+    for (const e of this.lights) {
+      const visible = selected.has(e);
+      if (e.light.visible !== visible) e.light.visible = visible;
+      if (!visible) e.light.intensity = 0;
+    }
+    this._lightSelection = { x: px, z: pz, budget, state, camera: cameraStamp, selected };
+    return selected;
   },
 
   updateLights(t, px, pz) {
@@ -234,21 +280,12 @@ const World3 = {
     if (this.ambient) this.ambient.intensity = spooky ? 0.055 : 0.18;
     if (this.keyLight) this.keyLight.intensity = spooky ? 0.03 : 0.08;
 
-    // nearest-N: sort by distance to the player, light those, mute the rest
     const budget = R3.maxLights;
     const arr = this.lights;
-    for (const e of arr) {
-      const dx = e.src.x - px, dz = e.src.y - pz;
-      // A cold sconce is sorted to the back, not just set to zero intensity:
-      // otherwise standing next to an unlit torch spends one of the twelve
-      // light slots on darkness and dims the room you are actually in.
-      e.d2 = e.src.lit === false ? Infinity : dx * dx + dz * dz;
-    }
-    arr.sort((a, b) => a.d2 - b.d2);
+    const selected = this._selectLights(px, pz, budget);
     let on = 0;
-    for (let i = 0; i < arr.length; i++) {
-      const e = arr[i];
-      if (i >= budget || e.src.lit === false) { e.light.intensity = 0; continue; }
+    for (const e of arr) {
+      if (!selected.has(e)) continue;
       const s = e.src;
       let k = 1;
       if (s.flick) k = 0.82 + Math.sin(t * 11 + s.x * 7 + s.y * 13) * 0.18;
@@ -285,7 +322,7 @@ const World3 = {
         }
       });
     }
-    this.group = null; this.lights = []; this.shafts = []; this.hero = null; this.fog = null; this.built = false;
+    this.group = null; this.lights = []; this._lightSelection = null; this.shafts = []; this.hero = null; this.fog = null; this.built = false;
     if (R3.scene) R3.scene.fog = null;
   },
 };
