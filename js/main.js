@@ -189,6 +189,7 @@ const Game = {
       equip: { weapon: null, offhand: null, helm: null, chest: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null },
       inv: new Array(48).fill(null),
       gold: 120, potions: { hp: 3, mp: 2 },
+      dialogue: DialogueState.create(),
       progress: { actUnlocked: 0, bossKilled: [false, false, false, false, false], abyssBest: 0 },
       mercenary: null,
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
