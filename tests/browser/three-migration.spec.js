@@ -195,16 +195,24 @@ test('light budget culls influence volumes and only reselects after meaningful m
   expect(errors).toEqual([]);
 });
 
-test('ultra explicitly opts into twelve lights while high uses eight', async ({ page }) => {
+// The light budget yields under the governor; it does not start yielded.
+// This probe previously asserted high === 8, locking a governor response in as
+// a permanent default and dimming every scene at full quality to buy headroom
+// the governor exists to buy on demand. Full quality is twelve; the steps down
+// are eight and then six.
+test('the light budget is full at high and steps down under the governor', async ({ page }) => {
   const errors = [];
   await openGame(page, errors); await startGame(page);
   const budgets = await page.evaluate(() => {
-    Render.qualityMode = 'high'; Render.frame(1 / 60, G.time);
-    const high = R3.maxLights;
-    Render.qualityMode = 'ultra'; Render.frame(1 / 60, G.time);
-    return { high, ultra: R3.maxLights };
+    const at = (mode, step) => {
+      Render.qualityMode = mode;
+      if (step !== undefined) { Render.qualityMode = 'auto'; Render._qualityStep = step; }
+      Render.frame(1 / 60, G.time);
+      return R3.maxLights;
+    };
+    return { high: at('high'), ultra: at('ultra'), mid: at(undefined, 3), low: at(undefined, 5) };
   });
-  expect(budgets).toEqual({ high: 8, ultra: 12 });
+  expect(budgets).toEqual({ high: 12, ultra: 12, mid: 8, low: 6 });
   expect(errors).toEqual([]);
 });
 

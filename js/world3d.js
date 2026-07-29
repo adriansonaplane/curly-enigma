@@ -174,12 +174,19 @@ const World3 = {
       water: totals.water, haz: totals.haz, batches: this.batches.length, lights: this.lights.length };
   },
 
+  // Exponential fog density per unit of a theme's authored fog weight.
+  FOG_MUL: 0.013,
+
   configureAtmosphere(map) {
     const th = THEMES[map.theme] || THEMES.crypt;
     R3.grade = th.grade || null;
     // Town keeps its long sight lines; dungeons use exponential fog so rooms
     // disappear gently without moving the camera's far plane.
-    const density = map.theme === 'town' ? 0.00035 : (th.fog ? th.fog[1] * 0.022 : 0.0015);
+    // The multiplier turns a theme's 0-1 fog weight into an exponential density.
+    // At 0.022 it read as haze in every room rather than depth at distance, so
+    // it is the one number to change if dungeons look too thick or too clear —
+    // the per-theme weights stay as authored.
+    const density = map.theme === 'town' ? 0.00035 : (th.fog ? th.fog[1] * this.FOG_MUL : 0.0015);
     this.fog = th.fog ? new THREE.FogExp2(new THREE.Color(th.fog[0]), density) : null;
     this.updateAtmosphere(true);
   },

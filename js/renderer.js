@@ -224,9 +224,13 @@ const Render = {
       this._shadows = shadows;
       World3.setShadows(shadows);
     }
-    // Profiling showed fragment lighting to be a primary GPU cost. High/auto
-    // therefore use eight; twelve is an explicit opt-in rather than a default.
-    R3.maxLights = this.qualityMode === 'ultra' ? 12 : (step >= 5 ? 6 : 8);
+    // Fragment lighting is a primary GPU cost, so the budget yields under the
+    // governor — but it yields, it does not start yielded. Making eight the
+    // permanent default (with twelve as opt-in) dimmed every scene at full
+    // quality to buy headroom the governor is there to buy on demand. Full
+    // quality is twelve again; the steps down are 8 and then 6.
+    R3.maxLights = this.qualityMode === 'ultra' ? 12
+      : (step >= 5 ? 6 : (step >= 3 ? 8 : 12));
     World3.updateAtmosphere(this.fx.fog !== false);
     // Expensive atmosphere yields before lights/readability under the governor.
     R3.gradeEnabled = step < 3 && this.fx.grade !== false;
