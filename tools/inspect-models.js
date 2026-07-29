@@ -62,10 +62,23 @@ const VERBOSE = process.argv.includes('--verbose');
 const WANTED = new Set(process.argv.slice(2).filter(a => !a.startsWith('--')));
 
 // Thresholds. Generous on purpose: this is a shortlist, not a gate.
-const GROUND = 0.05;   // metres of float/sink before it is worth a look
-const CENTRE = 0.30;   // metres of footprint offset from the origin
-const MIN_H = 0.15;    // shorter than this and a scale went missing
-const MAX_H = 8.0;     // taller than this and a scale came along
+//
+// The two that judge placement are RELATIVE to the model's own size, because
+// an absolute one cannot be right for both a 24cm figurine and a 3m statue.
+// An absolute 0.30m offset missed a model sitting 20% of its own footprint
+// off-axis, and reported it as needing nobody's attention.
+//
+// The measured pack separates itself by two orders of magnitude, so these are
+// not tuned to it: the five well-seated actors sink 2.8-5.5% of their height,
+// and the one bad root floats 56.2%.
+const GROUND = 0.05;        // metres of float/sink before it is worth reporting
+const GAP_FRAC = 0.20;      // ... and the fraction of its own height at which
+                            // it stops being an origin above the feet and
+                            // starts suggesting the root is missing a body part
+const CENTRE_FRAC = 0.15;   // footprint offset as a fraction of footprint size
+const CENTRE_FLOOR = 0.02;  // ... with a noise floor so tiny models do not trip
+const MIN_H = 0.15;         // shorter than this and a scale went missing
+const MAX_H = 8.0;          // taller than this and a scale came along
 
 // --- the real builder -------------------------------------------------------
 // Measuring what the game builds, rather than a second implementation of it,
@@ -123,7 +136,8 @@ function inspect(file, slug) {
   else {
     if (minY > GROUND) flags.push('FLOATING');
     if (minY < -GROUND) flags.push('SUNKEN');
-    if (Math.hypot(centre[0], centre[2]) > CENTRE) flags.push('OFF-CENTRE');
+    const off = Math.hypot(centre[0], centre[2]);
+    if (off > CENTRE_FLOOR && off > CENTRE_FRAC * Math.max(size[0], size[2])) flags.push('OFF-CENTRE');
     if (size[1] < MIN_H || size[1] > MAX_H) flags.push('SIZE');
   }
   // One rotation shared by every mesh, and it is not identity: the whole model
@@ -136,8 +150,12 @@ function inspect(file, slug) {
   const textureless = (scene.materials || []).filter(m => m.droppedMaps).length;
   if (textureless) flags.push('TEXLOST:' + textureless);
 
+  // Whether the runtime's y re-seat is enough to absorb this gap, or whether
+  // the gap is large enough relative to the model that something is missing.
+  const seatable = empty ? true : Math.abs(minY) <= GAP_FRAC * size[1];
+
   return {
-    slug, meshes: (scene.meshes || []).length, draws, pivot: scene.pivot || null,
+    slug, meshes: (scene.meshes || []).length, draws, pivot: scene.pivot || null, seatable,
     size: size.map(n => +n.toFixed(3)),
     groundGap: +minY.toFixed(3),
     centreOffset: +Math.hypot(centre[0], centre[2]).toFixed(3),
@@ -203,7 +221,8 @@ if (contradictory.length)
 // Separate the flags the runtime fixes from the ones it does not, so a row
 // that needs a person is not buried among rows that correct themselves.
 const SELF_CORRECTING = new Set(['FLOATING', 'SUNKEN']);
-const real = flagged.filter(r => r.flags.some(f => !SELF_CORRECTING.has(f.split(':')[0])));
+const real = flagged.filter(r => !r.seatable ||
+  r.flags.some(f => !SELF_CORRECTING.has(f.split(':')[0])));
 if (flagged.length) {
   console.log(`  of the ${flagged.length} flagged, ${flagged.length - real.length} are float/sink only,`
     + ' which instanceModel re-seats at load');
