@@ -560,7 +560,7 @@ const WUI = {
     if (!pl.bars.slots2) pl.bars.slots2 = new Array(10).fill(null);       // action bar 2
     if (!pl.bars.slotsShift) pl.bars.slotsShift = new Array(10).fill(null); // bar 1, Shift page
     if (!pl.macros) pl.macros = [];
-    if (!pl.quests) pl.quests = { p: {}, done: {} };
+    pl.quests = QuestState.migrate(pl.quests);
     this.syncHotbar(pl);
   },
 
@@ -1066,65 +1066,31 @@ const WUI = {
   },
 
   // ================= QUESTS =================
-  QUESTS: null,
-  buildQuests() {
-    const q = [];
-    ACTS.forEach((act, i) => {
-      q.push({ id: 'cull' + i, name: 'Cull the Horde ' + U.roman(i + 1), type: 'kill', act: i, need: 30,
-        desc: `Slay 30 monsters in ${act.name}.`, gold: 120 + i * 220, xp: 220 * Math.pow(3.1, i) });
-      q.push({ id: 'boss' + i, name: BOSSES[act.boss].name.split(',')[0] + ' Must Fall', type: 'boss', act: i, need: 1,
-        desc: `Destroy the master of ${act.name}.`, gold: 350 + i * 400, xp: 500 * Math.pow(3.1, i) });
-    });
-    for (const lv of [5, 15, 30, 50, 75]) q.push({ id: 'lvl' + lv, name: 'Rise to ' + lv, type: 'level', need: lv, desc: `Reach level ${lv}.`, gold: lv * 40, xp: 0 });
-    for (const fl of [3, 10, 25]) q.push({ id: 'abyss' + fl, name: 'Abyss: Floor ' + fl, type: 'abyss', need: fl, desc: `Descend to floor ${fl} of the Endless Abyss.`, gold: fl * 300, xp: fl * 900 });
-    q.push({ id: 'shrines', name: 'Kissed by Light', type: 'shrine', need: 3, desc: 'Receive blessings from 3 shrines.', gold: 250, xp: 300 });
-    q.push({ id: 'chests', name: 'Treasure Hunter', type: 'chest', need: 5, desc: 'Loot 5 treasure chests.', gold: 400, xp: 500 });
-    q.push({ id: 'rich', name: 'Filthy Rich', type: 'gold', need: 10000, desc: 'Hold 10,000 gold at once.', gold: 1000, xp: 800 });
-    this.QUESTS = q;
-  },
+  QUESTS: QuestState.quests,
 
   questAvailable(q) {
-    const pl = G.player;
-    if (q.type === 'kill' || q.type === 'boss') return q.act <= pl.progress.actUnlocked;
-    if (q.type === 'abyss') return pl.progress.actUnlocked >= 5 || pl.progress.bossKilled[4];
-    return true;
+    return QuestState.available(q, G.player);
   },
   questProg(q) {
-    const pl = G.player;
-    switch (q.type) {
-      case 'kill': return pl.quests.p[q.id] || 0;
-      case 'boss': return pl.progress.bossKilled[q.act] ? 1 : 0;
-      case 'level': return pl.lvl;
-      case 'abyss': return pl.progress.abyssBest || 0;
-      case 'gold': return pl.gold;
-      default: return pl.quests.p[q.id] || 0;
-    }
+    return QuestState.progress(q, G.player);
   },
 
   bumpQuest(type, act, n = 1) {
     const pl = G.player;
     if (!pl || !pl.quests) return;
-    for (const q of this.QUESTS) {
-      if (q.type !== type || pl.quests.done[q.id] || !this.questAvailable(q)) continue;
-      if ((type === 'kill' || type === 'boss') && q.act !== act) continue;
-      if (type === 'kill' || type === 'shrine' || type === 'chest') pl.quests.p[q.id] = (pl.quests.p[q.id] || 0) + n;
-    }
+    QuestState.bump(pl, type, act, n);
     this.checkQuests();
   },
 
   checkQuests() {
     const pl = G.player;
     if (!pl || !pl.quests || !this.QUESTS) return;
-    for (const q of this.QUESTS) {
-      if (pl.quests.done[q.id] || !this.questAvailable(q)) continue;
-      if (this.questProg(q) >= q.need) {
-        pl.quests.done[q.id] = true;
-        pl.gold += q.gold;
-        if (q.xp) G.awardXp(Math.round(q.xp));
-        sfx('shrine');
-        UI.announce(`Quest complete: ${q.name}`, '#6be26b', 3000);
-        this.chat('combat', `Quest complete: <span style="color:#6be26b">${U.esc(q.name)}</span> — +${U.fmt(q.gold)}g${q.xp ? ', +' + U.fmt(Math.round(q.xp)) + ' xp' : ''}`, '#b8d8a0');
-      }
+    for (const q of QuestState.takeCompleted(pl)) {
+      pl.gold += q.gold;
+      if (q.xp) G.awardXp(Math.round(q.xp));
+      sfx('shrine');
+      UI.announce(`Quest complete: ${q.name}`, '#6be26b', 3000);
+      this.chat('combat', `Quest complete: <span style="color:#6be26b">${U.esc(q.name)}</span> — +${U.fmt(q.gold)}g${q.xp ? ', +' + U.fmt(Math.round(q.xp)) + ' xp' : ''}`, '#b8d8a0');
     }
   },
 
@@ -1630,8 +1596,6 @@ const WUI = {
   // ================= ENGINE HOOKS =================
   wrapEngine() {
     const self = this;
-    this.buildQuests();
-
     // outgoing damage → combat text + meter + sticky target
     const _dm = Ent.damageMonster.bind(Ent);
     Ent.damageMonster = function (m, amount, elem, opts = {}) {
