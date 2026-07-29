@@ -444,20 +444,37 @@ const UI = {
     });
     p.appendChild(tabs);
     const grid = document.createElement('div');
-    grid.className = 'skill-grid';
+    grid.className = 'skill-tree';
     const tree = cls.trees[this.treeTab];
-    tree.skills.forEach((sk, i) => {
-      const req = skillReqLvl(i);
+    const connectors = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    connectors.classList.add('skill-connectors');
+    connectors.setAttribute('viewBox', '0 0 100 100');
+    connectors.setAttribute('preserveAspectRatio', 'none');
+    tree.skills.forEach(sk => sk.prereqIds.forEach(prereqId => {
+      const from = SKILL_BY_ID[prereqId];
+      if (!from) return;
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', 25 + from.x * 50); line.setAttribute('y1', 10 + from.y * 20);
+      line.setAttribute('x2', 25 + sk.x * 50); line.setAttribute('y2', 10 + sk.y * 20);
+      if ((pl.skills[prereqId] || 0) > 0) line.classList.add('active');
+      connectors.appendChild(line);
+    }));
+    grid.appendChild(connectors);
+    tree.skills.forEach(sk => {
+      const req = sk.reqLvl;
       const lvl = pl.skills[sk.id] || 0;
-      const locked = pl.lvl < req;
+      const unmetPrereqs = sk.prereqIds.filter(id => !(pl.skills[id] > 0));
+      const locked = pl.lvl < req || unmetPrereqs.length > 0;
       const row = document.createElement('div');
-      row.className = 'skill-row' + (locked ? ' locked' : '');
+      row.className = 'skill-node' + (locked ? ' locked' : '') + (lvl ? ' learned' : '');
+      row.style.gridColumn = String(sk.x + 1);
+      row.style.gridRow = String(sk.y + 1);
       const icon = Sprites.skillIcon(sk, 40);
       row.appendChild(icon);
       const info = document.createElement('div');
       info.className = 'skill-info';
       info.innerHTML = `<div class="skill-name">${sk.name} <span class="skill-lvl">${lvl}/${sk.maxLvl}</span></div>
-        <div class="skill-desc">${U.esc(sk.desc)} ${locked ? `<span style="color:#c96a52">(requires level ${req})</span>` : ''}</div>
+        <div class="skill-desc">Tier ${sk.tier}${locked ? ' · locked' : ''}</div>
         <div class="skill-desc" style="color:#6f8a5a">${this.bindLabel(sk.id)}</div>`;
       row.appendChild(info);
       const plus = document.createElement('button');
@@ -466,17 +483,20 @@ const UI = {
       plus.disabled = locked || pl.skillPts <= 0 || lvl >= sk.maxLvl;
       plus.addEventListener('click', e => {
         e.stopPropagation();
-        if (pl.skillPts > 0 && lvl < sk.maxLvl) {
-          pl.skills[sk.id] = lvl + 1;
+        const current = pl.skills[sk.id] || 0;
+        const canAllocate = pl.skillPts > 0 && current < sk.maxLvl && pl.lvl >= sk.reqLvl &&
+          sk.prereqIds.every(id => (pl.skills[id] || 0) > 0);
+        if (canAllocate) {
+          pl.skills[sk.id] = current + 1;
           pl.skillPts--;
-          if (lvl === 0 && sk.arch !== 'passive') WUI.ensurePlayer(pl), this.autoBind(sk.id);
+          if (current === 0 && sk.arch !== 'passive') WUI.ensurePlayer(pl), this.autoBind(sk.id);
           Ent.computeDerived(pl);
           sfx('levelup');
           this.renderSkills();
         }
       });
       row.appendChild(plus);
-      this.hookTip(row, () => this.skillTip(sk, Math.max(1, Ent.skillLvl(pl, sk.id))));
+      this.hookTip(row, () => this.skillTip(sk, Ent.skillLvl(pl, sk.id)));
       if (sk.arch !== 'passive') {
         // pick the skill up onto the cursor, WoW-style, then drop it on an action slot
         row.addEventListener('mousedown', e => {
@@ -518,27 +538,44 @@ const UI = {
   skillTip(sk, lvl) {
     const pl = G.player;
     let h = `<div class="tt-name" style="color:${ELEM[sk.elem].color}">${sk.name}</div>`;
-    h += `<div class="tt-type">${sk.arch.toUpperCase()} · ${ELEM[sk.elem].name} · Level ${lvl}</div>`;
-    h += `<div>${U.esc(sk.desc)}</div><div style="margin-top:5px">`;
-    if (sk.wd) h += `<div class="tt-stat">${Math.round(sk.wd + (sk.wdLvl || 0) * (lvl - 1))}% weapon damage</div>`;
-    if (sk.dmg) {
-      const g = 1 + (sk.dmgLvl || 0.3) * (lvl - 1);
-      const sp = pl.derived ? pl.derived.spellPower : 1;
-      h += `<div class="tt-stat">${Math.floor(sk.dmg[0] * g * sp)}–${Math.floor(sk.dmg[1] * g * sp)} ${ELEM[sk.elem].name.toLowerCase()} damage</div>`;
-    }
-    if (sk.count) h += `<div class="tt-stat">${sk.count + Math.floor((sk.countLvl || 0) * (lvl - 1))} projectiles</div>`;
-    if (sk.buff) { for (const k in sk.buff) h += `<div class="tt-stat">${Items.statLine(k, Math.round(sk.buff[k] * (1 + 0.14 * (lvl - 1)) * 10) / 10)}</div>`; }
-    if (sk.passive) { for (const k in sk.passive) h += `<div class="tt-stat">${Items.statLine(k, Math.round(sk.passive[k] * lvl * 10) / 10)} (total)</div>`; }
-    if (sk.debuff) {
-      if (sk.debuff.slow) h += `<div class="tt-stat">Slows by ${Math.round(sk.debuff.slow * 100)}%</div>`;
-      if (sk.debuff.dmgTaken) h += `<div class="tt-stat">+${Math.round(sk.debuff.dmgTaken * 100)}% damage taken</div>`;
-      if (sk.debuff.weaken) h += `<div class="tt-stat">-${Math.round(sk.debuff.weaken * 100)}% enemy damage</div>`;
-      if (sk.debuff.dot) h += `<div class="tt-stat">${Math.round(sk.debuff.dot)} damage/sec</div>`;
-    }
-    if (sk.heal) h += `<div class="tt-stat">Heals ${Math.round(sk.heal + (sk.healLvl || 0) * (lvl - 1))}</div>`;
-    if (sk.arch !== 'passive') h += `<div style="color:#6a8aff">Mana: ${Ent.manaCost(sk, lvl)}</div>`;
-    if (sk.cd) h += `<div style="color:#847252">Cooldown: ${sk.cd}s</div>`;
-    h += '</div>';
+    h += `<div class="tt-type">${sk.arch.toUpperCase()} · ${ELEM[sk.elem].name} · Tier ${sk.tier} · Rank ${lvl}/${sk.maxLvl}</div>`;
+    h += `<div>${U.esc(sk.desc)}</div>`;
+
+    const rankStats = rank => {
+      let out = '';
+      if (sk.wd) out += `<div class="tt-stat">${Math.round(sk.wd + (sk.wdLvl || 0) * (rank - 1))}% weapon damage</div>`;
+      if (sk.dmg) {
+        const g = 1 + (sk.dmgLvl || 0.3) * (rank - 1);
+        const sp = pl.derived ? pl.derived.spellPower : 1;
+        out += `<div class="tt-stat">${Math.floor(sk.dmg[0] * g * sp)}–${Math.floor(sk.dmg[1] * g * sp)} ${ELEM[sk.elem].name.toLowerCase()} damage</div>`;
+      }
+      if (sk.count) out += `<div class="tt-stat">${sk.count + Math.floor((sk.countLvl || 0) * (rank - 1))} projectiles</div>`;
+      if (sk.buff) for (const k in sk.buff) out += `<div class="tt-stat">${Items.statLine(k, Math.round(sk.buff[k] * (1 + 0.14 * (rank - 1)) * 10) / 10)}</div>`;
+      if (sk.passive) for (const k in sk.passive) out += `<div class="tt-stat">${Items.statLine(k, Math.round(sk.passive[k] * rank * 10) / 10)} (total)</div>`;
+      if (sk.debuff) {
+        if (sk.debuff.slow) out += `<div class="tt-stat">Slows by ${Math.round(sk.debuff.slow * 100)}%</div>`;
+        if (sk.debuff.dmgTaken) out += `<div class="tt-stat">+${Math.round(sk.debuff.dmgTaken * 100)}% damage taken</div>`;
+        if (sk.debuff.weaken) out += `<div class="tt-stat">-${Math.round(sk.debuff.weaken * 100)}% enemy damage</div>`;
+        if (sk.debuff.dot) out += `<div class="tt-stat">${Math.round(sk.debuff.dot)} damage/sec</div>`;
+      }
+      if (sk.heal) out += `<div class="tt-stat">Heals ${Math.round(sk.heal + (sk.healLvl || 0) * (rank - 1))}</div>`;
+      if (sk.arch !== 'passive') out += `<div style="color:#6a8aff">Mana: ${Ent.manaCost(sk, rank)}</div>`;
+      if (sk.cd) out += `<div style="color:#847252">Cooldown: ${sk.cd}s</div>`;
+      return out;
+    };
+    if (lvl > 0) h += `<div class="tt-rank"><b>Rank ${lvl}</b>${rankStats(lvl)}</div>`;
+    if (lvl < sk.maxLvl) h += `<div class="tt-rank tt-next"><b>${lvl ? 'Next rank' : 'Rank 1'}</b>${rankStats(lvl + 1)}</div>`;
+
+    h += '<div class="tt-requirements"><b>Requirements</b>';
+    const requirements = [
+      { met: pl.lvl >= sk.reqLvl, text: `Character level ${sk.reqLvl}` },
+      ...sk.prereqIds.map(id => ({ met: (pl.skills[id] || 0) > 0, text: `${SKILL_BY_ID[id].name} rank 1` })),
+      { met: pl.skillPts > 0, text: '1 available skill point' },
+      { met: lvl < sk.maxLvl, text: `Below maximum rank ${sk.maxLvl}` },
+    ];
+    h += requirements.map(r => `<div class="${r.met ? 'tt-met' : 'tt-unmet'}">${r.met ? '✓' : '✕'} ${U.esc(r.text)}</div>`).join('') + '</div>';
+    if (sk.synergies.length) h += '<div class="tt-synergy"><b>Synergies</b>' + sk.synergies.map(s =>
+      `<div>+${s.bonusPerRank}% ${s.bonus} per rank of ${SKILL_BY_ID[s.skillId].name}</div>`).join('') + '</div>';
     return h;
   },
 
