@@ -28,6 +28,7 @@ non-zero:
 declare -A title=(
   [boot]='page boots' [character]='character creation' [monster]='Ent.makeMonster'
   [actors]='hero and nearby actor' [torch]='torch light'
+  [shadows]='shadow quality changes'
   [movement-iso]='movement is camera-relative in iso'
   [movement-third]='movement is camera-relative in third'
   [props]='prop instance visibility' [combat]='representative combat effects'

@@ -183,6 +183,16 @@ const World3 = {
   },
 
   // ---- lighting ----
+  // Keep the light and renderer switches together. This can be called whenever
+  // the effective quality setting changes; repeated calls are deliberately a
+  // no-op from Three.js's point of view.
+  setShadows(enabled) {
+    const on = !!enabled;
+    R3.shadows = on;
+    if (this.hero) this.hero.castShadow = on;
+    if (R3.renderer && R3.renderer.shadowMap) R3.renderer.shadowMap.enabled = on;
+  },
+
   // Real point lights, budgeted. Every torch in the level gets an entry, but
   // only the nearest `R3.maxLights` are switched on each frame: WebGL pays per
   // light per fragment, and a 40-torch crypt would tank the frame otherwise.
@@ -209,13 +219,13 @@ const World3 = {
     // the hero's own lamp — dimmed hard in spooky, which is what makes the
     // props carry the level
     this.hero = new THREE.PointLight(new THREE.Color('#ffd9a0'), 1, 10, 1.9);
-    this.hero.castShadow = R3.shadows;
     if (this.hero.shadow) {
       this.hero.shadow.mapSize.width = 512;
       this.hero.shadow.mapSize.height = 512;
       this.hero.shadow.bias = -0.004;
     }
     this.group.add(this.hero);
+    this.setShadows(R3.shadows);
   },
 
   updateLights(t, px, pz) {
