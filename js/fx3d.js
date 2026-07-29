@@ -90,7 +90,13 @@ const FX = {
 
 const FX3 = {
   advancedEffects: true,
-  configure(config) { this.advancedEffects = config.advancedEffects !== false; },
+  advancedParticles: true, advancedGeometry: true, ambientEffects: true,
+  configure(config) {
+    this.advancedEffects = config.advancedEffects !== false;
+    this.advancedParticles = this.advancedEffects && config.advancedParticles !== false;
+    this.advancedGeometry = this.advancedEffects && config.advancedGeometry !== false;
+    this.ambientEffects = this.advancedEffects && config.ambientEffects !== false;
+  },
   PX: 1 / 32,               // the old renderer's pixels-per-tile
   MAX: 1500,                // matches FX.push's own cap
   RINGS: 24, FLASHES: 16, BOLTS: 12, PROJS: 64,
@@ -190,32 +196,38 @@ const FX3 = {
       return true;
     }
 
-    this.add = this._points(THREE.AdditiveBlending, true);
-    this.norm = this._points(THREE.NormalBlending, false);
-    g.add(this.add, this.norm);
+    if (this.advancedParticles || this.ambientEffects) {
+      this.add = this._points(THREE.AdditiveBlending, true);
+      this.norm = this._points(THREE.NormalBlending, false);
+      g.add(this.add, this.norm);
+    }
 
     // Expanding shockwave rings and ground flashes lie flat on the floor, so
     // they read at any camera pitch instead of only from the fixed 2D angle.
-    const ringGeo = new THREE.RingGeometry(0.72, 1, 32);
-    const discGeo = new THREE.CircleGeometry(1, 28);
-    const boltGeo = new THREE.CylinderGeometry(0.08, 0.02, 1, 7, 1, true);
     const additive = () => new THREE.MeshBasicMaterial({
       color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending,
       depthWrite: false, side: THREE.DoubleSide, vertexColors: true,
     });
-    this.rings = this._instances(ringGeo, additive(), this.RINGS);
-    this.flashes = this._instances(discGeo, additive(), this.FLASHES);
-    this.bolts = this._instances(boltGeo, additive(), this.BOLTS);
-    g.add(this.rings, this.flashes, this.bolts);
+    if (this.advancedGeometry) {
+      const ringGeo = new THREE.RingGeometry(0.72, 1, 32);
+      const discGeo = new THREE.CircleGeometry(1, 28);
+      const boltGeo = new THREE.CylinderGeometry(0.08, 0.02, 1, 7, 1, true);
+      this.rings = this._instances(ringGeo, additive(), this.RINGS);
+      this.flashes = this._instances(discGeo, additive(), this.FLASHES);
+      this.bolts = this._instances(boltGeo, additive(), this.BOLTS);
+      g.add(this.rings, this.flashes, this.bolts);
+    }
 
     // Projectiles: an arrow is a shaft, everything else is a glowing bead.
-    const beadGeo = new THREE.SphereGeometry(0.16, 8, 6);
-    const shaftGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.62, 5);
-    this.beads = this._instances(beadGeo, additive(), this.PROJS);
-    this.shafts = this._instances(shaftGeo, new THREE.MeshBasicMaterial({
-      color: 0xffffff, vertexColors: true,
-    }), this.PROJS);
-    g.add(this.beads, this.shafts);
+    if (this.advancedGeometry) {
+      const beadGeo = new THREE.SphereGeometry(0.16, 8, 6);
+      const shaftGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.62, 5);
+      this.beads = this._instances(beadGeo, additive(), this.PROJS);
+      this.shafts = this._instances(shaftGeo, new THREE.MeshBasicMaterial({
+        color: 0xffffff, vertexColors: true,
+      }), this.PROJS);
+      g.add(this.beads, this.shafts);
+    }
 
     this.ready = true;
     return true;
@@ -226,22 +238,22 @@ const FX3 = {
   // objects: the pools above are the only meshes that ever exist.
   sync(t) {
     if (!this.ready) return null;
-    if (!this.advancedEffects || !this.add || !this.norm)
+    if (!this.advancedEffects || ((!this.advancedParticles && !this.ambientEffects) && !this.advancedGeometry))
       return { mode: 'simplified', parts: 0, add: 0, norm: 0, rings: 0, flashes: 0, bolts: 0, projs: 0 };
     const col = new THREE.Color();
 
     // Both camera presets use the same perspective projection.
     const iso = false;
     const px = R3.H * R3.dpr / (2 * Math.tan(R3.perspCam.fov * Math.PI / 360));
-    for (const pts of [this.add, this.norm]) {
+    for (const pts of [this.add, this.norm].filter(Boolean)) {
       pts.material.uniforms.scale.value = px;
       pts.material.uniforms.ortho.value = iso ? 1 : 0;
     }
 
     // particles, split by blend mode
     let na = 0, nn = 0;
-    const A = this.add.geometry.attributes, N = this.norm.geometry.attributes;
-    for (const p of G.parts) {
+    const A = this.add && this.add.geometry.attributes, N = this.norm && this.norm.geometry.attributes;
+    if (this.advancedParticles) for (const p of G.parts) {
       const dst = p.add ? A : N;
       const i = p.add ? na++ : nn++;
       if (i >= this.MAX) { if (p.add) na--; else nn--; continue; }
@@ -262,7 +274,7 @@ const FX3 = {
     const map = G.map, kind = map && (THEMES[map.theme] || {}).amb;
     const desired = Render.quality === 'low' ? 32 : 120;
     if (kind !== this.ambientTheme) { this.ambientTheme = kind; this.ambient.length = 0; }
-    while (kind && this.ambient.length < desired) this.ambient.push({ phase: U.rand() * 99, x: 0, y: 0, z: 0 });
+    while (this.ambientEffects && kind && this.ambient.length < desired) this.ambient.push({ phase: U.rand() * 99, x: 0, y: 0, z: 0 });
     const focus = R3.focus;
     const reset = p => {
       for (let tries = 0; tries < 8; tries++) {
@@ -276,7 +288,7 @@ const FX3 = {
       dust: ['#b7ad96', false, 1.5], ember: ['#ff8a2f', true, 2.1],
       ash: ['#d08065', true, 1.7], spore: ['#75e69a', true, 2.4], firefly: ['#dfff78', true, 2.8],
     }[kind];
-    if (style) for (let j = 0; j < Math.min(desired, this.ambient.length); j++) {
+    if (this.ambientEffects && style) for (let j = 0; j < Math.min(desired, this.ambient.length); j++) {
       const p = this.ambient[j];
       if (!p.z || Math.abs(p.x - focus.x) > 17 || Math.abs(p.y - focus.z) > 17) reset(p);
       p.z += (kind === 'dust' || kind === 'ash' ? -2 : 5) * 0.016;
@@ -289,9 +301,9 @@ const FX3 = {
       dst.color.array[i * 3] = col.r * pulse; dst.color.array[i * 3 + 1] = col.g * pulse; dst.color.array[i * 3 + 2] = col.b * pulse;
       dst.size.array[i] = style[2] * this.PX;
     }
-    this.add.geometry.setDrawRange(0, na);
-    this.norm.geometry.setDrawRange(0, nn);
-    for (const a of [A, N]) { a.position.needsUpdate = true; a.color.needsUpdate = true; a.size.needsUpdate = true; }
+    if (this.add) this.add.geometry.setDrawRange(0, na);
+    if (this.norm) this.norm.geometry.setDrawRange(0, nn);
+    for (const a of [A, N].filter(Boolean)) { a.position.needsUpdate = true; a.color.needsUpdate = true; a.size.needsUpdate = true; }
 
     const dummy = new THREE.Object3D();
     const upload = (mesh, i, color) => {
@@ -299,7 +311,7 @@ const FX3 = {
     };
     // Each compatible effect category is one draw call, irrespective of its count.
     let nr = 0;
-    for (const r of G.rings) {
+    for (const r of this.advancedGeometry ? G.rings : []) {
       if (!this.advancedEffects || nr >= this.RINGS) break;
       const k = U.clamp(r.t / (r.maxT || 1), 0, 1);
       const rad = r.r + (r.maxR - r.r) * (1 - k);
@@ -309,7 +321,7 @@ const FX3 = {
       upload(this.rings, nr++, col);
     }
     let nf = 0;
-    for (const f of G.flashes) {
+    for (const f of this.advancedGeometry ? G.flashes : []) {
       if (!this.advancedEffects || nf >= this.FLASHES) break;
       const k = U.clamp(f.t / (f.maxT || 1), 0, 1);
       dummy.position.set(f.x, 0.07, f.y); dummy.rotation.set(-Math.PI / 2, 0, 0);
@@ -317,7 +329,7 @@ const FX3 = {
       upload(this.flashes, nf++, col);
     }
     let nb = 0;
-    for (const bl of G.bolts) {
+    for (const bl of this.advancedGeometry ? G.bolts : []) {
       if (!this.advancedEffects || nb >= this.BOLTS) break;
       const k = U.clamp(bl.t / (bl.maxT || 1), 0, 1);
       dummy.position.set(bl.x, 1.6, bl.y); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 3.2, 1);
@@ -326,7 +338,7 @@ const FX3 = {
 
     // projectiles
     let np = 0, ns = 0;
-    for (const p of G.projs) {
+    for (const p of this.advancedGeometry ? G.projs : []) {
       if (np >= this.PROJS) break;
       const c = (ELEM[p.elem] || ELEM.phys).color;
       const arrow = p.kind === 'arrow';
@@ -340,7 +352,7 @@ const FX3 = {
     }
     for (const [mesh, count] of [[this.rings, nr], [this.flashes, nf], [this.bolts, nb],
       [this.beads, np], [this.shafts, ns]]) {
-      mesh.count = count; mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true;
+      if (mesh) { mesh.count = count; mesh.instanceMatrix.needsUpdate = true; mesh.instanceColor.needsUpdate = true; }
     }
 
     return { parts: na + nn, add: na, norm: nn,
@@ -351,6 +363,9 @@ const FX3 = {
     return {
       mode: this.advancedEffects ? 'advanced' : 'simplified',
       advancedEffects: !!this.advancedEffects,
+      advancedParticles: !!this.advancedParticles,
+      advancedGeometry: !!this.advancedGeometry,
+      ambientEffects: !!this.ambientEffects,
       ready: !!this.ready,
       customParticleShaders: !!(this.add && this.add.material && this.add.material.isShaderMaterial),
       gpuResources: this.group ? this.group.children.length : 0,
