@@ -57,7 +57,7 @@ const Dungeon = {
       haz: new Uint8Array(w * h),
       variant: new Uint8Array(w * h),
       explored: new Uint8Array(w * h),
-      lights: [], props: [], packs: [], things: [], rooms: [], doors: [],
+      lights: [], props: [], packs: [], things: [], clues: [], encounters: [], rooms: [], doors: [],
       mlvl: isAbyss ? ABYSS.mlvl0 + (opts.abyssFloor - 1) * 2 : act.mlvl + (opts.depth - 1) * 3,
       pool: act.pool,
       name: isAbyss
@@ -75,6 +75,7 @@ const Dungeon = {
     this.placeHazards(map, rng);
     this.placeSpawns(map, rng);
     this.placeThings(map, rng);
+    this.placeNarrative(map, rng, opts.seed >>> 0, opts.narrativeState);
     this.computeAO(map);
     return map;
   },
@@ -584,6 +585,36 @@ const Dungeon = {
     }
   },
 
+  // Story sites use constrained floor positions and a seed-derived identity.
+  // Unlike hazards they never deal damage, and unlike things they do not roll loot.
+  placeNarrative(map, rng, seed, state) {
+    if (typeof Narrative === 'undefined') return;
+    const occupied = [...map.things, ...map.props];
+    const distance = (a, b) => U.dist(a.x, a.y, b.x, b.y);
+    const candidates = def => {
+      const p = def.placement || {}, out = [];
+      for (let y = 2; y < map.h - 2; y++) for (let x = 2; x < map.w - 2; x++) {
+        const i = this.idx(map, x, y), pt = { x: x + .5, y: y + .5 };
+        if (map.t[i] !== TILE.FLOOR || map.haz[i]) continue;
+        if (distance(pt, map.entry) < (p.entryDistance || 0) || distance(pt, map.exit) < (p.exitDistance || 0)) continue;
+        if (occupied.some(o => distance(pt, o) < 1.5)) continue;
+        if (p.wall && !this.isWall(map,x-1,y) && !this.isWall(map,x+1,y) && !this.isWall(map,x,y-1) && !this.isWall(map,x,y+1)) continue;
+        if (p.room && !map.rooms.some(r => x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h)) continue;
+        if (p.hazardDistance && map.haz.some((h,j) => h && distance(pt,{x:j%map.w+.5,y:(j/map.w|0)+.5}) < p.hazardDistance)) continue;
+        if (p.isolated && occupied.some(o => distance(pt,o) < 4)) continue;
+        out.push(pt);
+      }
+      return out;
+    };
+    for (const def of Narrative.definitions) {
+      if (!def.acts.includes(map.actIdx) || !U.chance(rng, def.kind === 'clue' ? .8 : .45)) continue;
+      const spots = candidates(def); if (!spots.length) continue;
+      const pt = U.pick(rng, spots), site = { ...pt, id: `${seed.toString(16)}:${def.id}:0`, definitionId: def.id,
+        narrativeKind: def.kind, title: def.title, prompt: def.prompt };
+      Narrative.applyState(site, state); map[def.kind === 'clue' ? 'clues' : 'encounters'].push(site); occupied.push(site);
+    }
+  },
+
   // ---------- town ----------
   generateTown() {
     const w = 28, h = 28;
@@ -591,7 +622,7 @@ const Dungeon = {
       w, h, theme: 'town', isBoss: false, actIdx: -1, depth: 0, mlvl: 1,
       t: new Uint8Array(w * h), haz: new Uint8Array(w * h), variant: new Uint8Array(w * h),
       explored: new Uint8Array(w * h).fill(1),
-      lights: [], props: [], packs: [], things: [], rooms: [], doors: [],
+      lights: [], props: [], packs: [], things: [], clues: [], encounters: [], rooms: [], doors: [],
       name: 'Haven\'s Rest', town: true, pool: [],
     };
     const rng = makeRng(777);

@@ -535,6 +535,11 @@ const Render = {
     const portal = G.portalOnMap(map);
     if (portal && exploredAt(portal.x, portal.y)) out.push({ ...portal, kind: 'travel', color: '#4f8fff', size: .68 });
     if (map.waypoint && exploredAt(map.waypoint.x, map.waypoint.y)) out.push({ ...map.waypoint, kind: 'travel', color: '#8fc8ff', size: .68 });
+    // A narrative marker is earned by inspecting the site. Merely exploring
+    // its tile must not spoil an undiscovered clue on either map surface.
+    for (const site of [...(map.clues || []), ...(map.encounters || [])])
+      if (site.discovered && exploredAt(site.x, site.y))
+        out.push({ x: site.x, y: site.y, kind: 'narrative', color: site.narrativeKind === 'clue' ? '#d8c18a' : '#8fc8ff', size: .5 });
     if (typeof QuestState !== 'undefined' && G.player && G.player.quests) {
       const active = new Set([QuestState.STATES.ACCEPTED, QuestState.STATES.OBJECTIVE_PROGRESS, QuestState.STATES.READY]);
       for (const q of QuestState.quests) {
