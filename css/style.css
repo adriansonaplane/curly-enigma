@@ -74,11 +74,15 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .tree-tabs { display:flex; gap:6px; justify-content:center; margin-bottom:12px; }
 .tree-tab { padding:6px 16px; background:#160f07; border:2px solid #4a3a1c; border-radius:6px; cursor:pointer; font-size:14px; color:#b09c68; }
 .tree-tab.active { background:#2e2008; color:#ffe9a8; border-color:#8a6b31; }
-.skill-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
-.skill-row { display:flex; gap:10px; padding:8px; background:rgba(255,255,255,.02); border:1px solid #2c2210; border-radius:8px; cursor:pointer; align-items:center; }
-.skill-row:hover { border-color:#8a6b31; background:rgba(255,220,130,.05); }
-.skill-row.locked { opacity:.42; }
-.skill-row canvas { flex:none; border-radius:6px; border:1px solid #443311; }
+.skill-tree { position:relative; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-rows:repeat(5,86px); column-gap:110px; row-gap:22px; padding:8px 34px; }
+.skill-connectors { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; overflow:visible; }
+.skill-connectors line { vector-effect:non-scaling-stroke; stroke:#3a2c16; stroke-width:3; }
+.skill-connectors line.active { stroke:#8aa83f; filter:drop-shadow(0 0 3px #658523); }
+.skill-node { z-index:1; display:flex; gap:8px; padding:7px; background:linear-gradient(#21170b,#100b05); border:2px solid #3b2d16; border-radius:9px; cursor:pointer; align-items:center; min-width:0; box-shadow:0 3px 10px #000; }
+.skill-node:hover { border-color:#8a6b31; background:linear-gradient(#30210d,#160e05); }
+.skill-node.locked { filter:grayscale(.7); opacity:.55; }
+.skill-node.learned { border-color:#638333; box-shadow:0 0 10px rgba(115,160,45,.22); }
+.skill-node canvas { flex:none; width:40px; height:40px; border-radius:6px; border:1px solid #443311; }
 .skill-info { flex:1; min-width:0; }
 .skill-name { font-size:14px; color:#f0dfa8; }
 .skill-lvl { float:right; color:#8f8; font-size:13px; }
@@ -86,6 +90,11 @@ canvas#game { position:absolute; inset:0; width:100%; height:100%; display:block
 .skill-plus { flex:none; width:26px; height:26px; background:#213307; color:#bf6; border:1px solid #4c6b1a; border-radius:5px; cursor:pointer; font-weight:bold; font-size:15px; }
 .skill-plus:disabled { opacity:.25; cursor:default; }
 .pts-banner { text-align:center; margin-bottom:8px; color:#9be26b; font-size:14px; }
+.tt-rank { margin-top:7px; padding-top:5px; border-top:1px solid #342710; }
+.tt-next b { color:#9be26b; }
+.tt-requirements, .tt-synergy { margin-top:8px; color:#aa9567; }
+.tt-met { color:#78a958; } .tt-unmet { color:#d16958; }
+.tt-synergy div { color:#8fae69; }
 
 .shop-list { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
 .npc-line { font-style:italic; color:#b3a077; text-align:center; margin:8px 0 14px; font-size:14px; line-height:1.5; }

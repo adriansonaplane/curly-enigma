@@ -19,7 +19,8 @@ let _skillSeq = 0;
 function S(name, arch, elem, o = {}) {
   const sk = Object.assign({
     id: 'sk' + (_skillSeq++), name, arch, elem,
-    maxLvl: 20, mana: 4, cd: 0, desc: '',
+    maxLvl: 20, mana: 4, cd: 0, desc: '', x: 0, y: 0, tier: 1,
+    prereqIds: [], synergies: [],
   }, o);
   return sk;
 }
@@ -346,6 +347,25 @@ const CLASSES = [
 
 // Unlock level for skill index i within a tree (rows of 2).
 function skillReqLvl(i) { return [1, 1, 7, 7, 13, 13, 19, 19, 25, 25][i] || 1; }
+
+// Every tree shares a readable two-branch layout. Keeping this metadata on the
+// definitions (rather than in the UI) lets other views and save tooling reason
+// about the same graph. Each branch advances independently through five tiers.
+for (const c of CLASSES) for (const tree of c.trees) {
+  tree.skills.forEach((skill, index) => {
+    const tier = Math.floor(index / 2) + 1;
+    skill.x = index % 2;
+    skill.y = tier - 1;
+    skill.tier = tier;
+    skill.reqLvl = skillReqLvl(index);
+    skill.prereqIds = tier === 1 ? [] : [tree.skills[index - 2].id];
+    skill.synergies = [{
+      skillId: tree.skills[index ^ 1].id,
+      bonus: 'damage',
+      bonusPerRank: 2,
+    }];
+  });
+}
 
 // Skill lookup table
 const SKILL_BY_ID = {};
