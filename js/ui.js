@@ -658,13 +658,23 @@ const UI = {
     p.appendChild(inv);
   },
 
-  npcDialog(npc) {
+  npcDialog(npc, nodeId) {
     const p = this.panel('npc');
     this.closeAll();
     this.openPanel = 'npc';
     p.classList.remove('hidden');
     this.head(p, npc.def.name.toUpperCase());
-    p.insertAdjacentHTML('beforeend', `<div class="npc-line">“${U.esc(U.pick(U.rand, npc.def.lines))}”</div>`);
+    const pl = G.player;
+    pl.dialogue = Dialogue.migrate(pl.dialogue);
+    const graph = Dialogue.graphs[npc.id];
+    const currentId = graph && graph.nodes[nodeId] ? nodeId : graph && graph.start;
+    const node = graph && graph.nodes[currentId];
+    if (node) {
+      Dialogue.visit(pl.dialogue, npc.id, currentId);
+      Save.saveChar(pl);
+    }
+    const line = node ? node.text : U.pick(U.rand, npc.def.lines);
+    p.insertAdjacentHTML('beforeend', `<div class="npc-line">“${U.esc(line)}”</div>`);
     const opts = document.createElement('div');
     opts.className = 'npc-opts';
     const add = (label, fn) => {
@@ -673,7 +683,23 @@ const UI = {
       b.addEventListener('click', fn);
       opts.appendChild(b);
     };
-    const pl = G.player;
+    if (node) for (const choice of node.choices || []) {
+      const consequenceId = `${npc.id}.${choice.id}`;
+      if (!Dialogue.meets(choice.condition, pl, pl.dialogue, npc.id)) continue;
+      if (choice.once && pl.dialogue.consequences[consequenceId]) continue;
+      add(choice.text, () => {
+        // Re-resolve and revalidate mutable requirements to prevent stale UI
+        // state from spending or granting only part of a consequence.
+        if (!Dialogue.meets(choice.condition, pl, pl.dialogue, npc.id)) { sfx('nope'); return; }
+        const passed = !choice.skillCheck || Dialogue.stat(pl, choice.skillCheck.stat) >= choice.skillCheck.dc;
+        const effects = choice.effects && !Array.isArray(choice.effects)
+          ? choice.effects[passed ? 'success' : 'failure'] : choice.effects;
+        if (!Dialogue.applyEffects(effects, pl, pl.dialogue)) { sfx('nope'); return; }
+        if (choice.once || (effects && effects.length)) pl.dialogue.consequences[consequenceId] = true;
+        Save.saveChar(pl);
+        this.npcDialog(npc, passed ? (choice.success || choice.next) : (choice.failure || choice.next));
+      });
+    }
     switch (npc.id) {
       case 'healer': {
         add('Heal my wounds (free)', () => {
