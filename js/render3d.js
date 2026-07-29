@@ -95,6 +95,8 @@ const R3 = {
   _gpu: { supported: false, status: 'unsupported', ms: null, ext: null, active: null, pending: [] },
   _contextLost: false,
   _contextLosses: 0,
+  onContextLost: null,
+  onContextRestoring: null,
 
   init(canvas) {
     if (typeof THREE === 'undefined') {
@@ -185,12 +187,12 @@ const R3 = {
     this.perspCam.updateProjectionMatrix();
   },
 
-  setRenderScale(scale) {
+  setRenderScale(scale, resize = true) {
     const cap = this.profile ? this.profile.renderScaleCap : 1;
     const next = Math.max(0.25, Math.min(cap, Number(scale) || 1));
     if (Math.abs(next - this.renderScale) < 0.001) return;
     this.renderScale = next;
-    if (this.renderer) this.resize();
+    if (resize && this.renderer) this.resize();
   },
 
   // Apply a preset to the one camera. The lens is a camera property, not a
@@ -333,13 +335,26 @@ const R3 = {
       try { sessionStorage.setItem(this.PROFILE_SESSION_KEY, 'conservative'); } catch (_) {}
       this._contextLost = true;
       this._contextLosses++;
+      if (this.onContextLost) this.onContextLost(this._contextLosses);
       // Discard, never delete: the objects belong to a context that is gone,
       // and calling deleteQuery on them is one more invalid operation.
       this._gpu = { supported: false, status: 'context-lost', ms: null,
         ext: null, active: null, pending: [] };
     });
     canvas.addEventListener('webglcontextrestored', () => {
-      this._contextLost = false;
+      // Keep submission paused while Render reapplies its independent context-
+      // loss caps. Resizing after that callback recreates both the renderer
+      // backing store and the post target at the degraded dimensions.
+      if (this.onContextRestoring) this.onContextRestoring(this._contextLosses);
+      this.resize();
+      // three.js normally rebuilds programs on restoration. Mark every scene
+      // material explicitly as well, including the post material, so custom
+      // shaders cannot retain a program compiled against the dead context.
+      if (this.scene) this.scene.traverse(object => {
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        for (const material of materials) if (material) material.needsUpdate = true;
+      });
+      if (this._postMat) this._postMat.needsUpdate = true;
       // If the context has died repeatedly, stop timing. GPU timer queries are
       // a diagnostic; they are not worth a chance of taking the renderer down
       // with them, and a machine that has lost the context twice has told us
@@ -347,9 +362,12 @@ const R3 = {
       if (this._contextLosses >= 2) {
         this._gpu = { supported: false, status: 'disabled-after-context-loss',
           ms: null, ext: null, active: null, pending: [] };
-        return;
+      } else {
+        this._initGpuTimer();
       }
-      this._initGpuTimer();
+      // This is deliberately last: render() refuses to submit until sizing,
+      // post-processing, and material invalidation have all completed.
+      this._contextLost = false;
     });
   },
 

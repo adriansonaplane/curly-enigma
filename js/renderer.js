@@ -27,6 +27,7 @@ const Render = {
   renderScale: 1, targetFps: 60,
   showFps: false,
   _fpsN: 0, _fpsT: 0, _qualityStep: 0, _headroomWindows: 0,
+  _contextLossLevel: 0,
   _mapBuilt: null,
   _shadows: null,
   cpuUpdateMs: 0, cpuRenderMs: 0, activeLights: 0,
@@ -51,6 +52,8 @@ const Render = {
 
     // Nothing below this point is safe without a working WebGL renderer. In
     // particular, these modules allocate objects against R3.scene.
+    R3.onContextLost = losses => this.onContextLost(losses);
+    R3.onContextRestoring = losses => this.onContextRestoring(losses);
     if (!R3.init(this.gl)) return false;
     FX3.init();
     Actors3.clear();
@@ -207,6 +210,31 @@ const Render = {
     this.quality = this._qualityStep >= 4 ? 'low' : 'high';
   },
 
+  // Context-loss degradation is a one-way safety rail for this page lifetime,
+  // not another FPS-governor step. The governor may recover quality later, but
+  // these caps remain in force after restoration and after subsequent frames.
+  onContextLost(losses) {
+    this._contextLossLevel = Math.min(2, Math.max(this._contextLossLevel, losses));
+  },
+
+  onContextRestoring(losses) {
+    this.onContextLost(losses);
+    this.applyContextLossCaps(false);
+  },
+
+  applyContextLossCaps(resize = true) {
+    if (!this._contextLossLevel) return;
+    R3.setRenderScale(Math.min(R3.renderScale, 0.75), resize);
+    R3.maxLights = Math.min(R3.maxLights, 6);
+    if (this._contextLossLevel >= 2) {
+      R3.gradeEnabled = false;
+      if (this._shadows !== false) {
+        this._shadows = false;
+        World3.setShadows(false);
+      }
+    }
+  },
+
   // ---- the frame ----
   frame(dt, t) {
     const map = G.map, pl = G.player;
@@ -220,8 +248,9 @@ const Render = {
     R3.heroLightMul = this.heroLightMul;
     const step = this.qualityMode === 'auto' ? this._qualityStep : (this.quality === 'low' ? 6 : 0);
     const scaleCaps = [1, 0.85, 0.75, 0.75, 0.75, 0.75, 0.75];
-    R3.setRenderScale(Math.min(this.renderScale, scaleCaps[step]));
-    const shadows = step < 6 && this.fx.shadows !== false
+    const lossScaleCap = this._contextLossLevel ? 0.75 : 1;
+    R3.setRenderScale(Math.min(this.renderScale, scaleCaps[step], lossScaleCap));
+    const shadows = this._contextLossLevel < 2 && step < 6 && this.fx.shadows !== false
       && (!R3.profile || R3.profile.pointLightShadows);
     if (this._shadows !== shadows) {
       this._shadows = shadows;
@@ -234,10 +263,12 @@ const Render = {
     // quality is twelve again; the steps down are 8 and then 6.
     const requestedLights = this.qualityMode === 'ultra' ? 12
       : (step >= 5 ? 6 : (step >= 3 ? 8 : 12));
-    R3.maxLights = Math.min(requestedLights, R3.profile ? R3.profile.maxLights : requestedLights);
+    const lossLightCap = this._contextLossLevel ? 6 : requestedLights;
+    R3.maxLights = Math.min(requestedLights, lossLightCap,
+      R3.profile ? R3.profile.maxLights : requestedLights);
     World3.updateAtmosphere(this.fx.fog !== false);
     // Expensive atmosphere yields before lights/readability under the governor.
-    R3.gradeEnabled = step < 3 && this.fx.grade !== false
+    R3.gradeEnabled = this._contextLossLevel < 2 && step < 3 && this.fx.grade !== false
       && (!R3.profile || R3.profile.grading);
 
     // camera: the old rig's zoom/mode/shake, aimed at the same focus point
