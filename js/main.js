@@ -668,9 +668,15 @@ const Game = {
       const len = Math.hypot(wx, wy);
       wx /= len; wy /= len;
       const spd = d.moveSpd * (G.map.town ? 1.15 : 1);
+      const oldX = pl.x, oldY = pl.y;
       Ent.tryMove(pl, wx * spd * dt, wy * spd * dt);
       pl.moving = true;
-      if (pl.attackT <= 0) pl.dir = Math.atan2(wy, wx);
+      const actualDx = pl.x - oldX, actualDy = pl.y - oldY;
+      // Casting deliberately faces the target (see Ent.castSkill/basicAttack),
+      // but any movement that succeeds after the cast owns the newer heading.
+      // Use the resolved displacement so wall sliding faces along the open axis;
+      // a fully blocked move leaves the existing attack/movement facing intact.
+      if (actualDx !== 0 || actualDy !== 0) pl.dir = Math.atan2(actualDy, actualDx);
     }
 
     // The sconce within reach, lit or not. Recomputed each frame and parked on
