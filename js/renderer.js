@@ -28,6 +28,8 @@ const Render = {
   _fpsN: 0, _fpsT: 0, _qualityStep: 0, _headroomWindows: 0,
   _mapBuilt: null,
   _shadows: null,
+  cpuUpdateMs: 0, cpuRenderMs: 0, activeLights: 0,
+  sceneCounters: null, frameCounters: null,
 
   init() {
     this.gl = document.getElementById('game');
@@ -238,14 +240,19 @@ const Render = {
     }
 
     // ---------- 3D pass ----------
-    World3.updateLights(t, pl.x, pl.y);
+    this.activeLights = World3.updateLights(t, pl.x, pl.y);
     World3.updateShafts(t, step < 4 && this.fx.shafts !== false);
     Actors3.sync(G.monsters, t);
     Actors3.syncCrowd(t, G.npcs, typeof Social !== 'undefined' ? Social.townSims : null);
     Hero3.sync(pl, t);
     FX3.sync(t);
     this.syncMarkers(t);
-    R3.render();
+    const submitStart = performance.now();
+    R3.render((pass, counters) => {
+      if (pass === 'scene') this.sceneCounters = Object.assign({}, counters);
+      else this.frameCounters = Object.assign({}, counters);
+    });
+    this.cpuRenderMs = performance.now() - submitStart;
 
     // ---------- 2D overlay ----------
     const ctx = this.ctx;
@@ -256,6 +263,21 @@ const Render = {
     this.drawKindlePrompt(ctx, t);
     this.drawDamage(ctx);
     this.drawBubbles(ctx, t);
+  },
+
+  // A stable, allocation-safe entry point for before/after comparisons. It
+  // deliberately reports configuration alongside workload so captures from
+  // elevated/free, grade, shadow, and render-scale runs remain self-describing.
+  diagnosticSnapshot() {
+    const actors = Actors3.stats ? Actors3.stats() : null;
+    return Object.assign({}, R3.stats(), {
+      activeLights: this.activeLights,
+      counters: { scene: Object.assign({}, this.sceneCounters || {}),
+        frame: Object.assign({}, this.frameCounters || {}) },
+      cpu: { updateMs: +this.cpuUpdateMs.toFixed(3), renderSubmissionMs: +this.cpuRenderMs.toFixed(3) },
+      actors,
+      props: { diagnostics: (Props3.diagnostics || []).map(d => Object.assign({}, d)) },
+    });
   },
 
   // Nameplates and health bars: screen-space by nature, so they stay 2D and
