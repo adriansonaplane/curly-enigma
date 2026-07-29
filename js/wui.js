@@ -11,6 +11,7 @@ const WUI = {
   DEF_SET: {
     vol: 0.5, mute: false,
     quality: 'auto', renderScale: 1, fpsLimit: 0, authoredModels: true, advancedEffects: true,
+    advancedParticles: true, advancedGeometry: true, ambientEffects: true,
     fog: false, shafts: true, grade: true, fps: false,
     mood: 'spooky', heroLight: 42,
     nameplates: false, dmgNums: true, shake: true, autoGold: true,
@@ -71,6 +72,9 @@ const WUI = {
     // This is a startup capability: GraphicsConfig is authoritative so a WUI
     // save from another profile cannot make the checkbox disagree with boot.
     savedSet.advancedEffects = typeof GraphicsConfig === 'undefined' || GraphicsConfig.current.advancedEffects !== false;
+    for (const key of ['advancedParticles', 'advancedGeometry', 'ambientEffects'])
+      if (!Object.prototype.hasOwnProperty.call(savedSet, key) && typeof GraphicsConfig !== 'undefined')
+        savedSet[key] = GraphicsConfig.current[key] !== false;
     // An explicit WUI preference wins for backward compatibility. Otherwise,
     // inherit the boot-time preference so the two persisted stores converge.
     if (!Object.prototype.hasOwnProperty.call(savedSet, 'fog') && typeof GraphicsConfig !== 'undefined')
@@ -127,7 +131,10 @@ const WUI = {
     const s = Object.assign({}, this.set, overrides || {});
     const merged = Object.assign({}, boot, {
       renderScale: Number(s.renderScale), authoredModels: s.authoredModels !== false,
-      advancedEffects: s.advancedEffects !== false, fog: !!s.fog,
+      advancedEffects: s.advancedEffects !== false,
+      advancedParticles: s.advancedParticles !== false,
+      advancedGeometry: s.advancedGeometry !== false,
+      ambientEffects: s.ambientEffects !== false, fog: !!s.fog,
       shafts: !!s.shafts, grading: !!s.grade,
     });
     return typeof GraphicsConfig !== 'undefined' ? GraphicsConfig.validate(merged) : merged;
@@ -138,6 +145,9 @@ const WUI = {
     this.set.renderScale = normalized.renderScale;
     this.set.authoredModels = normalized.authoredModels;
     this.set.advancedEffects = normalized.advancedEffects;
+    this.set.advancedParticles = normalized.advancedParticles;
+    this.set.advancedGeometry = normalized.advancedGeometry;
+    this.set.ambientEffects = normalized.ambientEffects;
     this.set.fog = normalized.fog;
     this.set.shafts = normalized.shafts;
     this.set.grade = normalized.grading;
@@ -1159,7 +1169,8 @@ const WUI = {
   // added for them they must use requestDisruptiveChange and an explicit,
   // state-preserving renderer recreation rather than applySettings.
   DISRUPTIVE_VIDEO_KEYS: Object.freeze([
-    'renderScale', 'authoredModels', 'advancedEffects', 'profile', 'antialias',
+    'renderScale', 'authoredModels', 'advancedEffects', 'advancedParticles',
+    'advancedGeometry', 'ambientEffects', 'profile', 'antialias',
     'powerPreference', 'webglVersion', 'dprCap', 'shadows', 'lightBudget', 'gpuTimers',
   ]),
   LIVE_VIDEO_KEYS: Object.freeze(['quality', 'fpsLimit', 'mood', 'heroLight', 'fog', 'shafts', 'grade', 'fps']),
@@ -1219,11 +1230,18 @@ const WUI = {
   },
 
   tabGameplay(body) {
-    this.wsToggle(body, 'Enemy nameplates', 'Always show health bars and names over enemies', 'nameplates');
-    this.wsToggle(body, 'World damage numbers', 'Floating numbers over targets in the world', 'dmgNums');
-    this.wsToggle(body, 'Screen shake', 'Camera kick on hits and explosions', 'shake');
+    this.settingsSection(body, 'Loot & interaction');
+    this.wsToggle(body, 'Automatic gold pickup', 'Collect nearby gold without clicking it', 'autoGold');
+    this.settingsSection(body, 'Combat feedback');
     this.wsToggle(body, 'Incoming combat text', 'Scrolling damage-taken feed', 'ctIn');
     this.wsToggle(body, 'Outgoing combat text', 'Scrolling damage-dealt feed', 'ctOut');
+  },
+
+  settingsSection(body, title, hint) {
+    const h = document.createElement('div');
+    h.className = 'ws-section';
+    h.innerHTML = `<strong>${title}</strong>${hint ? `<span>${hint}</span>` : ''}`;
+    body.appendChild(h);
   },
 
   tabCamera(body) {
@@ -1263,8 +1281,6 @@ const WUI = {
       i.addEventListener('input', () => { Cam.orbitSpeed = i.value / 10; Cam.save(); });
       r.appendChild(i);
     });
-    this.wsToggle(body, 'Physics debris', 'Smashed props throw bouncing, rolling chunks', 'physics',
-      v => { Physics.enabled = v; if (!v) Physics.clear(); });
     const r2 = document.createElement('div');
     r2.className = 'ws-row';
     r2.innerHTML = '<span class="ws-label">Reset camera to defaults</span>';
@@ -1295,6 +1311,7 @@ const WUI = {
   },
 
   tabVideo(body) {
+    this.settingsSection(body, 'Display', 'Resolution, frame pacing, and renderer workload');
     const row = document.createElement('div');
     row.className = 'ws-row';
     row.innerHTML = `<span class="ws-label">Render quality<span class="ws-hint">Auto silently reduces effects if frame rate drops</span></span>
@@ -1334,17 +1351,12 @@ const WUI = {
     });
     body.appendChild(frameLimit);
 
+    this.settingsSection(body, 'Scene', 'Models, lighting, and world presentation');
+
     this.wsToggle(body, 'Use authored models',
       'Load curated baked scenes instead of the built-in procedural fallback models', 'authoredModels',
       null, { description: 'Changing model sources reconstructs scene prop resources. Current game state, map progress, and actors will be preserved.',
         apply: { authoredModels: true, rebuildModels: true } });
-
-    this.wsToggle(body, 'Advanced GPU effects',
-      'Custom particle shaders and optional effect meshes; disabling also skips baked effect sheets',
-      'advancedEffects', v => {
-        if (v && typeof Assets !== 'undefined' && !Assets.sheetsReady) Assets.loadSheets();
-      }, { description: 'Changing advanced GPU effects reinitializes GPU effect resources. Current game state and scene progress will be preserved.',
-        apply: { reinitializeEffects: true } });
 
     const mood = document.createElement('div');
     mood.className = 'ws-row';
@@ -1368,9 +1380,49 @@ const WUI = {
       this.wsToggle(body, toggle.label, toggle.hint, toggle.key, () => {
         this.applyGraphicsConfig(this.normalizedGraphicsConfig(), { persist: true });
       });
+
+    this.settingsSection(body, 'Effects', 'Simulation-driven visual effects and GPU resources');
+    this.wsToggle(body, 'Screen shake', 'Camera kick on hits and explosions', 'shake');
+    this.wsToggle(body, 'Physics debris', 'Smashed props throw bouncing, rolling chunks', 'physics',
+      v => { Physics.enabled = v; if (!v) Physics.clear(); });
+    this.advancedEffectsDrawer(body);
+  },
+
+  advancedEffectsDrawer(body) {
+    const drawer = document.createElement('details');
+    drawer.className = 'ws-drawer';
+    drawer.open = true;
+    drawer.dataset.setting = 'advancedEffects';
+    drawer.innerHTML = '<summary><span><strong>Advanced GPU effects</strong><small>Custom particles and instanced effect geometry</small></span><span class="ws-drawer-state"></span></summary><div class="ws-drawer-body"></div>';
+    const state = drawer.querySelector('.ws-drawer-state');
+    const content = drawer.querySelector('.ws-drawer-body');
+    const refresh = () => {
+      state.textContent = this.set.advancedEffects ? 'On' : 'Off';
+      content.classList.toggle('disabled', !this.set.advancedEffects);
+    };
+    this.wsToggle(content, 'Enable advanced effects', 'Master switch; disabling releases all custom effect resources',
+      'advancedEffects', v => {
+        if (v && typeof Assets !== 'undefined' && !Assets.sheetsReady) Assets.loadSheets();
+        refresh();
+      }, { description: 'Changing advanced GPU effects rebuilds GPU effect resources while preserving the current scene.',
+        apply: { reinitializeEffects: true } });
+    const children = [
+      ['advancedParticles', 'Shader particles', 'Sparks, blood, smoke, and trails rendered in batched custom shaders'],
+      ['advancedGeometry', 'Effect geometry', 'Instanced rings, flashes, bolts, and projectile meshes'],
+      ['ambientEffects', 'Ambient motes', 'Zone dust, embers, spores, ash, and fireflies'],
+    ];
+    for (const [key, label, hint] of children)
+      this.wsToggle(content, label, hint, key, null, {
+        description: `Changing ${label.toLowerCase()} rebuilds GPU effect resources while preserving the current scene.`,
+        apply: { reinitializeEffects: true },
+      });
+    refresh(); body.appendChild(drawer);
   },
 
   tabInterface(body) {
+    this.settingsSection(body, 'HUD visibility', 'Information drawn by the interface and overlay systems');
+    this.wsToggle(body, 'Enemy nameplates', 'Always show health bars and names over enemies', 'nameplates');
+    this.wsToggle(body, 'World damage numbers', 'Floating numbers over targets in the world', 'dmgNums');
     const row = document.createElement('div');
     row.className = 'ws-row';
     row.innerHTML = `<span class="ws-label">Frame layout<span class="ws-hint">Unlock every frame and drag it anywhere. Layout is saved.</span></span><span></span>`;

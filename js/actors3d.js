@@ -1049,11 +1049,14 @@ const Hero3 = {
   anim(pl, t) {
     if (pl.dead) return { anim: 'dead', phase: U.clamp(1 - (pl.deathT === undefined ? 0 : pl.deathT), 0, 1) };
     if (pl.danceT > 0) return { anim: 'dance', phase: (t * 1.6) % 1 };
+    // Damage owns the pose while its reaction is active. damagePlayer also
+    // interrupts attackT, but keeping this priority makes the state machine
+    // robust when callers synthesize hurt state (tests, hazards, save loads).
+    if (pl.hurtT > 0.14) return { anim: 'hurt', phase: 0 };
     if (pl.attackT > 0) {
       const casting = pl.lastCastArch && !['strike', 'slam', 'dash'].includes(pl.lastCastArch);
       return { anim: casting ? 'cast' : 'attack', phase: U.clamp(1 - pl.attackT / 0.32, 0, 1) };
     }
-    if (pl.hurtT > 0.14) return { anim: 'hurt', phase: 0 };
     if (pl.moving) {
       const fast = pl.derived && pl.derived.moveSpd > 4.6;
       return { anim: fast ? 'run' : 'walk', phase: (pl.gait || 0) % 1 };

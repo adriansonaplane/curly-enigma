@@ -567,6 +567,12 @@ const Ent = {
     }
     dmg = Math.max(1, dmg);
     pl.hp -= dmg;
+    // Being hit interrupts the attack pose. Previously attack had animation
+    // priority over hurt, then resurfaced after the hurt window, which looked
+    // like facing had snapped back even though `dir` itself never changed.
+    // Facing is deliberately left alone: receiving damage is not an aiming
+    // action and must not turn the hero toward or away from the attacker.
+    pl.attackT = 0;
     pl.hurtT = 0.25;
     G.shake += Math.min(8, dmg * 0.15);
     sfx('hurt');

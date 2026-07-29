@@ -27,7 +27,8 @@ test('simplified effects allocate no custom particle shaders or optional meshes'
     config: false,
     ui: false,
     stats: {
-      mode: 'simplified', advancedEffects: false, ready: true,
+      mode: 'simplified', advancedEffects: false, advancedParticles: false,
+      advancedGeometry: false, ambientEffects: false, ready: true,
       customParticleShaders: false, gpuResources: 0,
     },
     groupChildren: 0,
