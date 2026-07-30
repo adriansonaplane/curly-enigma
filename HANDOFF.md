@@ -1,5 +1,19 @@
 # Claude → Codex Handoff
 
+## Current continuation — 2026-07-30 01:15:56 UTC — Sol
+
+**Current implementation baseline:** `366c6ff` — merged PR #83.
+
+The shared agent coordination branch is `codex/agent-coordination`, created from
+the current `main` baseline and used directly in the curly-enigma repository
+checkout. No secondary or repository-local worktree is used. Three read-only
+reviews covered D2 mechanics, MMO UI, and narrative/RP;
+because those reviews began against PR #62 while implementation advanced to PR
+#83, each finding must be revalidated before implementation.
+
+Active coordination is tracked in `agent/TASKS.md`, `agent/PLANS.md`, and
+`agent/SUBAGENTS.md`. Check `agent/VITAL.md` at the required checkpoints.
+
 ## Current continuation — 2026-07-29 19:00:03 UTC — Sol
 
 **Author / agent:** Sol (primary OpenAI coding agent, `/root`)
