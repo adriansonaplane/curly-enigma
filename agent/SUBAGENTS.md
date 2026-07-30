@@ -1,5 +1,56 @@
 # Sub-agent assignments
 
+## 2026-07-30 02:45:00 UTC — Wave 1 agent — D2 combat formulas
+
+- **Agent ID:** Claude Code worktree agent (Wave 1)
+- **Assigned by:** Alex (orchestrator, Claude Code)
+- **Status:** completed — merged as PR #86
+- **Scope:** implement 5 confirmed combat gaps: AR/Def hit formula, shield
+  blocking, deadly strike/crushing blow/open wounds, synergy→damage wiring,
+  difficulty tiers.
+- **Branch:** `claude/feature-d2-mechanics`
+- **Files:** `js/entities.js` (+152 lines), `js/main.js` (+7 lines)
+- **Commit:** `83e819f`
+- **Result:** all 5 formulas implemented and pushed. Merged by Adrian.
+
+### Mini log
+
+- 2026-07-30 01:50:00 UTC — Alex — assigned — 5 gaps after revalidation
+- 2026-07-30 02:45:00 UTC — Wave 1 agent — completed — committed and pushed
+- 2026-07-30 03:15:00 UTC — Adrian — merged — PR #86
+
+## 2026-07-30 03:00:00 UTC — Wave 2 agent — compare-on-hover + grid inventory
+
+- **Agent ID:** Claude Code worktree agent (Wave 2)
+- **Assigned by:** Alex (orchestrator, Claude Code)
+- **Status:** completed — merged as PR #87
+- **Scope:** implement 2 confirmed UI gaps: compare-on-hover stat diff tooltips,
+  D2-style variable-size grid inventory (10x6).
+- **Branch:** `claude/feature-mmo-ui`
+- **Files:** `js/ui.js` (+406/-95), `js/items.js` (+94), `js/main.js` (+61/-7),
+  `css/style.css` (+9), `css/wui.css` (+2/-1)
+- **Commit:** `dab7d96`
+- **Result:** both features implemented and pushed. Merged by Adrian.
+
+### Mini log
+
+- 2026-07-30 01:50:00 UTC — Alex — assigned — 2 gaps after revalidation
+- 2026-07-30 03:00:00 UTC — Wave 2 agent — completed — committed and pushed
+- 2026-07-30 03:15:00 UTC — Adrian — merged — PR #87
+
+## 2026-07-30 01:50:00 UTC — Alex — Gap analysis and revalidation
+
+- **Agent ID:** Claude Code Explore agent
+- **Assigned by:** Alex (orchestrator, Claude Code)
+- **Status:** completed
+- **Scope:** audit all three Wave implementations against f440d7a baseline.
+- **Result:** Wave 3 fully implemented (closed). Wave 2 narrowed to 2 gaps.
+  Wave 1 narrowed to 5 gaps. Findings assigned to implementation agents.
+
+### Mini log
+
+- 2026-07-30 01:50:00 UTC — Alex — completed — revalidation done, tasks assigned
+
 ## 2026-07-30 01:23:44 UTC — Sol — Workspace-thread consolidation
 
 - **Agent ID:** `/root`

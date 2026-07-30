@@ -1,5 +1,29 @@
 # Agent coordination handoff
 
+## 2026-07-30 03:15:00 UTC — Alex — Three-Wave program complete
+
+All three waves are merged into main at `4556511`:
+
+| Wave | PRs | Key commits | Status |
+|---|---|---|---|
+| Wave 1 — D2 mechanics | #86 | `83e819f`, `2584f26` | merged |
+| Wave 2 — MMO UI | #87 | `dab7d96` | merged |
+| Wave 3 — Narrative/RP | #79-#83 | various | merged (Codex) |
+
+**Implementation baseline:** `4556511` (PR #87 merge).
+
+**Remaining open items:**
+- `TASK-20260729-01` — browser-verify advanced graphics settings (blocked on
+  Chromium in the execution environment)
+- P0 renderer stabilization (white screen / GPU watchdog) — owned by Codex
+- Model pipeline items: ragm-volcanic-imp visual verification, bookcase.json
+  fetch, real-hardware FPS capture (blocked by renderer)
+
+### Mini log
+
+- 2026-07-30 03:15:00 UTC — Alex (orchestrator) — complete — All Wave work
+  delivered and merged. Agent branch docs updated.
+
 ## 2026-07-30 01:23:44 UTC — Sol — Complete Wave 1–3 coordination handoff
 
 - Every reported Wave item is now listed in `TASKS.md` under tasks 02–04.
