@@ -13,12 +13,12 @@ test('disabled authored models keep procedural actors and props visible without 
   await page.goto('/index.html');
   await page.waitForFunction(() => typeof R3 !== 'undefined' && R3.ready);
   await page.evaluate(() => Game.newGame('FallbackModelsHero', 'warbringer', false));
-  await page.waitForFunction(() => G.state === 'game' && Actors3.pool.length && Props3.sets.length && R3.stats().calls > 0);
+  await page.waitForFunction(() => G.state === 'game' && Actors3.crowd.length && Props3.sets.length && R3.stats().calls > 0);
 
   const state = await page.evaluate(() => ({
     authoredModels: R3.authoredModels,
     actors: Actors3.stats(),
-    proceduralActors: Actors3.pool.filter(m => m._rig && m._rig.visible && !m._rig.userData.authored).length,
+    proceduralActors: Actors3.crowd.filter(m => m._rig && m._rig.visible && !m._rig.userData.authored).length,
     authoredProps: Props3.sets.filter(set => set.authored).length,
     visiblePropInstances: Props3.batches.filter(mesh => mesh.visible).reduce((count, mesh) => count + mesh.count, 0),
     diagnostics: Render.diagnosticSnapshot(),

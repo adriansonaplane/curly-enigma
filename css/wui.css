@@ -424,7 +424,7 @@ body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
   text-shadow: 0 1px 2px #000; z-index: 3; pointer-events: none; font-weight: bold;
 }
 #wui-actionbar { position: relative; }
-#wui-actionbar2 { display: flex; gap: 4px; align-items: flex-end; margin-top: 4px; }
+#wui-actionbar2:not(.wui-hidden) { display: flex; gap: 4px; align-items: flex-end; margin-top: 4px; }
 #wui-actionbar .wui-barpage-label {
   position: absolute; left: 0; top: -16px; font-size: 10px; letter-spacing: 2px;
   color: var(--wui-accent-dim); text-shadow: 0 1px 2px #000; pointer-events: none; white-space: nowrap;

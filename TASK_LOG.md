@@ -1,5 +1,189 @@
 # Task log
 
+## 2026-07-30 06:59:55 UTC — Sol — Unidentified loot verified; charm audits begin
+
+**Actor / evidence source:** Sol (`/root`) integrating contract, runtime,
+browser, leak-audit, and independent visual-review reports. **Task:**
+`TASK-20260730-11`. **Revision:** branch `main` at baseline `8976a63`; the
+shared working tree remains intentionally dirty; commit/PR: none.
+
+**Result.** Eligible magic, rare, set, and unique equipment can now enter the
+field unidentified. Scrolls of Identification provide an atomic exact-one
+keyboard/mouse flow, while Old Maras provides free identify-all for inventory
+items only. Tooltip, world label, search, equip, mercenary/derived-stat, socket,
+Cube, repair, vendor, corpse, and save paths conceal or reject unresolved gear.
+Explicit save migration preserves legacy identified items. Bosses guarantee an
+identification scroll and lesser ranks use scaled drop chances.
+
+**Review.** `/root/identification_leak_audit` found no critical bypass. The
+initial harsh visual review correctly returned `BLOCK` for a 390×844
+tooltip/status collision. Status-aware tooltip placement and regression
+assertions closed it; `/root/identification_visual_critic` then returned exact
+`ACCEPT`, including measured 8-pixel gaps. Ephemeral evidence is under
+`/tmp/curly-enigma-identification-audit-critic-20260729-234508/` and
+`/tmp/curly-enigma-identification-tooltip-recheck-20260729-235250/`.
+
+**Verification.** Identification core/runtime contracts and four focused
+browser journeys pass. All 16 Node contracts are green; changed-JavaScript
+syntax and `git diff --check` are green; the final Chromium/SwiftShader suite
+passed `69/69` in 2.3 minutes. SwiftShader is correctness evidence, not
+hardware-performance certification.
+
+**Next.** Keep this feature verified but unarchived until Adrian records owner
+acceptance. The next bounded slice is D2 inventory charms; delegated contract-
+architecture and integration audits are active. The broad D2/WoW/D&D/AAA goal
+remains active.
+
+## 2026-07-30 06:13:16 UTC — Sol — Durability visual acceptance closes the batch gates
+
+**Actor / evidence source:** Sol (`/root`) integrating the independent final
+review from `/root/durability_visual_audit`. **Revision:** branch `main` at
+baseline `8976a63`; commit/PR: none; the shared working tree remains intentionally
+dirty.
+
+**Result.** The durability/smith slice is now functionally and visually
+verified. Review-driven polish contains phone smith rows and buttons, gives merc
+rows/buttons a themed responsive layout, makes paperdoll and merc gear keyboard
+focusable, clamps focus-triggered tooltips inside the viewport, and exposes
+explicit accessible `Low` and `Broken` condition labels. The independent verdict
+is exact `ACCEPT`.
+
+**Visual evidence.** Fresh 1600×900 desktop and 390×844 mobile captures cover a
+keyboard-focus inventory tooltip, broken inventory/paperdoll/mercenary gear,
+affordable and insufficient-gold smith states, scroll-bottom containment, and
+the empty state after Repair All. The mobile tooltip stayed within viewport
+bounds and keyboard reachability was true. Mobile logs were empty; desktop logs
+contained only allowed WebGL ReadPixels stall warnings. Evidence is ephemeral at
+`/tmp/curly-enigma-durability-audit-20260729/`.
+
+**Final-tree verification.** The focused durability browser suite passed `3/3`
+in 14.3 seconds, all 14 Node contracts passed, changed-JavaScript syntax and
+`git diff --check` passed, and the full Chromium/SwiftShader suite passed `65/65`
+in 2.0 minutes after all durability fixes. SwiftShader is correctness evidence,
+not hardware-performance certification.
+
+**Next.** Keep durability verified but unarchived until Adrian records owner
+acceptance. The broad D2/WoW/D&D/AAA objective remains active, and the next
+feature continues from this verified batch.
+
+## 2026-07-30 06:07:04 UTC — Sol — Feature-first itemization and recovery batch
+
+**Actor / evidence source:** Sol (`/root`) integrating delegated implementation,
+contract, runtime-audit, and independent visual-review reports. **Revision:**
+branch `main` at baseline `8976a63`; commit/PR: none; the shared working tree is
+intentionally dirty.
+
+**Delivered and verified.** The advanced-effects drawer now has three focused
+browser regressions covering live master/child behavior, resource lifecycle, and
+projectile visibility, followed by an independent visual `ACCEPT`. Cube/socket
+itemization has socket, Cube, and runtime Node contracts plus five focused
+browser tests. Its review-driven fixes give keyboard ownership to the open panel
+and clone every cached sprite canvas so item icons are unique DOM nodes; a fresh
+independent review returned `ACCEPT`.
+
+**Delivered, with one visual gate still open.** Softcore corpse recovery has a
+pure state contract, persistence/runtime integration, multiple atomic recoveries,
+portal and town-fallback behavior, and three focused browser tests; hardcore is
+unchanged. Its first visual review correctly returned `BLOCK` for genuine
+390-pixel announcement overflow and corpse/enemy legend ambiguity. After the
+fixes, `/root/corpse_visual_recheck2` returned exact `ACCEPT` across 16 fresh
+captures: mobile PNGs are 390×844 with `scrollWidth/clientWidth` `390/390`, and
+desktop PNGs are 1600×900 with width metrics `1600/1600`. Labels,
+announcements, corpse diamonds versus enemy circles, focus, and Enter paths were
+safe, with no errors beyond allowed SwiftShader diagnostics. Item durability and
+smith repair have a pure condition contract, persistence, a shared landed-hit
+wear token, broken gear suppression, deterministic physical wear, and an atomic repair UI that
+excludes unresolved corpses. Its Node contracts and three focused browser tests
+pass; its separate visual audit is pending.
+
+**Verification boundary.** All Node tests pass. The final all-up Chromium suite
+also passed `65/65` in 2.0 minutes with SwiftShader. This establishes software
+correctness rather than hardware-GPU performance. Evidence under `/tmp` is
+ephemeral.
+
+**Next.** Resolve the pending durability visual review and iterate any material
+blockers. Do not archive without the existing owner and participant consensus. The broad
+D2/WoW/D&D/AAA objective remains active, and feature work continues after these
+gates.
+
+## 2026-07-30 04:34:47 UTC — Sol — Difficulty campaigns, audited UI, and visible corpse physics
+
+**Actor / evidence source:** Sol (`/root`) implementing the difficulty slice and
+integrating reports from `/root/difficulty_code_review`, `/root/gameplay_audit`,
+`/root/quality_audit`, `/root/visual_audit`, `/root/ragdoll_code_review`, and
+`/root/documentation_audit`. **Revision:** branch `main` at baseline `8976a63`;
+commit/PR: none, changes remain in the shared uncommitted working tree.
+
+**Intent.** Add durable per-character Normal → Nightmare → Hell campaign
+progression; correct two independently audited HUD controls; make corpse physics
+visible and bounded; and repair browser fixtures so failures represent product
+behavior. **Non-goals:** a skeletal/per-limb solver for authored meshes, creation
+of authored actor assets, real-GPU performance certification, or a claim that the
+broad MMORPG/AAA objective is complete.
+
+**Result.** Difficulty selection now preserves hero level, equipment, inventory,
+gold, and shared character systems while isolating campaign progress and quests
+per tier. Act V completion unlocks the next tier, migration is versioned and
+nondestructive for partial/malformed legacy saves, selection fails closed, and
+tier resistance/level/HP/damage rules are covered. The picker has semantic hero
+and delete buttons, accessible sealed tiers, focus/scroll restoration, class
+portrait, tier modifiers, and responsive layout. Action bar 2 once again honors
+its hidden state, and ordinary enemy nameplates honor the setting while elite and
+boss plates remain visible.
+
+Corpse rendering now consumes the existing physics state: bodies translate,
+lift, ease into a signed prone fall, articulate procedural limbs asymmetrically,
+remain grounded using cached transformed bounds, fade with isolated materials,
+drop their shadows during fade, and retire rig/body/material state cleanly. Gore
+debris expires after one second. The authored path is covered through the real
+production instancer using a synthetic rigid model; no authored monster payload
+exists in this checkout.
+
+**Verification.** The initial browser baseline was `38 passed, 8 failed`. All
+eight original failures were fixture/assertion defects (panel state, selector
+scope, fallback ownership, minimap raster brittleness, context timing, layout
+comparison, and FPS-clock assumptions), not eight product fixes. After correction
+and the new feature regressions, Chromium `/usr/bin/chromium` with SwiftShader
+passed `52/52` in 1.0 minute. The exact final commands were:
+
+- `npm run test:dialogue`
+- `npm run test:boss-summons`
+- `npm run test:quests`
+- `npm run test:lore`
+- `npm run test:factions`
+- `npm run test:difficulty`
+- `npm run test:models`
+- `find js tests/node tests/browser -type f -name '*.js' -print0 | xargs -0 -n1 node --check`
+- `git diff --check`
+- `/usr/bin/bash -lc 'PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium npm run test:browser'`
+
+This supersedes the old current-status claim that
+`video-settings-contract.spec.js:3` fails on `main`; that statement remains below
+only as historical evidence. SwiftShader establishes correctness, not hardware
+GPU throughput.
+
+**Review / artifacts.** Final difficulty captures are
+`/tmp/difficulty-latest-desktop.png` and
+`/tmp/difficulty-latest-mobile.png`; the pre-iteration critique is under
+`/tmp/curly-enigma-difficulty-audit-20260729/`. Ragdoll before/after evidence and
+metrics are under `/tmp/curly-enigma-ragdoll-audit-20260729/`,
+`/tmp/curly-enigma-ragdoll-audit-20260729-rerun/`, and
+`/tmp/curly-enigma-ragdoll-audit-20260729-low-random-final/`. The settings
+capture is `/tmp/curly-enigma-audit-20260729/07-settings-video.png`. These `/tmp`
+artifacts are ephemeral. The final visual reviewer measured a monotonic
+low-random fall, full prone at about 542 ms, effectively zero floor penetration,
+and no persistent corpse shadow; the independent code reviewer reported no
+remaining blocker.
+
+**Known limitations / next.** Corpse motion is a short-lived whole-body fall
+with procedural limb posing, not a general skeletal ragdoll. Authored behavior is
+synthetic-test-only; the model audit reports 18 mapped monster species and zero
+present authored payloads. Overall world lighting, HUD hierarchy, and actor art
+remain well below the target visual bar, and no real-GPU capture was performed.
+The next product slice is the visual foundation/authored-actor/HUD-readability
+pass. Separately, `TASK-20260729-01` remains active for dynamic advanced-effect
+master/child switching, disposal/reinitialization, and projectile visibility.
+
 ## 2026-07-30 01:23:44 UTC — Sol — Consolidate complete Wave program
 
 **Actor / evidence source:** Sol (`/root`) using reports from `/root/wave1`,

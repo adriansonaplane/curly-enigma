@@ -5,14 +5,69 @@ const Ent = {
 
   BOSS_ADD_CAP: 6,
 
+  itemBroken(item) {
+    return !!(item && typeof ItemCondition !== 'undefined' && ItemCondition.isBroken(item));
+  },
+  itemUnidentified(item) {
+    return !!(item && typeof ItemIdentification !== 'undefined' && ItemIdentification.needsIdentification(item));
+  },
+  itemCharm(item) {
+    return !!(item && typeof InventoryCharms !== 'undefined' && InventoryCharms &&
+      typeof InventoryCharms.isCharmRecord === 'function' && InventoryCharms.isCharmRecord(item));
+  },
+  itemInactive(item) { return this.itemBroken(item) || this.itemUnidentified(item) || this.itemCharm(item); },
+  activeItem(pl, slot) {
+    const item = pl && pl.equip ? pl.equip[slot] : null;
+    return item && !this.itemInactive(item) ? item : null;
+  },
+  activeWeapon(pl) { return this.activeItem(pl, 'weapon'); },
+  weaponUse(pl) {
+    const item = this.activeWeapon(pl);
+    return item ? { item, pl, worn: false } : null;
+  },
+  wearCondition(pl, item, label) {
+    if (!item || typeof ItemCondition === 'undefined') return null;
+    const result = ItemCondition.wear(item, 1);
+    if (result.broke) {
+      if (pl) {
+        this.computeDerived(pl);
+        if (Number.isFinite(pl.hp)) pl.hp = Math.min(pl.hp, pl.derived.maxHp);
+        if (Number.isFinite(pl.mp)) pl.mp = Math.min(pl.mp, pl.derived.maxMp);
+      }
+      if (typeof UI !== 'undefined' && UI.announce)
+        UI.announce(`${typeof Items !== 'undefined' ? Items.displayName(item) : item.name || label || 'An item'} broke — its bonuses are disabled`, '#ff6a5a');
+    }
+    return result;
+  },
+  consumeWeaponUse(use) {
+    if (!use || use.worn) return null;
+    use.worn = true;
+    return this.wearCondition(use.pl, use.item, 'Weapon');
+  },
+  wearArmor(pl) {
+    if (!pl || !pl.equip || typeof ItemCondition === 'undefined') return null;
+    const slots = ['helm', 'chest', 'gloves', 'boots', 'belt', 'offhand'];
+    const eligible = slots.filter(slot => {
+      const item = this.activeItem(pl, slot);
+      return item && ItemCondition.maxDurability(item) > 0;
+    });
+    if (!eligible.length) return null;
+    const cursor = Math.max(0, Math.floor(Number(pl.conditionWearCursor) || 0));
+    const slot = eligible[cursor % eligible.length];
+    pl.conditionWearCursor = cursor + 1;
+    return this.wearCondition(pl, pl.equip[slot], slot === 'offhand' ? 'Offhand' : 'Armor');
+  },
+
   mercXpForLevel(level) { return 80 + level * level * 45; },
   mercDerived(state) {
     const def = MERCENARY_BY_ID[state.archetypeId], bonus = {};
     for (const item of Object.values(state.equipment || {})) if (item) {
+      if (this.itemInactive(item)) continue;
       for (const [key, value] of Object.entries(item.stats || {})) bonus[key] = (bonus[key] || 0) + value;
+      for (const [key, value] of Object.entries(Items.socketStats(item))) bonus[key] = (bonus[key] || 0) + value;
       if (item.armor) bonus.armor = (bonus.armor || 0) + item.armor;
     }
-    const weapon = state.equipment && state.equipment.weapon;
+    const weapon = state.equipment && state.equipment.weapon && !this.itemInactive(state.equipment.weapon) ? state.equipment.weapon : null;
     return { maxHp: Math.floor(def.baseHp + def.hpLvl * (state.level - 1) + (bonus.hp || 0) + (bonus.vit || 0) * 3),
       dmgLo: (weapon && weapon.dmg ? weapon.dmg[0] : def.dmg[0] + def.dmgLvl * (state.level - 1)) + (bonus.dmgFlat || 0),
       dmgHi: (weapon && weapon.dmg ? weapon.dmg[1] : def.dmg[1] + def.dmgLvl * (state.level - 1)) + (bonus.dmgFlat || 0),
@@ -48,20 +103,31 @@ const Ent = {
     // equipment
     for (const slot in pl.equip) {
       const it = pl.equip[slot];
-      if (!it) continue;
+      if (!it || this.itemInactive(it)) continue;
       for (const k in it.stats) add(k, it.stats[k]);
+      const socketStats = Items.socketStats(it);
+      for (const k in socketStats) add(k, socketStats[k]);
       if (it.armor) add('armor', it.armor);
       if (it.spellPct) add('spellPct', it.spellPct);
       if (it.critBonus) add('critCh', it.critBonus);
     }
     // set bonuses
     const setCounts = {};
-    for (const slot in pl.equip) { const it = pl.equip[slot]; if (it && it.setId) setCounts[it.setId] = (setCounts[it.setId] || 0) + 1; }
+    for (const slot in pl.equip) { const it = pl.equip[slot]; if (it && !this.itemInactive(it) && it.setId) setCounts[it.setId] = (setCounts[it.setId] || 0) + 1; }
     for (const sid in setCounts) {
       const set = SETS.find(s => s.id === sid);
       for (const nStr in set.bonuses) if (setCounts[sid] >= +nStr)
         for (const k in set.bonuses[nStr]) add(k, set.bonuses[nStr][k]);
     }
+    // Charms are authoritative carried-grid effects, never equipment. The pure
+    // aggregate fails closed on malformed anchors, overlap, aliases, or IDs so
+    // a corrupt inventory cannot grant even a partial bonus.
+    const charmState = typeof InventoryCharms !== 'undefined' && InventoryCharms &&
+      typeof InventoryCharms.aggregate === 'function' && typeof Items !== 'undefined'
+      ? InventoryCharms.aggregate(pl, Items.sizeOf.bind(Items))
+      : { ok: true, stats: {}, activeIds: [], inactive: [] };
+    pl.charmState = charmState;
+    if (charmState.ok) for (const key of Object.keys(charmState.stats)) add(key, charmState.stats[key]);
     // passive skills
     for (const skId in pl.skills) {
       const sk = SKILL_BY_ID[skId];
@@ -81,12 +147,17 @@ const Ent = {
     d.armor = Math.floor(((g.armor || 0)) * (1 + (g.armorPct || 0) / 100) + d.dex * 0.8);
     d.physMult = 1 + d[cls.dmgStat] * 0.013 + (g.dmgPct || 0) / 100;
     d.spellPower = 1 + d.ene * 0.011 + (g.spellPct || 0) / 100 + (g.dmgPct || 0) / 200;
-    d.atkRate = 1.9 * (pl.equip.weapon ? pl.equip.weapon.spd : 1.1) * (1 + (g.atkSpd || 0) / 100);
+    const activeWeapon = this.activeWeapon(pl);
+    d.atkRate = 1.9 * (activeWeapon ? activeWeapon.spd : 1.1) * (1 + (g.atkSpd || 0) / 100);
     d.critCh = U.clamp(5 + d.dex * 0.05 + (g.critCh || 0), 0, 75);
     d.critDmg = 1.5 + (g.critDmg || 0) / 100;
     d.moveSpd = 4.6 * (1 + (g.moveSpd || 0) / 100);
+    // Apply the tier penalty to uncapped gear resistance. Capping first would
+    // incorrectly discard over-cap resistance that is meant to offset it.
+    const diff = typeof difficultyByIdx === 'function' ? difficultyByIdx(pl.difficultyIdx || 0) : null;
+    const resistancePenalty = diff ? diff.resPenalty || 0 : 0;
     for (const r of ['fireRes', 'coldRes', 'liteRes', 'poisRes', 'arcRes'])
-      d[r] = U.clamp((g[r] || 0) + (g.allRes || 0), -50, 75);
+      d[r] = U.clamp((g[r] || 0) + (g.allRes || 0) - resistancePenalty, resistancePenalty ? -150 : -50, 75);
     d.leechHp = (g.leechHp || 0); d.leechMp = (g.leechMp || 0);
     d.mf = (g.mf || 0); d.goldFind = (g.goldFind || 0);
     d.lightRad = 7.6 + (g.lightRad || 0);
@@ -105,7 +176,7 @@ const Ent = {
     d.crushBlow = U.clamp(g.crushBlow || 0, 0, 100);
     d.openWounds = U.clamp(g.openWounds || 0, 0, 100);
     // shield blocking
-    const shield = pl.equip.offhand;
+    const shield = this.activeItem(pl, 'offhand');
     const shieldBase = shield && shield.baseBlockPct ? shield.baseBlockPct : 0;
     const bonusBlock = g.blockPct || 0;
     if (shieldBase > 0) {
@@ -113,14 +184,21 @@ const Ent = {
     } else {
       d.blockChance = 0;
     }
-    // difficulty resistance penalty
-    const diff = typeof difficultyByIdx === 'function' ? difficultyByIdx(pl.difficultyIdx || 0) : null;
-    if (diff && diff.resPenalty) {
-      for (const r of ['fireRes', 'coldRes', 'liteRes', 'poisRes', 'arcRes'])
-        d[r] = U.clamp(d[r] - diff.resPenalty, -150, 75);
-    }
     pl.derived = d;
     return d;
+  },
+
+  refreshDerived(pl, options = {}) {
+    if (!pl) return null;
+    const priorHp = Number(pl.hp), priorMp = Number(pl.mp);
+    const derived = this.computeDerived(pl);
+    if (options.fill) {
+      pl.hp = derived.maxHp; pl.mp = derived.maxMp;
+      return derived;
+    }
+    pl.hp = Number.isFinite(priorHp) ? U.clamp(priorHp, 0, derived.maxHp) : derived.maxHp;
+    pl.mp = Number.isFinite(priorMp) ? U.clamp(priorMp, 0, derived.maxMp) : derived.maxMp;
+    return derived;
   },
 
   skillLvl(pl, skId) {
@@ -130,7 +208,7 @@ const Ent = {
   },
 
   weaponDmg(pl) {
-    const w = pl.equip.weapon;
+    const w = this.activeWeapon(pl);
     return w && w.dmg ? w.dmg : [1, 3];
   },
 
@@ -149,7 +227,8 @@ const Ent = {
   // physical/weapon-scaled skill damage roll
   rollWeaponDmg(pl, mult, sk) {
     const [lo, hi] = this.weaponDmg(pl);
-    const base = U.rf(U.rand, lo, hi) + (pl.equip.weapon && pl.equip.weapon.stats.dmgFlat || 0);
+    const weapon = this.activeWeapon(pl);
+    const base = U.rf(U.rand, lo, hi) + (weapon && weapon.stats.dmgFlat || 0);
     const synMul = sk ? this.synergyMult(pl, sk) : 1;
     return base * mult * pl.derived.physMult * synMul;
   },
@@ -169,7 +248,7 @@ const Ent = {
   PROJ_TTL: 2.2, CHAIN_TTL: 1.6,
   skillRange(sk, pl) {
     if (!sk) {                                    // plain weapon attack
-      const w = pl && pl.equip ? pl.equip.weapon : null;
+      const w = this.activeWeapon(pl);
       const base = w ? Items.baseById(w.type) : null;
       return (base && (base.ranged || base.caster)) ? 8.5 : 2.0;
     }
@@ -211,6 +290,11 @@ const Ent = {
     const d = pl.derived;
     const ang = pl.dir;
     const elemFlat = sk.wd ? (d.flatElem[sk.elem === 'phys' ? 'fire' : sk.elem] || 0) * 0 + this.totalFlat(d) : 0;
+    // One shared token follows every target/projectile produced by this
+    // action. It is consumed only by the first landed weapon hit, preventing
+    // multishot, pierce, nova, and multi-target skills from wearing once per
+    // victim instead of once per action.
+    const conditionUse = sk.wd ? this.weaponUse(pl) : null;
 
     switch (sk.arch) {
       case 'strike': {
@@ -246,11 +330,13 @@ const Ent = {
         // slash fx
         FX.slash(pl.x, pl.y, ang, range, ELEM[sk.elem].color);
         if (any) sfx('hit');
+        if (any && sk.wd) this.consumeWeaponUse(conditionUse);
         break;
       }
       case 'slam': {
         sfx('explode');
         const radius = sk.radius || 2.5;
+        let any = false;
         for (const m of G.monsters) {
           if (m.ally || m.dead) continue;
           if (U.dist(pl.x, pl.y, m.x, m.y) > radius + m.size * 0.3) continue;
@@ -265,9 +351,11 @@ const Ent = {
           this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
           if (sk.wd) this.applyWeaponHitEffects(m, pl);
           if (sk.stun) m.stunT = Math.max(m.stunT, sk.stun);
+          any = true;
         }
         FX.ring(pl.x, pl.y, radius, ELEM[sk.elem].color);
         G.shake += 5;
+        if (any && sk.wd) this.consumeWeaponUse(conditionUse);
         break;
       }
       case 'proj': {
@@ -287,7 +375,7 @@ const Ent = {
             ttl: 2.2, pierce: (sk.pierce || 0) + (sk.wd ? d.pierce : 0), explodeR: sk.explodeR || 0,
             homing: sk.homing, wobble: sk.wobble, orb: sk.orb, orbT: 0, orbRate: sk.orbRate,
             slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: sk.orb ? 'orb' : 'bolt', srcName,
-            weaponHit: !!sk.wd,
+            weaponHit: !!sk.wd, conditionUse,
           });
         }
         break;
@@ -303,7 +391,7 @@ const Ent = {
             x: pl.x, y: pl.y, vx: Math.cos(a) * sk.speed, vy: Math.sin(a) * sk.speed,
             dmg, elem: sk.elem, ally: true, from: pl, r: 0.3, ttl: 1.1,
             slowHit: sk.slowHit, crit: U.chance(U.rand, d.critCh / 100), kind: 'bolt', srcName,
-            weaponHit: !!sk.wd, pierce: sk.wd ? d.pierce : 0,
+            weaponHit: !!sk.wd, conditionUse, pierce: sk.wd ? d.pierce : 0,
           });
         }
         FX.ring(pl.x, pl.y, 1.2, ELEM[sk.elem].color);
@@ -429,6 +517,7 @@ const Ent = {
         FX.ring(pl.x, pl.y, 0.8, '#c07bff');
         pl.x = nx; pl.y = ny;
         if (sk.wd) { // damaging landing
+          let any = false;
           for (const m of G.monsters) {
             if (m.ally || m.dead) continue;
             if (U.dist(pl.x, pl.y, m.x, m.y) > (sk.radius || 2)) continue;
@@ -441,9 +530,11 @@ const Ent = {
             if (crit) dmg *= d.critDmg;
             if (sk.elem === 'phys') dmg = this.applyPhysSpecials(dmg, m, pl);
             this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
+            any = true;
           }
           FX.ring(pl.x, pl.y, sk.radius || 2, ELEM[sk.elem].color);
           G.shake += 6;
+          if (any) this.consumeWeaponUse(conditionUse);
         }
         break;
       }
@@ -515,17 +606,19 @@ const Ent = {
     pl.gcd = 1 / d.atkRate;
     pl.attackT = 0.3;
     pl.dir = U.angleTo(pl.x, pl.y, tx, ty);
-    const w = pl.equip.weapon;
+    const w = this.activeWeapon(pl);
+    const conditionUse = this.weaponUse(pl);
     const flat = this.totalFlat(d);
-    if (w && (w.ranged || Items.baseById(w.type).caster)) {
-      const caster = !!Items.baseById(w.type).caster;
+    const weaponBase = w ? Items.baseById(w.type) : null;
+    if (w && (w.ranged || (weaponBase && weaponBase.caster))) {
+      const caster = !!(weaponBase && weaponBase.caster);
       sfx('shoot');
       const dmg = this.rollWeaponDmg(pl, 1.35) + flat;
       G.projs.push({
         x: pl.x, y: pl.y, vx: Math.cos(pl.dir) * 14, vy: Math.sin(pl.dir) * 14,
         dmg, elem: caster ? 'arc' : 'phys', ally: true, from: pl, r: 0.28, ttl: 1.8,
         crit: U.chance(U.rand, d.critCh / 100), kind: caster ? 'orb' : 'arrow', srcName: 'Attack',
-        weaponHit: true, pierce: d.pierce,
+        weaponHit: true, conditionUse, pierce: d.pierce,
       });
     } else {
       sfx('swing');
@@ -548,6 +641,7 @@ const Ent = {
       }
       FX.slash(pl.x, pl.y, pl.dir, 1.7, '#cfcfcf');
       if (any) sfx('hit');
+      if (any) this.consumeWeaponUse(conditionUse);
     }
     return true;
   },
@@ -582,13 +676,13 @@ const Ent = {
 
     if (opts.rank === 'champion') {
       m.rank = 'champion'; m.maxHp = m.hp = Math.floor(m.maxHp * 1.9); m.dmgLo *= 1.25; m.dmgHi *= 1.25;
-      m.xpVal *= 3; m.name = 'Champion ' + m.name; m.size *= 1.12; m.resist = 0.1;
+      m.xpVal *= 3; m.name = 'Champion ' + m.name; m.size *= 1.12; m.resist += 0.1;
     } else if (opts.rank === 'elite') {
       m.rank = 'elite';
       const modKeys = U.shuffle(makeRng((x * 31 + y * 17) | 0), Object.keys(ELITE_MODS)).slice(0, U.ri(U.rand, 2, 3));
       m.mods = modKeys;
       m.maxHp = m.hp = Math.floor(m.maxHp * 3.2); m.dmgLo *= 1.5; m.dmgHi *= 1.5;
-      m.xpVal *= 7; m.size *= 1.22; m.resist = 0.15;
+      m.xpVal *= 7; m.size *= 1.22; m.resist += 0.15;
       m.eliteName = U.pick(U.rand, ELITE_NAME_A) + U.pick(U.rand, ELITE_NAME_B);
       m.name = m.eliteName + ' the ' + modKeys.map(k => ELITE_MODS[k].name)[0];
       for (const k of modKeys) {
@@ -715,7 +809,7 @@ const Ent = {
     const kx = killer && killer.x !== undefined ? killer.x : m.x - 1;
     const ky = killer && killer.y !== undefined ? killer.y : m.y;
     Physics.ragdoll(m, U.angleTo(kx, ky, m.x, m.y), 1 + m.size * 0.6);
-    Physics.burst(m.x, m.y, 'gore', Math.round(3 + m.size * 3), { speed: 2.6, size: 2.4 });
+    Physics.burst(m.x, m.y, 'gore', Math.round(3 + m.size * 3), { speed: 2.6, size: 2.4, life: 1 });
     // elite death nova
     for (const k of m.mods || []) {
       const mod = ELITE_MODS[k];
@@ -743,6 +837,7 @@ const Ent = {
           pl.blockCd = this.BLOCK_COOLDOWN;
           UI.dmgNum(pl.x, pl.y - 0.6, 'Block', '#8fc8ff');
           sfx('hit');
+          this.wearCondition(pl, this.activeItem(pl, 'offhand'), 'Shield');
           return;
         }
       }
@@ -757,6 +852,7 @@ const Ent = {
     }
     dmg = Math.max(1, dmg);
     pl.hp -= dmg;
+    if (elem === 'phys' || !elem) this.wearArmor(pl);
     // Being hit interrupts the attack pose. Previously attack had animation
     // priority over hurt, then resurfaced after the hurt window, which looked
     // like facing had snapped back even though `dir` itself never changed.
@@ -1183,6 +1279,7 @@ const Ent = {
           if (p.weaponHit && p.from === G.player && p.elem === 'phys') dmg = this.applyPhysSpecials(dmg, m, p.from);
           this.damageMonster(m, dmg, p.elem, { crit: p.crit, from: p.from, srcName: p.srcName });
           if (p.weaponHit) this.applyWeaponHitEffects(m, p.from);
+          if (p.weaponHit) this.consumeWeaponUse(p.conditionUse);
           if (p.slowHit) this.applyDebuff(m, { slow: p.slowHit }, 2.5);
           if (p.jumps && p.jumps > 0) {
             let best = null, bd = 30;

@@ -1,18 +1,23 @@
 const { test, expect } = require('@playwright/test');
 
-test('every visible video toggle changes its declared renderer state', async ({ page }) => {
+async function openVideo(page) {
   await page.goto('/index.html');
   await page.waitForFunction(() => typeof WUI !== 'undefined' && WUI.set && typeof Render !== 'undefined');
-
   await page.evaluate(() => {
     WUI.settingsTab = WUI.SETTINGS_TABS.indexOf('VIDEO');
-    WUI.renderSettings();
-    document.getElementById('panel-settings').classList.remove('hidden');
+    document.getElementById('menu-screen').classList.add('hidden');
+    UI.open('settings');
   });
+}
+
+test('every visible video toggle changes its declared renderer state', async ({ page }) => {
+  await openVideo(page);
 
   const contracts = await page.evaluate(() => WUI.VIDEO_TOGGLES.map(({ key, state }) => ({ key, state })));
-  const visible = await page.locator('#panel-settings .ws-row[data-setting] .ws-toggle').count();
-  expect(visible).toBe(contracts.length);
+  const renderedKeys = await page.locator('#panel-settings .ws-row[data-setting]')
+    .evaluateAll(rows => rows.map(row => row.dataset.setting));
+  for (const { key } of contracts)
+    expect(renderedKeys.filter(rendered => rendered === key), `${key} has one live renderer control`).toHaveLength(1);
 
   for (const contract of contracts) {
     const before = await page.evaluate(({ key, state }) => ({
@@ -60,8 +65,7 @@ test('retired AO and reflection settings are neither visible nor forwarded', asy
 });
 
 test('fog defaults off, toggles on, and persists without changing shafts', async ({ page }) => {
-  await page.goto('/index.html');
-  await page.waitForFunction(() => typeof WUI !== 'undefined' && WUI.set && typeof Render !== 'undefined');
+  await openVideo(page);
 
   const defaults = await page.evaluate(() => ({
     graphics: GraphicsConfig.DEFAULTS.fog,
@@ -80,10 +84,6 @@ test('fog defaults off, toggles on, and persists without changing shafts', async
     shaftsConfig: true,
   });
 
-  await page.evaluate(() => {
-    WUI.settingsTab = WUI.SETTINGS_TABS.indexOf('VIDEO');
-    WUI.renderSettings();
-  });
   await page.locator('#panel-settings .ws-row[data-setting="fog"] .ws-toggle').click();
 
   const toggled = await page.evaluate(() => {

@@ -31,6 +31,10 @@ const Render = {
   _contextLossLevel: 0,
   _mapBuilt: null,
   _shadows: null,
+  // Number of required gameplay projectile telegraphs drawn by the
+  // zero-WebGL-resource overlay in the most recent frame. The 3D meshes add
+  // depth and light, while this native-resolution layer guarantees contrast.
+  projectileTelegraphsDrawn: 0,
   cpuUpdateMs: 0, cpuRenderMs: 0, activeLights: 0,
   sceneCounters: null, frameCounters: null,
 
@@ -152,7 +156,10 @@ const Render = {
       use(map.entry.x + 0.5, map.entry.y + 0.5, '#8fc8ff', 2.0, 0.45);
       if (map.waypoint) use(map.waypoint.x, map.waypoint.y, '#8fc8ff', 2.8, 0.7, 1.1);
       const pp = G.portalOnMap && G.portalOnMap(map);
-      if (pp) use(pp.x, pp.y, '#4f8fff', 3.4, 0.8, 1.3);
+      if (pp) use(pp.x, pp.y, G.portal && G.portal.deathReturn ? '#b92f2a' : '#4f8fff', 3.4, 0.8, 1.3);
+      if (typeof Game !== 'undefined' && Game.corpsesOnMap)
+        for (const corpse of Game.corpsesOnMap(map))
+          use(corpse.location.x, corpse.location.y, '#e24834', 1.9, 0.62, 0.45);
     }
     // loot: a bead in its rarity colour, close enough to read as a drop
     for (const gi of G.groundItems || []) {
@@ -339,6 +346,7 @@ const Render = {
     // ---------- 2D overlay ----------
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.W, this.H);
+    this.drawProjectileTelegraphs(ctx);
     if (Target && Target.draw) Target.draw(ctx, t);
     if (Physics && Physics.drawSmall) Physics.drawSmall(ctx);
     this.drawPlates(ctx, t);
@@ -371,7 +379,9 @@ const Render = {
           minChunkInstances: Props3.CHUNK_MIN_INSTANCES }, propInstances),
       },
       authoredModels: !!R3.authoredModels,
-      effects: FX3.stats ? FX3.stats() : null,
+      effects: FX3.stats ? Object.assign({}, FX3.stats(), {
+        projectileTelegraphs: this.projectileTelegraphsDrawn,
+      }) : null,
       props: { authoredModels: !!R3.authoredModels,
         diagnostics: (Props3.diagnostics || []).map(d => Object.assign({}, d)) },
     });
@@ -393,11 +403,74 @@ const Render = {
     return this.diagnosticSnapshot();
   },
 
+  // Projectiles carry damage and collision, so their essential silhouette must
+  // never depend on optional 3D geometry or lighting contrast. The WebGL mesh
+  // remains additive detail in advanced mode; this native-resolution telegraph
+  // is always present and stays a fixed screen size at every camera zoom.
+  drawProjectileTelegraphs(ctx) {
+    this.projectileTelegraphsDrawn = 0;
+    if (!ctx || typeof FX3 === 'undefined') return 0;
+
+    const projectiles = G.projs || [];
+    const limit = Math.min(projectiles.length, FX3.PROJS || 64);
+    for (let i = 0; i < limit; i++) {
+      const p = projectiles[i];
+      if (!p || p.dead) continue;
+      const point = R3.worldToScreen(p.x, p.y, 0.55);
+      const sx = point[0], sy = point[1], depth = point[2];
+      if (depth < -1 || depth > 1 || sx < -24 || sx > this.W + 24 || sy < -24 || sy > this.H + 24) continue;
+
+      const elem = ELEM[p.elem] || ELEM.phys;
+      const color = elem.color;
+      const speed = Math.hypot(Number(p.vx) || 0, Number(p.vy) || 0);
+      const ux = speed > 0.0001 ? p.vx / speed : 1;
+      const uy = speed > 0.0001 ? p.vy / speed : 0;
+      const ahead = R3.worldToScreen(p.x + ux * 0.45, p.y + uy * 0.45, 0.55);
+      const screenDx = ahead[0] - sx, screenDy = ahead[1] - sy;
+      const angle = Math.abs(screenDx) + Math.abs(screenDy) > 0.0001
+        ? Math.atan2(screenDy, screenDx) : 0;
+
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(angle);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (p.kind === 'arrow') {
+        // Dark silhouette first, then a pale shaft and elemental head. This
+        // remains legible over both bright town floors and near-black dungeons.
+        ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(7, 0);
+        ctx.strokeStyle = 'rgba(0,0,0,0.9)'; ctx.lineWidth = 5; ctx.stroke();
+        ctx.strokeStyle = '#ead9ad'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(3, -5); ctx.lineTo(4.5, 0); ctx.lineTo(3, 5); ctx.closePath();
+        ctx.fillStyle = color; ctx.strokeStyle = 'rgba(0,0,0,0.9)'; ctx.lineWidth = 2;
+        ctx.fill(); ctx.stroke();
+      } else {
+        const radius = p.kind === 'orb' ? 6 : 4.5;
+        if (p.kind === 'bolt') {
+          ctx.beginPath(); ctx.moveTo(-11, 0); ctx.lineTo(-2, 0);
+          ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = 6; ctx.stroke();
+          ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
+        }
+        ctx.shadowColor = color; ctx.shadowBlur = p.kind === 'orb' ? 9 : 6;
+        ctx.beginPath(); ctx.arc(0, 0, radius + 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.82)'; ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fillStyle = color; ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.arc(-radius * 0.22, -radius * 0.22, Math.max(1.5, radius * 0.34), 0, Math.PI * 2);
+        ctx.fillStyle = '#fff7dc'; ctx.fill();
+      }
+      ctx.restore();
+      this.projectileTelegraphsDrawn++;
+    }
+    return this.projectileTelegraphsDrawn;
+  },
+
   // Nameplates and health bars: screen-space by nature, so they stay 2D and
   // stay crisp instead of being billboarded quads that fight the depth buffer.
   drawPlates(ctx, t) {
     const pl = G.player;
-    const plates = this.fx.plates !== false;
+    const nameplates = this.fx.nameplates !== false;
     ctx.save();
     ctx.textAlign = 'center';
     ctx.font = '11px Palatino Linotype, serif';
@@ -417,7 +490,7 @@ const Render = {
       }
       // Summons and trap-spawned actors can carry no display name; drawing the
       // plate anyway printed a literal "undefined" over the fight.
-      if (m.name && (m.rank === 'elite' || m.boss || (plates && !m.ally))) {
+      if (m.name && (m.rank === 'elite' || m.boss || (nameplates && !m.ally))) {
         ctx.fillStyle = m.boss ? '#ff8a6a' : m.rank === 'elite' ? '#ffd94f' : '#d8cdb0';
         ctx.fillText(m.name, sx, sy - 10);
       }
@@ -428,22 +501,56 @@ const Render = {
       ctx.fillStyle = '#ffe9a8';
       ctx.fillText(n.name || 'Villager', sx, sy - 6);
     }
+    const deathPortal = G.portal && G.portal.deathReturn && G.portalOnMap(G.map);
+    if (deathPortal && U.dist(deathPortal.x, deathPortal.y, pl.x, pl.y) <= 14) {
+      const [sx, sy, depth] = R3.worldToScreen(deathPortal.x, deathPortal.y, 1.7);
+      if (depth <= 1) {
+        const label = 'RETURN TO CORPSE', w = ctx.measureText(label).width + 16;
+        const edge = this.W <= 600 ? 66 : 6;
+        const lx = U.clamp(sx, w / 2 + 6, Math.max(w / 2 + 6, this.W - w / 2 - edge));
+        ctx.fillStyle = 'rgba(20,4,3,.84)'; ctx.fillRect(lx - w / 2, sy - 17, w, 18);
+        ctx.strokeStyle = 'rgba(238,78,55,.88)'; ctx.strokeRect(lx - w / 2, sy - 17, w, 18);
+        ctx.fillStyle = '#ff9b79'; ctx.fillText(label, lx, sy - 4);
+      }
+    }
+    // Player corpses are durable, destructive-recovery targets, so their
+    // label remains distinct from ordinary loot and states the item count.
+    if (typeof Game !== 'undefined' && Game.corpsesOnMap) for (const corpse of Game.corpsesOnMap()) {
+      if (U.dist(corpse.location.x, corpse.location.y, pl.x, pl.y) > 12) continue;
+      const [sx, sy, depth] = R3.worldToScreen(corpse.location.x, corpse.location.y, 1.25);
+      if (depth > 1) continue;
+      const count = corpse.gear.length, label = `YOUR CORPSE · ${count} ITEM${count === 1 ? '' : 'S'}`;
+      ctx.font = 'bold 11px Palatino Linotype, serif';
+      const w = ctx.measureText(label).width + 16;
+      const edge = this.W <= 600 ? 66 : 6;
+      const lx = U.clamp(sx, w / 2 + 6, Math.max(w / 2 + 6, this.W - w / 2 - edge));
+      ctx.fillStyle = 'rgba(20,4,3,.84)'; ctx.fillRect(lx - w / 2, sy - 17, w, 18);
+      ctx.strokeStyle = 'rgba(226,72,52,.82)'; ctx.strokeRect(lx - w / 2, sy - 17, w, 18);
+      ctx.fillStyle = '#ff9b79'; ctx.fillText(label, lx, sy - 4);
+    }
     // loot labels — the drop itself is a bead in the 3D scene
     for (const gi of G.groundItems || []) {
       if (U.dist(gi.x, gi.y, pl.x, pl.y) > 9) continue;
       const [sx, sy, depth] = R3.worldToScreen(gi.x, gi.y, 0.9);
       if (depth > 1) continue;
-      const label = gi.gold ? gi.gold + ' gold' : (gi.item && gi.item.name) || '';
+      let label = gi.gold ? gi.gold + ' gold' : (gi.item && Items.displayName(gi.item)) || '';
       if (!label) continue;
       const c = gi.gold ? '#ffd94f' : Items.rarityColor(gi.item.rarity);
       ctx.font = '11px Palatino Linotype, serif';
+      const maxLabelWidth = Math.max(80, this.W - (this.W <= 600 ? 142 : 20));
+      if (ctx.measureText(label).width + 10 > maxLabelWidth) {
+        while (label.length > 8 && ctx.measureText(label + '…').width + 10 > maxLabelWidth) label = label.slice(0, -1);
+        label += '…';
+      }
       const w = ctx.measureText(label).width + 10;
+      const edge = this.W <= 600 ? 66 : 6;
+      const lx = U.clamp(sx, w / 2 + 6, Math.max(w / 2 + 6, this.W - w / 2 - edge));
       ctx.fillStyle = 'rgba(8,8,10,0.72)';
-      ctx.fillRect(sx - w / 2, sy - 12, w, 15);
+      ctx.fillRect(lx - w / 2, sy - 12, w, 15);
       ctx.strokeStyle = U.rgba(c, 0.6); ctx.lineWidth = 1;
-      ctx.strokeRect(sx - w / 2, sy - 12, w, 15);
+      ctx.strokeRect(lx - w / 2, sy - 12, w, 15);
       ctx.fillStyle = c;
-      ctx.fillText(label, sx, sy - 1);
+      ctx.fillText(label, lx, sy - 1);
     }
     ctx.restore();
   },
@@ -533,8 +640,11 @@ const Render = {
       out.push({ x: mo.x, y: mo.y, kind: mo.ally ? 'allies' : 'enemies', color: mo.ally ? '#6be26b' : mo.boss ? '#ff5a3c' : mo.rank === 'elite' ? '#ffd94f' : '#c0392b', size: .48, entity: mo });
     for (const n of G.npcs) if (exploredAt(n.x, n.y)) out.push({ x: n.x, y: n.y, kind: 'npcs', color: '#ffe9a8', size: .52, entity: n });
     const portal = G.portalOnMap(map);
-    if (portal && exploredAt(portal.x, portal.y)) out.push({ ...portal, kind: 'travel', color: '#4f8fff', size: .68 });
+    if (portal && exploredAt(portal.x, portal.y)) out.push({ ...portal, kind: 'travel', color: G.portal && G.portal.deathReturn ? '#b92f2a' : '#4f8fff', size: .68 });
     if (map.waypoint && exploredAt(map.waypoint.x, map.waypoint.y)) out.push({ ...map.waypoint, kind: 'travel', color: '#8fc8ff', size: .68 });
+    if (typeof Game !== 'undefined' && Game.corpsesOnMap) for (const corpse of Game.corpsesOnMap(map))
+      if (exploredAt(corpse.location.x, corpse.location.y))
+        out.push({ x: corpse.location.x, y: corpse.location.y, kind: 'corpses', color: '#e24834', size: .72 });
     // A narrative marker is earned by inspecting the site. Merely exploring
     // its tile must not spoil an undiscovered clue on either map surface.
     for (const site of [...(map.clues || []), ...(map.encounters || [])])
@@ -579,7 +689,12 @@ const Render = {
       if (filters[marker.kind] === false) continue;
       ctx.fillStyle=marker.color; const z=marker.size;
       if (marker.kind === 'quests') { ctx.strokeStyle='#2a1900'; ctx.lineWidth=.14; ctx.beginPath(); ctx.arc(marker.x,marker.y,z*.62,0,Math.PI*2); ctx.fill(); ctx.stroke(); }
-      else ctx.fillRect(marker.x-z/2,marker.y-z/2,z,z);
+      else if (marker.kind === 'corpses') {
+        ctx.strokeStyle='#35100b'; ctx.lineWidth=.13; ctx.beginPath();
+        ctx.moveTo(marker.x,marker.y-z*.62); ctx.lineTo(marker.x+z*.62,marker.y);
+        ctx.lineTo(marker.x,marker.y+z*.62); ctx.lineTo(marker.x-z*.62,marker.y); ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle='#ffd0b8'; ctx.fillRect(marker.x-z*.08,marker.y-z*.34,z*.16,z*.68);
+      } else ctx.fillRect(marker.x-z/2,marker.y-z/2,z,z);
     }
     ctx.restore();
     ctx.save(); ctx.translate(W/2+(pl.x-center.x)*scale, H/2+(pl.y-center.y)*scale); ctx.rotate((Number.isFinite(pl.dir)?pl.dir:0)-yaw);

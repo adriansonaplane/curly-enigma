@@ -4,9 +4,9 @@ async function openInterface(page) {
   await page.goto('/index.html');
   await page.waitForFunction(() => typeof WUI !== 'undefined' && WUI.set && Object.keys(WUI.frames).length);
   await page.evaluate(() => {
+    Game.newGame('LayoutResetHero', 'warbringer', false);
     WUI.settingsTab = WUI.SETTINGS_TABS.indexOf('INTERFACE');
-    WUI.renderSettings();
-    document.getElementById('panel-settings').classList.remove('hidden');
+    UI.open('settings');
   });
 }
 
@@ -18,8 +18,9 @@ test('layout reset waits for confirmation and applies without reloading', async 
     WUI.layout.player = { x: 300, y: 240 };
     WUI._save(WUI.LAYK, WUI.layout);
     window.layoutResetPageMarker = true;
+    const player = document.getElementById('wui-player').getBoundingClientRect();
     return {
-      rect: document.getElementById('wui-player').getBoundingClientRect().toJSON(),
+      position: { x: player.x, y: player.y },
       stored: localStorage.getItem(WUI.LAYK),
     };
   });
@@ -27,10 +28,13 @@ test('layout reset waits for confirmation and applies without reloading', async 
   await reset.click();
   await expect(page.getByRole('alertdialog')).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
-  expect(await page.evaluate(() => ({
-    rect: document.getElementById('wui-player').getBoundingClientRect().toJSON(),
-    stored: localStorage.getItem(WUI.LAYK),
-  }))).toEqual(before);
+  expect(await page.evaluate(() => {
+    const player = document.getElementById('wui-player').getBoundingClientRect();
+    return {
+      position: { x: player.x, y: player.y },
+      stored: localStorage.getItem(WUI.LAYK),
+    };
+  })).toEqual(before);
 
   await reset.click();
   await page.getByRole('button', { name: 'Confirm' }).click();

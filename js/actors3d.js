@@ -473,6 +473,177 @@ const Actors3 = {
     if (d.torso && !d.wobble) d.torso.rotation.z = moving ? Math.sin(w) * 0.06 : 0;
   },
 
+  // Corpse materials are cloned once, at death, because the living rigs share
+  // their materials by species. Mutating those shared instances would fade
+  // every monster of the same kind. The short-lived copies preserve draw-call
+  // batching and are explicitly disposed when the owner leaves the pool.
+  CORPSE_FADE: 0.35,
+  _prepareCorpse(rig) {
+    if (rig.userData.corpseMaterials) return rig.userData.corpseMaterials;
+    const copies = new Map(), materials = [], meshes = [], bounds = [];
+    const copy = source => {
+      if (!source || typeof source.clone !== 'function') return source;
+      if (copies.has(source)) return copies.get(source);
+      const material = source.clone();
+      const opacity = source.opacity === undefined ? 1 : source.opacity;
+      material.transparent = true;
+      material.depthWrite = false;
+      material.needsUpdate = true;
+      copies.set(source, material);
+      materials.push({ material, opacity });
+      return material;
+    };
+    rig.traverse(node => {
+      if (!node.isMesh || !node.material) return;
+      meshes.push(node);
+      const geometry = node.geometry;
+      if (geometry) {
+        if (!geometry.boundingBox && typeof geometry.computeBoundingBox === 'function') geometry.computeBoundingBox();
+        const box = geometry.boundingBox;
+        if (box && Number.isFinite(box.min.y) && Number.isFinite(box.max.y)) bounds.push({
+          node,
+          minX: box.min.x, maxX: box.max.x,
+          minY: box.min.y, maxY: box.max.y,
+          minZ: box.min.z, maxZ: box.max.z,
+        });
+      }
+      node.material = Array.isArray(node.material) ? node.material.map(copy) : copy(node.material);
+    });
+    rig.userData.corpseMaterials = materials;
+    rig.userData.corpseMeshes = meshes;
+    rig.userData.corpseBounds = bounds;
+    if (!rig.userData.authored) {
+      const snapshot = part => ({
+        part, x: part.rotation.x, y: part.rotation.y, z: part.rotation.z,
+      });
+      const d = rig.userData, pose = {
+        arms: (d.arms || []).map(snapshot),
+        legs: (d.legs || []).map(snapshot),
+        torso: d.torso ? snapshot(d.torso) : null,
+      };
+      if (pose.arms.length || pose.legs.length || pose.torso) rig.userData.corpsePose = pose;
+    }
+    rig.userData.corpse = true;
+    return materials;
+  },
+
+  _articulateCorpse(rig, rag) {
+    const pose = rig.userData.corpsePose;
+    if (!pose || !rag) return;
+    const progress = U.clamp(Math.abs(rag.ang || 0) / (Math.PI / 2), 0, 1);
+    const fall = rag.fall < 0 ? -1 : 1;
+    for (let i = 0; i < pose.arms.length; i++) {
+      const base = pose.arms[i], side = i % 2 ? 1 : -1;
+      base.part.rotation.x = base.x + progress * fall * (side < 0 ? 0.95 : -0.65);
+      base.part.rotation.y = base.y;
+      base.part.rotation.z = base.z + progress * (side * 0.42 + fall * 0.12);
+    }
+    for (let i = 0; i < pose.legs.length; i++) {
+      const base = pose.legs[i], side = i % 2 ? 1 : -1;
+      base.part.rotation.x = base.x + progress * fall * (side < 0 ? -0.42 : 0.58);
+      base.part.rotation.y = base.y;
+      base.part.rotation.z = base.z + progress * side * 0.18;
+    }
+    if (pose.torso) {
+      const base = pose.torso;
+      base.part.rotation.x = base.x + progress * fall * 0.12;
+      base.part.rotation.y = base.y;
+      base.part.rotation.z = base.z + progress * fall * 0.2;
+    }
+    rig.userData.corpseProgress = progress;
+  },
+
+  // Keep the physical vertical lift while compensating for a foot-root pivot.
+  // Bounds and mesh references are captured once at death. Per-frame support
+  // is scalar math over existing matrix elements, so neither procedural limb
+  // articulation nor authored model nesting requires a Box3 allocation.
+  _groundCorpse(rig, lift) {
+    const bounds = rig.userData.corpseBounds;
+    if (!bounds || !bounds.length) return;
+    rig.updateMatrixWorld(true);
+    let minY = Infinity;
+    for (const b of bounds) {
+      const e = b.node.matrixWorld.elements;
+      const y = e[13]
+        + Math.min(e[1] * b.minX, e[1] * b.maxX)
+        + Math.min(e[5] * b.minY, e[5] * b.maxY)
+        + Math.min(e[9] * b.minZ, e[9] * b.maxZ);
+      if (y < minY) minY = y;
+    }
+    if (!Number.isFinite(minY)) return;
+    const correction = lift - minY;
+    if (Math.abs(correction) > 1e-6) {
+      rig.position.y += correction;
+      // Keep matrixWorld immediately truthful for overlays, tests and any
+      // renderer-side readers which run before WebGLRenderer's own update.
+      rig.updateMatrixWorld(true);
+    }
+  },
+
+  _ragAxis: null,
+  _ragUp: null,
+  _ragTilt: null,
+  _ragYaw: null,
+  _poseCorpse(rig, m) {
+    const rag = m.rag;
+    const materials = this._prepareCorpse(rig);
+    this._articulateCorpse(rig, rag);
+    const lift = rag ? Math.max(0, rag.z || 0) * FX3.PX : 0;
+    rig.position.set(m.x, lift, m.y);
+    const yaw = Math.PI / 2 - (m.dir || 0);
+    if (rag) {
+      if (!this._ragAxis) {
+        this._ragAxis = new THREE.Vector3();
+        this._ragUp = new THREE.Vector3(0, 1, 0);
+        this._ragTilt = new THREE.Quaternion();
+        this._ragYaw = new THREE.Quaternion();
+      }
+      // Physics stores the kill impulse in world X/Y; Three.js uses X/Z.
+      // Rotate around the perpendicular ground-plane axis so the body's up
+      // vector falls along that impulse while its original facing is retained.
+      const dir = Number.isFinite(rag.dir) ? rag.dir : Math.atan2(rag.vy || 0, rag.vx || 0);
+      const tilt = U.clamp(Math.abs(rag.ang || 0), 0, Math.PI / 2);
+      this._ragAxis.set(Math.sin(dir), 0, -Math.cos(dir));
+      this._ragTilt.setFromAxisAngle(this._ragAxis, tilt);
+      this._ragYaw.setFromAxisAngle(this._ragUp, yaw);
+      rig.quaternion.copy(this._ragTilt).multiply(this._ragYaw);
+    } else {
+      // Physics can be disabled, and encounter cleanup can mark adds dead
+      // without a hit impulse. They still receive the normal corpse fade.
+      rig.rotation.set(0, yaw, 0);
+    }
+
+    this._groundCorpse(rig, lift);
+
+    const fade = U.clamp((m.deathT || 0) / this.CORPSE_FADE, 0, 1);
+    for (const entry of materials) entry.material.opacity = entry.opacity * fade;
+    if (fade < 1 && !rig.userData.corpseShadowDisabled) {
+      for (const mesh of rig.userData.corpseMeshes || []) mesh.castShadow = false;
+      rig.userData.corpseShadowDisabled = true;
+    }
+  },
+
+  _disposeCorpse(rig) {
+    if (!rig) return;
+    const materials = rig.userData.corpseMaterials;
+    for (const entry of materials || []) entry.material.dispose();
+    delete rig.userData.corpseMaterials;
+    delete rig.userData.corpseMeshes;
+    delete rig.userData.corpseBounds;
+    delete rig.userData.corpsePose;
+    delete rig.userData.corpseProgress;
+    delete rig.userData.corpseShadowDisabled;
+  },
+
+  _retire(owner) {
+    const rig = owner && owner._rig;
+    if (!rig) return;
+    R3.scene.remove(rig);
+    this._disposeCorpse(rig);
+    owner._rig = null;
+    if (owner.dead && !(owner.deathT > 0)) owner.rag = null;
+  },
+
   // Development-only snapshot for the ~40-monster draw-call/FPS runs.
   // Call after a rendered frame in both elevated and third-person modes; the
   // renderer counters come from the same R3.stats() panel used elsewhere.
@@ -514,7 +685,8 @@ const Actors3 = {
     const live = new Set();
     const pl = G.player;
     for (const m of monsters) {
-      if (m.dead) continue;
+      const corpse = !!m.dead;
+      if (corpse && !(m.deathT > 0)) continue;
       if (pl && Math.abs(m.x - pl.x) + Math.abs(m.y - pl.y) > this.VIEW) continue;
       live.add(m);
       if (!m._rig) {
@@ -528,14 +700,14 @@ const Actors3 = {
         const spec = this.modelSpec(m);
         // Start the authored request before constructing the visible fallback.
         // Keeping that fallback during I/O avoids invisible/untargetable actors.
-        const requested = this.authoredModels && spec && this.requestModel(spec);
+        const requested = !corpse && this.authoredModels && spec && this.requestModel(spec);
         const size = (def.size || 1) * (m.boss ? 1.3 : 1);
         m._rig = this.build(def.body, id, def.pal, size);
         m._phase = (m.x * 7.3 + m.y * 3.1) % 6.28;
         R3.scene.add(m._rig);
         this.pool.push(m);
         if (requested) requested.then(template => {
-          if (!R3.authoredModels || !m._rig || this.pool.indexOf(m) < 0) return;
+          if (!R3.authoredModels || m.dead || !m._rig || this.pool.indexOf(m) < 0) return;
           const authored = this.instanceModel(template, spec, def, size);
           authored.position.copy(m._rig.position); authored.rotation.copy(m._rig.rotation);
           R3.scene.remove(m._rig); m._rig = authored; R3.scene.add(authored);
@@ -549,6 +721,10 @@ const Actors3 = {
         });
       }
       const r = m._rig;
+      if (corpse) {
+        this._poseCorpse(r, m);
+        continue;
+      }
       r.position.x = m.x; r.position.z = m.y;
       // Monsters already track a heading; deriving one from velocity instead
       // would snap to zero the moment they stop, which is when they attack.
@@ -559,7 +735,7 @@ const Actors3 = {
     for (let i = this.pool.length - 1; i >= 0; i--) {
       const m = this.pool[i];
       if (live.has(m)) continue;
-      if (m._rig) { R3.scene.remove(m._rig); m._rig = null; }
+      this._retire(m);
       this.pool.splice(i, 1);
     }
     return this.pool.length;
@@ -601,7 +777,7 @@ const Actors3 = {
   },
 
   clear() {
-    for (const m of this.pool) if (m._rig) { R3.scene.remove(m._rig); m._rig = null; }
+    for (const m of this.pool) this._retire(m);
     this.pool.length = 0;
     for (const p of this.crowd) if (p._rig) { R3.scene.remove(p._rig); p._rig = null; }
     this.crowd.length = 0;

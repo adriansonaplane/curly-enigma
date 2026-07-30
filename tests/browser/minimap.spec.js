@@ -30,22 +30,27 @@ test('camera-up minimap rotates world content around the centred player', async 
 
 test('screen-fixed chevron follows player heading relative to camera', async ({ page }) => {
   await openRenderer(page);
-  const tips = await page.evaluate(() => {
+  const angles = await page.evaluate(() => {
     const old = { map: G.map, player: G.player, monsters: G.monsters, npcs: G.npcs,
       portalOnMap: G.portalOnMap, yaw: R3.yaw };
     const map = { w: 3, h: 3, t: new Uint8Array(9), haz: new Uint8Array(9),
       explored: new Uint8Array(9).fill(1), entry: { x: 0, y: 0 }, exit: { x: 2, y: 2 } };
-    const light = (x, y) => { const p = Render.mmCtx.getImageData(x, y, 1, 1).data; return p[0] + p[1] + p[2]; };
+    // Capture the canvas geometry transform instead of sampling the dark,
+    // antialiased outline at one browser-dependent pixel. drawMap rotates once
+    // for the world and then once for the screen-fixed player chevron.
+    const rotations = [], rotate = Render.mmCtx.rotate;
+    Render.mmCtx.rotate = function (angle) { rotations.push(angle); return rotate.call(this, angle); };
     try {
       G.map = map; G.player = { x: 1.5, y: 1.5, dir: 0 }; G.monsters = []; G.npcs = [];
       G.portalOnMap = () => null; R3.yaw = 0; Render.drawMinimap();
-      const right = light(118, 110), downBefore = light(110, 118);
+      const right = rotations.at(-1);
+      rotations.length = 0;
       G.player.dir = Math.PI / 2; Render.drawMinimap();
-      return { right, downBefore, downAfter: light(110, 118), rightAfter: light(118, 110) };
-    } finally { Object.assign(G, old); R3.yaw = old.yaw; }
+      return { right, down: rotations.at(-1) };
+    } finally { Render.mmCtx.rotate = rotate; Object.assign(G, old); R3.yaw = old.yaw; }
   });
-  expect(tips.right).toBeGreaterThan(tips.downBefore);
-  expect(tips.downAfter).toBeGreaterThan(tips.rightAfter);
+  expect(angles.right).toBeCloseTo(0, 8);
+  expect(angles.down).toBeCloseTo(Math.PI / 2, 8);
 });
 
 test('map stays player-centred at boundaries and unexplored actors remain masked', async ({ page }) => {

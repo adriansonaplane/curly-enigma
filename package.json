@@ -9,6 +9,14 @@
     "test:quests": "node tests/node/quest-state-contract.js",
     "test:lore": "node tests/node/lore-contract.js",
     "test:factions": "node tests/node/factions-contract.js",
+    "test:difficulty": "node tests/node/difficulty-state-contract.js",
+    "test:socket": "node tests/node/socket-contract.js",
+    "test:cube": "node tests/node/cube-contract.js",
+    "test:corpse": "node tests/node/corpse-state-contract.js",
+    "test:durability": "node tests/node/item-condition-contract.js && node tests/node/durability-runtime-contract.js",
+    "test:identification": "node tests/node/item-identification-contract.js && node tests/node/item-identification-runtime-contract.js",
+    "test:charms": "node tests/node/inventory-charms-contract.js && node tests/node/inventory-charms-runtime-contract.js && node tests/node/inventory-grid-controller-contract.js",
+    "test:itemization-runtime": "node tests/node/itemization-runtime-contract.js",
     "test:models": "node tests/node/model-discovery.js && node tests/node/model-contract.js"
   },
   "devDependencies": {

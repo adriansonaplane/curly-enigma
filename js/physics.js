@@ -68,6 +68,7 @@ const Physics = {
       const a = U.angleTo(x, y, m.x, m.y);
       m.rag.vx += Math.cos(a) * f * 0.6; m.rag.vy += Math.sin(a) * f * 0.6;
       m.rag.vz += f * 14; m.rag.spin += U.rf(U.rand, -1, 1) * f * 0.5;
+      m.rag.settled = false;
     }
     if (G.map) for (const pr of G.map.props) {
       if (!pr.loose) continue;
@@ -85,12 +86,37 @@ const Physics = {
   // corpses fall along the blow that felled them
   ragdoll(m, ang, power) {
     if (!this.enabled) { return; }
+    const fall = U.rand() < 0.5 ? -1 : 1;
     m.rag = {
-      ang: 0, spin: U.rf(U.rand, -5, 5) + power * 0.35,
-      z: 0, vz: U.rf(U.rand, 24, 62) * (0.6 + power * 0.12),
+      // Keep a minimum angular impulse so a valid kill can never look like a
+      // standing freeze just because the random spin landed close to zero.
+      ang: 0, spin: fall * (U.rf(U.rand, 3.2, 5.2) + power * 0.35),
+      // Flying bodies begin at their hover height instead of snapping to the
+      // floor on the first corpse frame. z remains in legacy screen pixels.
+      z: m.fly ? 18 : 0, vz: U.rf(U.rand, 24, 62) * (0.6 + power * 0.12),
       vx: Math.cos(ang) * power * 0.5, vy: Math.sin(ang) * power * 0.5,
-      fall: U.rand() < 0.5 ? -1 : 1, rest: 0.2,
+      dir: ang, fall, rest: 0.2, settled: false, age: 0,
     };
+  },
+
+  // Integral of a quadratic ease-in over the first tenth of a second. Using
+  // an integrated clock (rather than multiplying by the end-of-frame ease)
+  // keeps a dropped/coarse first frame from snapping a corpse straight from
+  // upright to its full fall angle.
+  _ragAngularClock(age) {
+    const ease = 0.1, t = Math.max(0, age || 0);
+    if (t >= ease) return t - ease * (2 / 3);
+    const u = t / ease;
+    return ease * u * u * u / 3;
+  },
+
+  // Ballistic spin supplies variation, but ground friction can legitimately
+  // damp it before a low-energy corpse is visually prone. This time-bounded
+  // floor completes the fall independently while leaving translation, bounce
+  // and their settled flag entirely under the rigid-body integrator.
+  _ragFallProgress(age) {
+    const u = U.clamp((age || 0) / 0.55, 0, 1);
+    return u * u * (3 - 2 * u);
   },
 
   // ---------------- integration ----------------
@@ -116,7 +142,8 @@ const Physics = {
     if (this.blocked(nx, b.y)) { b.vx *= -0.42; b.spin = (b.spin || 0) * -0.5; } else b.x = nx;
     if (this.blocked(b.x, ny)) { b.vy *= -0.42; b.spin = (b.spin || 0) * -0.5; } else b.y = ny;
     b.z += b.vz * dt;
-    if (b.ang !== undefined) b.ang += (b.spin || 0) * dt;
+    if (b.ang !== undefined)
+      b.ang += (b.spin || 0) * (opts.angularDt === undefined ? dt : opts.angularDt);
 
     if (b.z <= 0) {
       b.z = 0;
@@ -167,8 +194,14 @@ const Physics = {
       const r = m.rag;
       const bx = m.x, by = m.y;
       r.x = bx; r.y = by;
-      this.integrate(r, dt);
+      const age = r.age || 0;
+      r.age = age + dt;
+      const angularDt = this._ragAngularClock(r.age) - this._ragAngularClock(age);
+      this.integrate(r, dt, { angularDt });
       m.x = r.x; m.y = r.y;
+      const fall = r.fall < 0 ? -1 : 1;
+      const minimumTilt = this._ragFallProgress(r.age) * Math.PI / 2;
+      if (r.ang * fall < minimumTilt) r.ang = fall * minimumTilt;
       r.ang = U.clamp(r.ang, -Math.PI / 2, Math.PI / 2);
     }
     // loose props knocked around

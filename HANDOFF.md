@@ -1,5 +1,126 @@
 # Claude → Codex Handoff
 
+## Current continuation — 2026-07-30 06:59:55 UTC — Sol
+
+`TASK-20260730-11`, D2-style unidentified loot, is verified on `main` at
+baseline `8976a63` in the intentional shared dirty tree; no commit or PR exists.
+Eligible field-dropped magic, rare, set, and unique equipment can be
+unidentified. Scrolls of Identification reveal exactly one item atomically by
+keyboard or mouse, and Old Maras identifies all carried inventory gear for free
+without reaching equipment, stash, mercenary gear, or corpses.
+
+Unresolved gear is safely concealed or rejected across tooltip, ground label,
+search, equip, mercenary/derived stats, socketing, Cube, repair, vendor, corpse,
+and save/load paths. Explicit migration keeps legacy items identified. Bosses
+guarantee a scroll and other monster ranks use scaled chances. The independent
+leak audit found no critical bypass.
+
+The first harsh visual audit returned `BLOCK` for a real 390×844
+tooltip/status collision. Status-aware tooltip placement and browser assertions
+fixed it; `/root/identification_visual_critic` returned fresh exact `ACCEPT`
+with 8-pixel gaps. Ephemeral before/final evidence lives at
+`/tmp/curly-enigma-identification-audit-critic-20260729-234508/` and
+`/tmp/curly-enigma-identification-tooltip-recheck-20260729-235250/`.
+
+All 16 Node contracts, focused identification browser `4/4`, changed-JavaScript
+syntax, and diff checks pass. The final Chromium/SwiftShader suite passed
+`69/69` in 2.3 minutes; this proves software correctness, not hardware
+performance. Keep identification verified but unarchived pending Adrian's owner
+acceptance. The next bounded slice is D2 inventory charms, with
+`/root/charm_contract_architecture` and `/root/charm_integration_audit` active.
+The broad D2/WoW/D&D/AAA goal remains active.
+
+## Current continuation — 2026-07-30 06:13:16 UTC — Sol
+
+All current feature-batch functional, combined-browser, and independent visual
+gates are now green on `main` at baseline `8976a63` in the intentional shared
+dirty tree; there is no commit or PR. The prior durability-pending continuation
+below is retained as history and superseded by this record.
+
+`/root/durability_visual_audit` returned exact `ACCEPT` after the review-driven
+phone smith containment, themed responsive merc rows/buttons, focusable
+paperdoll/merc gear, viewport-clamped focus tooltips, and explicit accessible
+`Low`/`Broken` condition labels. Fresh 1600×900 desktop and 390×844 mobile
+captures cover keyboard-focus inventory tooltip, broken inventory/paperdoll/merc
+gear, affordable and insufficient smith states, scroll-bottom containment, and
+the post-Repair-All empty state. Mobile tooltip bounds remained inside the
+viewport and keyboard reachability was true; mobile logs were empty and desktop
+had only allowed WebGL ReadPixels stall warnings. Evidence is ephemeral at
+`/tmp/curly-enigma-durability-audit-20260729/`.
+
+Final-tree evidence is focused durability browser `3/3` in 14.3 seconds, all 14
+Node contracts green, changed-JavaScript syntax and diff checks green, and full
+Chromium/SwiftShader `65/65` in 2.0 minutes after every durability fix. This does
+not certify hardware performance. Keep durability verified but unarchived until
+Adrian records owner acceptance. The broad D2/WoW/D&D/AAA goal remains active;
+continue with the next bounded feature.
+
+## Current continuation — 2026-07-30 06:07:04 UTC — Sol
+
+The checkout remains `/home/adrian/Projects/curly-enigma`, branch `main`, at
+baseline `8976a63`, with intentional shared uncommitted changes and no commit or
+PR. This newest entry supersedes older current-state claims without rewriting
+their historical evidence.
+
+Advanced effects and Cube/socket itemization are functionally and visually
+verified. Advanced effects have three focused browser regressions and an
+independent `ACCEPT`. Cube/socketing has its Node contracts, five focused browser
+tests, keyboard-panel ownership and unique-canvas corrections, and a fresh
+independent `ACCEPT`. Keep both out of the archive until existing owner and
+participant consensus is recorded.
+
+Corpse recovery is now functionally and visually accepted. It has its pure state
+contract, runtime/persistence path, and three focused browser tests. Its first
+genuine 390-pixel audit returned `BLOCK` for announcement overflow and
+corpse/enemy marker confusion; after fixes, `/root/corpse_visual_recheck2`
+returned exact `ACCEPT` on 16 captures. Mobile PNGs are 390×844 with exact
+`390/390` scroll/client width, desktop PNGs are 1600×900 with width metrics
+`1600/1600`, focus and Enter paths pass, and no errors appear beyond allowed
+SwiftShader diagnostics. Durability
+remains functionally green but visually open; it has pure and runtime
+contracts, persistent condition, a shared landed-hit token, broken-stat/socket/
+runeword suppression, deterministic physical wear, and atomic smith repair that
+does not reach unresolved corpses. Three focused browser tests pass; its separate
+visual audit is pending.
+
+All Node tests are green, and the final all-up Chromium/SwiftShader run passed
+`65/65` in 2.0 minutes. `/tmp` captures are ephemeral, and SwiftShader
+correctness is not real-hardware GPU performance. Resolve the durability visual
+gate, iterate blockers, then continue the next feature. The broad D2/WoW/D&D/AAA
+goal remains active.
+
+## Current continuation — 2026-07-30 04:34:47 UTC — Sol
+
+**Current checkout:** `/home/adrian/Projects/curly-enigma`, branch `main`,
+baseline `8976a63`, with an intentional uncommitted working tree. Older
+`366c6ff`, `4556511`, `work`, and “Chromium unavailable” statements below are
+historical and superseded for the current checkout.
+
+This batch delivers versioned per-character Normal/Nightmare/Hell campaign
+progression, an accessible difficulty picker, corrected action-bar/nameplate
+settings, visible grounded corpse falls with bounded fade/gore/material cleanup,
+and repaired browser fixtures. Difficulty migration, tier isolation, unlocks,
+resistance scaling, shared gear/gold, procedural and synthetic-authored corpse
+paths, and repeated death-wave cleanup are regression-covered.
+
+Final verification is `52/52` Playwright tests on `/usr/bin/chromium` with
+SwiftShader plus all dialogue, boss-summon, quest, lore, faction, difficulty,
+model, syntax, and whitespace contracts. This is correctness evidence only; no
+real-GPU performance result was produced. Independent gameplay/code reviews
+found and closed malformed-save and low-random partial-fall edges. Independent
+visual review accepts the revised sampled corpse motion: monotonic fall, full
+prone by about 542 ms, grounded bounds, articulated procedural silhouette, and
+no fade-time shadow clutter.
+
+Limits remain explicit: authored corpse coverage uses a synthetic rigid model;
+all 18 mapped monster species currently fall back because authored payloads are
+absent; this is not a general skeletal ragdoll; and the dark world/HUD/actor-art
+foundation is still far from the requested visual bar. `/tmp` screenshots are
+ephemeral. Next product priority is a coherent lighting/readability and authored
+actor pass. Keep `TASK-20260729-01` active: the suite and settings screenshot do
+not yet prove dynamic master plus every child toggle, resource
+disposal/reinitialization, or rendered projectile visibility.
+
 ## Wave program update — 2026-07-30 01:23:44 UTC — Sol
 
 All Wave 1–3 workspace findings are now represented on
