@@ -1,5 +1,23 @@
 # Agent documentation branch
 
+## 2026-07-30 workspace-thread index
+
+Start with `VITAL.md`, then use these files as the complete coordination surface:
+
+- `HANDOFF.md` — current continuation and next correct action.
+- `TASKS.md` — every Wave 1–3 work item and acceptance gate.
+- `PLANS.md` — revalidation, implementation, verification, review, and polish loop.
+- `FEATURES.md` — product-level three-Wave feature inventory.
+- `DISCUSSIONS.md` — open baseline and acceptance discussions.
+- `QUESTIONS.md` — unresolved owner/mechanics/UI/narrative/test decisions.
+- `COMMENTS.md` — owner direction and workspace-thread context.
+- `SUBAGENTS.md` — assignments, reports, and consolidation activity.
+- `VITAL.md` — branch/worktree safeguards and emergency notices.
+
+Root `HANDOFF.md`, `TASK_LOG.md`, and `SUBAGENT_LOG.md` retain the durable project
+history. Agents must update both the relevant root ledger and `agent/` note when a
+material event changes project state.
+
 ## NOTE-20260729-193521 — Agent branch operating policy
 
 - **Created:** 2026-07-29 19:35:21 UTC
@@ -7,22 +25,24 @@
 - **Type:** plan
 - **Owners:** all active agents; project owner Adrian
 - **Status:** active
-- **Branch:** `agent`
+- **Branch:** `codex/agent-coordination`
 
 ### Purpose
 
-The `agent` branch is the always-current coordination surface for agents working
-with Alex and project owner Adrian. At the start of work, look for the local or
-remote `agent` branch. If it does not exist, create it from the current agreed
-baseline. Update it on demand whenever assignments, risks, decisions, status,
-questions, or handoffs materially change.
+The `codex/agent-coordination` branch is the always-current coordination surface
+for agents working with Alex and project owner Adrian. It is created from
+`main`, checked out in the primary curly-enigma repository, and updated whenever
+assignments, risks, decisions, status, questions, or handoffs materially change.
 
-Use a separate worktree so shared implementation work is never disrupted:
+Do not create a secondary, nested, or repository-local worktree for agent
+coordination. Use the curly-enigma repository checkout directly:
 
 ```sh
 git fetch --all --prune
-git show-ref --verify --quiet refs/heads/agent || git branch agent HEAD
-git worktree add ../curly-enigma-agent agent
+git switch main
+git pull --ff-only
+git switch codex/agent-coordination 2>/dev/null || \
+  git switch -c codex/agent-coordination main
 ```
 
 The branch may modify **Markdown files only**. Before each documentation commit:
@@ -51,8 +71,8 @@ test -z "$(git diff --cached --name-only --diff-filter=ACMR | awk '!/\.md$/')"
 6. After consensus, move the task and its linked discussion/comments to
    `archive/YYYY-MM.md`, then remove them from active files. Never delete the
    history.
-7. Rebase/pull the documentation worktree before updating and commit frequently
-   enough that the branch remains useful on demand.
+7. Rebase the coordination branch onto current `main` before updating and commit
+   frequently enough that the branch remains useful on demand.
 
 ### Common note template
 
@@ -74,12 +94,11 @@ test -z "$(git diff --cached --name-only --diff-filter=ACMR | awk '!/\.md$/')"
 
 ### Mini log
 
-- 2026-07-29 19:35:21 UTC — Sol (`/root`) — active — Policy created; local
-  `agent` branch is required and will be created after this documentation commit.
+- 2026-07-30 01:15:56 UTC — Sol (`/root`) — active — Policy corrected to use
+  `codex/agent-coordination` in the primary repository checkout.
 
 ### Consensus
 
 - [x] Sol (`/root`) — accepted at 2026-07-29 19:35:21 UTC
 - [x] Coordination Policy (`/root/coordination_policy`) — recommended this
   workflow at 2026-07-29 19:34:45 UTC
-

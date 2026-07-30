@@ -1,11 +1,40 @@
 # Task log
 
+## 2026-07-30 01:23:44 UTC — Sol — Consolidate complete Wave program
+
+**Actor / evidence source:** Sol (`/root`) using reports from `/root/wave1`,
+`/root/wave2`, and `/root/wave3` plus today's owner corrections.
+
+**Result.** Added every reported task to Wave-specific active records; summarized
+the workspace thread; populated comments, discussion, features, questions,
+plans, handoffs, assignments, and vital safeguards; and retained the primary
+repository/`codex/agent-coordination` workflow.
+
+**Evidence limitation.** This is documentation consolidation. Reports created
+against PR #62 remain subject to source revalidation at PR #83 or newer.
+
+**Next.** Assign Wave revalidation owners and independent reviewers.
+
 Execution history, one entry per task, newest first. `HANDOFF.md` carries the
 information a successor needs to make the next correct decision; this file
 carries how we got there, so the handoff does not become a chronological dump.
 The structure is the one set out in HANDOFF.md §U4.
 
 ---
+
+## 2026-07-30 01:15:56 UTC — Sol — Create shared agent coordination branch
+
+**Actor / evidence source:** Sol (`/root`). **Owner:** Adrian.
+
+**Intent.** Create the requested shared agent branch from `main` in the primary
+curly-enigma checkout and restore the Wave handoff records.
+
+**Result.** Created `codex/agent-coordination` from `main` at `366c6ff` and used
+the primary repository checkout without a secondary worktree. Recorded the three
+completed static Wave reviews and a current-baseline revalidation plan.
+
+**Next concrete task.** Revalidate each reported gap against PR #83 or a newer
+agreed baseline, then assign bounded implementation and visual-review work.
 
 ## 2026-07-29 19:35:21 UTC — Sol — Establish the always-current agent documentation branch
 

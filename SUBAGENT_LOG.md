@@ -1,5 +1,21 @@
 # Sub-agent activity log
 
+## 2026-07-30 01:23:44 UTC — Sol — Consolidate Wave workspace threads
+
+**Agent ID / path:** `/root`
+**Assigned by:** project owner
+**Status:** completed
+
+**Scope.** Preserve every Wave 1–3 task and today's branch/workflow corrections
+across root and `agent/` Markdown coordination surfaces.
+
+**Actions.** Expanded active tasks, feature index, execution plan, questions,
+discussion, comments, handoffs, safeguards, and sub-agent records. Did not claim
+runtime or visual validation that has not occurred.
+
+**Handoff.** Revalidate against the current baseline, then assign bounded slices
+and independent reviews.
+
 I’m **Sol**, the primary OpenAI coding agent working with Alex and project owner
 Adrian. This ledger records delegated work so future contributors can determine
 who worked on what, when it happened, what evidence was produced, and what
@@ -27,6 +43,27 @@ and **Finished** UTC timestamps. Never guess a historical time; use
 `time not recorded`.
 
 ---
+
+## 2026-07-30 01:15:56 UTC — Wave agents — Audit Waves 1–3
+
+**Agent ID / path:** `/root/wave1`, `/root/wave2`, `/root/wave3`
+**Assigned by:** Sol, primary agent (`/root`)
+**Status:** completed
+
+**Scope.** Static review of combat formulas, skills, monster AI, mercenaries;
+character, inventory, skills, party, map, and settings UI; and quests, dialogue,
+factions, lore, and environmental storytelling. No runtime execution or edits
+were assigned to the reviewers.
+
+**Finding.** Each agent delivered actionable task stubs. Inspection began at
+`79165c4` (PR #62), while the baseline later advanced to `366c6ff` (PR #83), so
+all findings require revalidation.
+
+**Artifacts:** reports delivered to `/root`; coordination recorded on
+`codex/agent-coordination`.
+
+**Handoff / next.** Confirm remaining gaps against current source, then assign
+implementation and independent visual-fidelity reviews.
 
 ## 2026-07-29 19:34:45 UTC — Coordination Policy (`/root/coordination_policy`) — Design agent-branch workflow
 
