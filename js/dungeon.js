@@ -466,6 +466,218 @@ const Dungeon = {
     map.rooms = rooms;
   },
 
+  // ========== Secret rooms (hidden behind breakable walls) ==========
+  placeSecretRooms(map, rng, graph) {
+    const { w, h } = map;
+    const nSecrets = U.ri(rng, 1, 3);
+    let placed = 0;
+
+    for (let attempt = 0; attempt < 60 && placed < nSecrets; attempt++) {
+      const rw = U.ri(rng, 4, 6), rh = U.ri(rng, 4, 6);
+      const rx = U.ri(rng, 3, w - rw - 3), ry = U.ri(rng, 3, h - rh - 3);
+
+      let allWall = true;
+      for (let y = ry - 1; y <= ry + rh && allWall; y++)
+        for (let x = rx - 1; x <= rx + rw && allWall; x++)
+          if (map.t[y * w + x] !== TILE.WALL) allWall = false;
+      if (!allWall) continue;
+
+      let doorX = -1, doorY = -1;
+      const edges = [];
+      for (let x = rx; x < rx + rw; x++) { edges.push([x, ry - 1]); edges.push([x, ry + rh]); }
+      for (let y = ry; y < ry + rh; y++) { edges.push([rx - 1, y]); edges.push([rx + rw, y]); }
+      U.shuffle(rng, edges);
+      for (const [ex, ey] of edges) {
+        let adjFloor = false;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = ex + dx, ny = ey + dy;
+          if (nx >= rx && nx < rx + rw && ny >= ry && ny < ry + rh) continue;
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h && map.t[ny * w + nx] !== TILE.WALL) { adjFloor = true; break; }
+        }
+        if (adjFloor) { doorX = ex; doorY = ey; break; }
+      }
+      if (doorX < 0) continue;
+
+      for (let y = ry; y < ry + rh; y++)
+        for (let x = rx; x < rx + rw; x++)
+          map.t[y * w + x] = TILE.FLOOR;
+      map.t[doorY * w + doorX] = TILE.FLOOR;
+
+      const sr = {
+        x: rx, y: ry, w: rw, h: rh,
+        cx: rx + (rw >> 1), cy: ry + (rh >> 1),
+        archetype: 'secret', depth: 99, difficulty: 0.8,
+        secret: true, id: map.rooms.length,
+      };
+      map.rooms.push(sr);
+
+      map.props.push({
+        kind: 'cracked_wall', x: doorX + 0.5, y: doorY + 0.5,
+        seed: doorX * 31 + doorY, hp: 3, smashable: true, mat: 'stone',
+        secret: true,
+      });
+
+      placed++;
+    }
+  },
+
+  // ========== Environmental storytelling ==========
+  placeEnvironmental(map, rng) {
+    const { w, h } = map;
+    const occ = new Set();
+    for (const p of map.props) occ.add(`${Math.floor(p.x)},${Math.floor(p.y)}`);
+    for (const t of map.things) occ.add(`${Math.floor(t.x)},${Math.floor(t.y)}`);
+
+    const tryPlace = (x, y) => {
+      const k = `${x},${y}`;
+      if (occ.has(k)) return false;
+      if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) return false;
+      if (map.t[y * w + x] !== TILE.FLOOR) return false;
+      occ.add(k);
+      return true;
+    };
+
+    const SETPIECES = {
+      crypt: [
+        (r, rng) => {
+          const cx = r.cx, cy = r.cy;
+          for (let i = 0; i < 4; i++) {
+            const dx = U.ri(rng, -3, 3), dy = U.ri(rng, -3, 3);
+            if (tryPlace(cx + dx, cy + dy))
+              map.props.push({ kind: 'bloodstain', x: cx + dx + 0.5, y: cy + dy + 0.5, seed: U.ri(rng, 0, 999) });
+          }
+        },
+        (r, rng) => {
+          for (let i = 0; i < 2; i++) {
+            const x = U.ri(rng, r.x + 1, r.x + r.w - 2), y = U.ri(rng, r.y + 1, r.y + r.h - 2);
+            if (tryPlace(x, y))
+              map.props.push({ kind: 'corpse', x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 999) });
+          }
+        },
+      ],
+      prison: [
+        (r, rng) => {
+          const x = U.ri(rng, r.x + 1, r.x + r.w - 2), y = U.ri(rng, r.y + 1, r.y + r.h - 2);
+          if (tryPlace(x, y))
+            map.props.push({ kind: 'chains', x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 999) });
+          for (let i = 0; i < 3; i++) {
+            const bx = U.ri(rng, r.x, r.x + r.w - 1), by = U.ri(rng, r.y, r.y + r.h - 1);
+            if (tryPlace(bx, by))
+              map.props.push({ kind: 'bloodstain', x: bx + 0.5, y: by + 0.5, seed: U.ri(rng, 0, 999) });
+          }
+        },
+      ],
+      ritual: [
+        (r, rng) => {
+          const cx = r.cx, cy = r.cy;
+          for (let k = 0; k < 5; k++) {
+            const a = k * Math.PI * 2 / 5;
+            const px = Math.round(cx + Math.cos(a) * 3), py = Math.round(cy + Math.sin(a) * 3);
+            if (tryPlace(px, py))
+              map.props.push({ kind: 'bloodstain', x: px + 0.5, y: py + 0.5, seed: U.ri(rng, 0, 999) });
+          }
+          if (tryPlace(cx, cy + 1))
+            map.props.push({ kind: 'corpse', x: cx + 0.5, y: cy + 1.5, seed: U.ri(rng, 0, 999) });
+        },
+      ],
+      combat: [
+        (r, rng) => {
+          if (r.difficulty < 0.4 || !U.chance(rng, 0.25)) return;
+          const x = U.ri(rng, r.x + 1, r.x + r.w - 2), y = U.ri(rng, r.y + 1, r.y + r.h - 2);
+          if (tryPlace(x, y)) {
+            map.props.push({ kind: 'campfire', x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 999) });
+            map.lights.push({ x: x + 0.5, y: y + 0.5, r: 3.2, color: '#ff8a3f', flick: true });
+          }
+        },
+      ],
+      boss_lair: [
+        (r, rng) => {
+          const n = U.ri(rng, 3, 6);
+          for (let i = 0; i < n; i++) {
+            const x = U.ri(rng, r.x + 2, r.x + r.w - 3), y = U.ri(rng, r.y + 2, r.y + r.h - 3);
+            if (tryPlace(x, y))
+              map.props.push({ kind: U.pick(rng, ['corpse', 'bloodstain', 'bones']), x: x + 0.5, y: y + 0.5, seed: U.ri(rng, 0, 999) });
+          }
+        },
+      ],
+      secret: [
+        (r, rng) => {
+          if (tryPlace(r.cx, r.cy))
+            map.props.push({ kind: 'treasure_pile', x: r.cx + 0.5, y: r.cy + 0.5, seed: U.ri(rng, 0, 999) });
+          map.lights.push({ x: r.cx + 0.5, y: r.cy + 0.5, r: 3.5, color: '#ffd94f', flick: true });
+        },
+      ],
+    };
+
+    for (const room of map.rooms) {
+      const pieces = SETPIECES[room.archetype];
+      if (!pieces) continue;
+      const fn = U.pick(rng, pieces);
+      fn(room, rng);
+    }
+
+    // Blood trails between connected rooms with high difficulty
+    for (const room of map.rooms) {
+      if (room.difficulty < 0.6 || !U.chance(rng, 0.18)) continue;
+      const x1 = room.cx, y1 = room.cy;
+      const dx = U.ri(rng, -6, 6), dy = U.ri(rng, -6, 6);
+      const steps = Math.max(Math.abs(dx), Math.abs(dy));
+      for (let s = 0; s < steps; s++) {
+        const t = s / Math.max(1, steps);
+        const bx = Math.round(x1 + dx * t), by = Math.round(y1 + dy * t);
+        if (U.chance(rng, 0.6) && tryPlace(bx, by))
+          map.props.push({ kind: 'bloodstain', x: bx + 0.5, y: by + 0.5, seed: U.ri(rng, 0, 999) });
+      }
+    }
+  },
+
+  // ========== Trap corridors (spike strips and arrow traps in hallways) ==========
+  placeTrapCorridors(map, rng) {
+    const { w, h } = map;
+    const depth = map.depth || 1;
+    if (depth < 2 && map.actIdx !== 'abyss') return;
+
+    const isCorr = (x, y) => {
+      if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) return false;
+      if (map.t[y * w + x] !== TILE.FLOOR) return false;
+      return !this.inRoom(map, x, y);
+    };
+
+    const nTraps = U.ri(rng, 2, 5 + depth);
+    let placed = 0;
+    for (let attempt = 0; attempt < 100 && placed < nTraps; attempt++) {
+      const x = U.ri(rng, 3, w - 4), y = U.ri(rng, 3, h - 4);
+      if (!isCorr(x, y)) continue;
+      if (Math.abs(x - map.entry.x) < 6 && Math.abs(y - map.entry.y) < 6) continue;
+      if (map.haz[y * w + x]) continue;
+
+      if (U.chance(rng, 0.6)) {
+        map.haz[y * w + x] = HAZ.SPIKES;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (isCorr(nx, ny) && !map.haz[ny * w + nx] && U.chance(rng, 0.5))
+            map.haz[ny * w + nx] = HAZ.SPIKES;
+        }
+      } else {
+        map.props.push({
+          kind: 'arrow_trap', x: x + 0.5, y: y + 0.5,
+          seed: U.ri(rng, 0, 9999), trap: true,
+          dmg: 5 + (map.mlvl || 1) * 2, elem: 'phys',
+        });
+      }
+      placed++;
+    }
+
+    // Pressure plates near traps (cosmetic markers for spike traps)
+    for (let y = 1; y < h - 1; y++)
+      for (let x = 1; x < w - 1; x++) {
+        if (map.haz[y * w + x] !== HAZ.SPIKES) continue;
+        if (!isCorr(x, y)) continue;
+        if (U.chance(rng, 0.3))
+          map.props.push({ kind: 'pressure_plate', x: x + 0.5, y: y + 0.5, seed: x * 17 + y });
+      }
+  },
+
   // ========== Main generation pipeline ==========
   generate(opts) {
     const rng = makeRng(opts.seed >>> 0);
@@ -510,13 +722,16 @@ const Dungeon = {
       this.carveGraphLayout(map, rng, graph);
     }
 
+    if (graph && nRooms >= 10) this.placeSecretRooms(map, rng, graph);
     this.ensureConnectivity(map, rng);
     if (graph) this._graphEntryExit(map, rng, graph, isBoss);
     else this.placeEntryExit(map, rng, isBoss);
     if (!cavey) this.placeDoors(map, rng);
     for (let i = 0; i < w * h; i++) map.variant[i] = Math.floor(rng() * 6);
     this.decorate(map, rng);
+    this.placeEnvironmental(map, rng);
     this.placeHazards(map, rng);
+    this.placeTrapCorridors(map, rng);
     this.placeSpawns(map, rng);
     this.placeThings(map, rng);
     this.placeNarrative(map, rng, opts.seed >>> 0, opts.narrativeState);
@@ -704,13 +919,18 @@ const Dungeon = {
         if (!wx && !wy) continue;
         seen[i] = 1;
         map.t[i] = TILE.DOOR;
-        map.doors.push({
+        const door = {
           x: x + 0.5, y: y + 0.5, i,
           ori: wx ? 'v' : 'h',
           kind: U.pick(rng, kinds),
           open: 0, swing: U.chance(rng, 0.5) ? 1 : -1,
           seed: U.ri(rng, 0, 9999),
-        });
+        };
+        if ((r.archetype === 'treasure' || r.archetype === 'secret') && U.chance(rng, 0.35)) {
+          door.locked = true;
+          door.kind = 'barred';
+        }
+        map.doors.push(door);
       }
     }
   },
@@ -1035,6 +1255,26 @@ const Dungeon = {
       }
     }
 
+    // Arena rooms get a guaranteed champion pack
+    for (const room of map.rooms) {
+      if (room.archetype !== 'arena') continue;
+      const fam = U.pick(rng, map.pool);
+      map.packs.push({
+        x: room.cx + 0.5, y: room.cy + 0.5, fam,
+        n: U.ri(rng, 4, 7), elite: true, champion: true,
+      });
+    }
+
+    // Secret room guards
+    for (const room of map.rooms) {
+      if (!room.secret) continue;
+      const fam = U.pick(rng, map.pool);
+      map.packs.push({
+        x: room.cx + 0.5, y: room.cy + 0.5, fam,
+        n: U.ri(rng, 2, 4), elite: U.chance(rng, 0.5), champion: false,
+      });
+    }
+
     // Cave scatter for sparse maps
     if (map.rooms.length < 8) {
       const extra = 8 - map.rooms.length + 4;
@@ -1096,6 +1336,18 @@ const Dungeon = {
     for (let i = 0; i < nGold && si < spots.length; i++) {
       const s = take();
       map.things.push({ kind: 'goldpile', x: s.x, y: s.y, taken: false });
+    }
+
+    // Secret room loot: guaranteed chest + gold piles
+    for (const room of map.rooms) {
+      if (!room.secret) continue;
+      map.things.push({ kind: 'chest', x: room.cx + 0.5, y: room.cy + 0.5, opened: false });
+      for (let i = 0; i < U.ri(rng, 1, 3); i++) {
+        const gx = U.ri(rng, room.x, room.x + room.w - 1);
+        const gy = U.ri(rng, room.y, room.y + room.h - 1);
+        if (map.t[gy * w + gx] === TILE.FLOOR)
+          map.things.push({ kind: 'goldpile', x: gx + 0.5, y: gy + 0.5, taken: false });
+      }
     }
   },
 
