@@ -1301,6 +1301,7 @@ const Ent = {
     const pl = G.player;
     for (const d of map.doors) {
       if (d.kind === 'arch') { d.open = 1; continue; }   // archways have no leaf
+      if (d.locked) { d.open = 0; continue; }
       let near = !pl.dead && U.dist2(pl.x, pl.y, d.x, d.y) < 5.6;
       if (!near) {
         for (const m of G.monsters) {

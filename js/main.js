@@ -66,6 +66,15 @@ const G = {
       sfx(it.rarity === 'unique' || it.rarity === 'set' ? 'unique' : it.rarity === 'rare' ? 'rare' : 'drop');
       if (it.rarity === 'unique') UI.announce(`✧ ${it.name} ✧`, Items.rarityColor('unique'));
     }
+    // Key drop: elites/champions drop keys if the level has locked doors
+    if ((m.rank === 'elite' || m.rank === 'champion') && this.map.doors) {
+      const hasLocked = this.map.doors.some(d => d.locked);
+      if (hasLocked && U.chance(U.rand, 0.4)) {
+        pl.keys = (pl.keys || 0) + 1;
+        sfx('drop');
+        UI.announce('Key found!', '#ffd94f', 1200);
+      }
+    }
   },
 
   onBossKilled(m) {
@@ -189,7 +198,7 @@ const Game = {
       hotbar: { lmb: 'atk', rmb: null, s1: null, s2: null, s3: null, s4: null },
       equip: { weapon: null, offhand: null, helm: null, chest: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null },
       inv: [],
-      gold: 120, potions: { hp: 3, mp: 2 },
+      gold: 120, potions: { hp: 3, mp: 2 }, keys: 0,
       dialogue: DialogueState.create(),
       lore: Lore.create(),
       narrative: Narrative.create(),
@@ -274,6 +283,7 @@ const Game = {
   enterDungeon(actIdx, depth, abyssFloor) {
     this.clearWorld();
     G.portal = null; G.dungeonSave = null;
+    G.player.keys = 0;
     const seed = (Math.random() * 0xffffffff) >>> 0;
     const map = Dungeon.generate({ actIdx, depth, abyssFloor, seed, narrativeState: G.player.narrative });
     this.loadMap(map);
@@ -502,6 +512,9 @@ const Game = {
         list.push({ kind: 'prop', x: pr.x, y: pr.y, pr, label: 'Smash ' + pr.kind });
       }
     }
+    for (const d of G.map.doors || []) {
+      if (d.locked) list.push({ kind: 'door', x: d.x, y: d.y, door: d, label: 'Locked Door' });
+    }
     for (const gi of G.groundItems) if (!gi.gold) list.push({ kind: 'gitem', x: gi.x, y: gi.y, gi, label: gi.item.name });
     for (const n of G.npcs) list.push({ kind: 'npc', x: n.x, y: n.y, npc: n, label: n.def.name });
     if (G.map.waypoint) list.push({ kind: 'waypoint', x: G.map.waypoint.x, y: G.map.waypoint.y, label: 'Waypoint' });
@@ -566,6 +579,19 @@ const Game = {
       case 'thing': this.useThing(it.th); break;
       case 'prop': this.useProp(it.pr); break;
       case 'narrative': this.useNarrative(it.site); break;
+      case 'door': {
+        const d = it.door;
+        if (d.locked && pl.keys > 0) {
+          d.locked = false;
+          pl.keys--;
+          sfx('equip');
+          UI.announce('Door unlocked!', '#ffd94f', 1500);
+          FX.ring(d.x, d.y, 1.4, '#ffd94f');
+        } else if (d.locked) {
+          UI.announce('This door is locked. Find a key.', '#8a7444', 1800);
+        }
+        break;
+      }
     }
   },
 
@@ -841,6 +867,7 @@ const Game = {
       const hov = this.hoverInteractable();
       if (hov && hov.kind === 'gitem') UI.tip(Items.tooltip(hov.gi.item, pl));
       else if (hov && hov.kind === 'thing' && hov.th.kind === 'shrine') UI.tip(`<div class="tt-name" style="color:#8fc8ff">${hov.label}</div><div class="tt-type">Click to receive its blessing</div>`);
+      else if (hov && hov.kind === 'door') UI.tip(`<div class="tt-name" style="color:#ffd94f">Locked Door</div><div class="tt-type">${pl.keys ? 'Click to unlock (Keys: ' + pl.keys + ')' : 'Find a key from elites'}</div>`);
       else if (!hov) UI.hideTip();
       Render.cv.style.cursor = hov ? 'pointer' : 'crosshair';
     }
