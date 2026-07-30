@@ -1,10 +1,15 @@
 // ============ DIABLOID: ui.js — HUD, panels, menu, ladder ============
 'use strict';
 
-// Owns inventory view state and all item transfers.  renderInv() may rebuild
-// the DOM as often as it likes without losing the user's query or ordering.
+// Owns inventory view state and all item transfers.
+// Supports a 10-column x 6-row grid with variable-size item footprints.
+// Items store their anchor position as _gx, _gy (top-left cell).
+// An occupancy grid tracks which cells are taken by which item id.
 class InventoryGridController {
-  constructor() { this.query = ''; this.filter = 'all'; this.sort = 'position'; }
+  constructor() {
+    this.query = ''; this.filter = 'all'; this.sort = 'position';
+    this.COLS = 10; this.ROWS = 6;
+  }
 
   matches(item) {
     if (!item) return true;
@@ -15,19 +20,95 @@ class InventoryGridController {
       (this.filter === 'equipment' && !item.potion);
   }
 
-  entries(inv) {
-    const entries = inv.map((item, position) => ({ item, position }));
-    if (this.sort === 'position') return entries;
-    const rarity = { unique: 0, set: 1, rare: 2, magic: 3, common: 4 };
-    const value = (entry) => this.sort === 'rarity'
-      ? (rarity[entry.item.rarity] ?? 9)
-      : String(entry.item[this.sort] || '').toLowerCase();
-    const occupied = entries.filter(entry => entry.item).sort((a, b) => {
-      const av = value(a), bv = value(b);
-      return (av < bv ? -1 : av > bv ? 1 : 0) ||
-        String(a.item.id).localeCompare(String(b.item.id)) || a.position - b.position;
-    });
-    return occupied.concat(entries.filter(entry => !entry.item));
+  // Build an occupancy grid from a flat inventory array.
+  // Returns a 2D array [row][col] = item id string or null.
+  buildOccupancy(inv) {
+    const occ = [];
+    for (let r = 0; r < this.ROWS; r++) { occ[r] = []; for (let c = 0; c < this.COLS; c++) occ[r][c] = null; }
+    for (const item of inv) {
+      if (!item || item._gx == null || item._gy == null) continue;
+      const [w, h] = Items.sizeOf(item);
+      for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
+        const r = item._gy + dy, c = item._gx + dx;
+        if (r < this.ROWS && c < this.COLS) occ[r][c] = item.id;
+      }
+    }
+    return occ;
+  }
+
+  // Check if item with given size can be placed at (col, row).
+  canPlace(item, col, row, inv, ignoreId) {
+    const [w, h] = Items.sizeOf(item);
+    if (col < 0 || row < 0 || col + w > this.COLS || row + h > this.ROWS) return false;
+    const occ = this.buildOccupancy(inv);
+    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
+      const cell = occ[row + dy][col + dx];
+      if (cell && cell !== ignoreId) return false;
+    }
+    return true;
+  }
+
+  // Find first available position for an item in the grid. Returns {col, row} or null.
+  findSpace(item, inv, ignoreId) {
+    const [w, h] = Items.sizeOf(item);
+    const occ = this.buildOccupancy(inv);
+    for (let r = 0; r <= this.ROWS - h; r++) {
+      for (let c = 0; c <= this.COLS - w; c++) {
+        let ok = true;
+        for (let dy = 0; dy < h && ok; dy++) for (let dx = 0; dx < w && ok; dx++) {
+          const cell = occ[r + dy][c + dx];
+          if (cell && cell !== ignoreId) ok = false;
+        }
+        if (ok) return { col: c, row: r };
+      }
+    }
+    return null;
+  }
+
+  // Place item into inventory at (col, row). Modifies item._gx, _gy and adds to inv array.
+  placeItem(item, col, row, inv) {
+    item._gx = col; item._gy = row;
+    // Add to flat inv if not already there
+    if (!inv.includes(item)) inv.push(item);
+  }
+
+  // Remove item from inventory array.
+  removeItem(item, inv) {
+    const idx = inv.indexOf(item);
+    if (idx >= 0) inv.splice(idx, 1);
+  }
+
+  // Get unique items (each item once, based on id).
+  uniqueItems(inv) {
+    return inv.filter(it => it != null);
+  }
+
+  // Migrate a legacy flat 48-slot inventory to the grid system.
+  // Items without _gx/_gy get auto-placed. Items that don't fit remain as-is
+  // (they'll need manual arrangement).
+  migrateInv(inv) {
+    // Already an object-based inv (array of items without nulls for empty slots)
+    // or legacy 48-slot with positional nulls.
+    const items = inv.filter(it => it != null);
+    const needPlacement = items.filter(it => it._gx == null || it._gy == null);
+    if (needPlacement.length === 0) return items;
+    // Place items that don't have positions
+    const placed = items.filter(it => it._gx != null && it._gy != null);
+    for (const item of needPlacement) {
+      const pos = this.findSpace(item, placed);
+      if (pos) { item._gx = pos.col; item._gy = pos.row; placed.push(item); }
+      // If can't fit, still include but without position (will show as overflow)
+      else placed.push(item);
+    }
+    return placed;
+  }
+
+  // Ensure player inventory is migrated to grid format.
+  ensureGrid(pl) {
+    if (!pl._invMigrated) {
+      pl.inv = this.migrateInv(pl.inv);
+      pl._invMigrated = true;
+    }
   }
 
   source(event) {
@@ -40,28 +121,43 @@ class InventoryGridController {
   }
   itemAt(source) {
     if (!source) return null;
-    return source.kind === 'inv' ? G.player.inv[source.position] : G.player.equip[source.slot];
+    if (source.kind === 'equip') return G.player.equip[source.slot];
+    // Grid-based: find by item id
+    if (source.itemId) return G.player.inv.find(it => it && it.id === source.itemId) || null;
+    // Legacy position-based
+    return G.player.inv[source.position] || null;
   }
   accepts(item, slot) {
     return !!item && !item.potion && (item.slot === slot ||
       (item.slot === 'ring' && (slot === 'ring1' || slot === 'ring2')));
   }
-  moveToPosition(source, position) {
+
+  // Move an item to grid position (col, row).
+  moveToGrid(source, col, row) {
     const pl = G.player, item = this.itemAt(source);
-    if (!item || position < 0 || position >= pl.inv.length) return false;
-    if (source.kind === 'inv') {
-      [pl.inv[source.position], pl.inv[position]] = [pl.inv[position], pl.inv[source.position]];
+    if (!item) return false;
+    if (source.kind === 'inv' || source.itemId) {
+      // Moving within inventory
+      if (!this.canPlace(item, col, row, pl.inv, item.id)) return false;
+      item._gx = col; item._gy = row;
     } else {
-      const displaced = pl.inv[position];
-      pl.inv[position] = item;
-      pl.equip[source.slot] = displaced || null;
-      if (displaced && !this.accepts(displaced, source.slot)) {
-        pl.equip[source.slot] = item; pl.inv[position] = displaced; return false;
-      }
+      // Moving from equipment to inventory
+      if (!this.canPlace(item, col, row, pl.inv)) return false;
+      pl.equip[source.slot] = null;
+      item._gx = col; item._gy = row;
+      pl.inv.push(item);
       Ent.computeDerived(pl);
     }
     Save.saveChar(pl); return true;
   }
+
+  // Legacy moveToPosition for backward compat
+  moveToPosition(source, position) {
+    // Convert flat position to grid coords
+    const col = position % this.COLS, row = Math.floor(position / this.COLS);
+    return this.moveToGrid(source, col, row);
+  }
+
   equip(source, slot) {
     const pl = G.player, item = this.itemAt(source);
     if (!item || item.potion || (item.reqLvl || 1) > pl.lvl) return false;
@@ -73,7 +169,23 @@ class InventoryGridController {
       }
       [pl.equip[source.slot], pl.equip[slot]] = [pl.equip[slot], pl.equip[source.slot]];
     } else {
-      [pl.inv[source.position], pl.equip[slot]] = [pl.equip[slot] || null, item];
+      const old = pl.equip[slot];
+      // Remove from inv
+      this.removeItem(item, pl.inv);
+      pl.equip[slot] = item;
+      // If there was an equipped item, place it in inv where the dragged item was
+      if (old) {
+        old._gx = item._gx; old._gy = item._gy;
+        // Check if old item fits at that position
+        if (this.canPlace(old, old._gx, old._gy, pl.inv)) {
+          pl.inv.push(old);
+        } else {
+          // Try to find any space
+          const pos = this.findSpace(old, pl.inv);
+          if (pos) { old._gx = pos.col; old._gy = pos.row; pl.inv.push(old); }
+          else { pl.inv.push(old); } // add anyway, will overflow
+        }
+      }
     }
     Ent.computeDerived(pl); pl.hp = Math.min(pl.hp, pl.derived.maxHp);
     Save.saveChar(pl); sfx('equip'); return true;
@@ -81,7 +193,7 @@ class InventoryGridController {
   dropToWorld(source) {
     const pl = G.player, item = this.itemAt(source);
     if (!item) return false;
-    if (source.kind === 'inv') pl.inv[source.position] = null;
+    if (source.kind === 'inv' || source.itemId) this.removeItem(item, pl.inv);
     else { pl.equip[source.slot] = null; Ent.computeDerived(pl); }
     G.groundItems.push({ x: pl.x, y: pl.y, item });
     Save.saveChar(pl); UI.announce(`Dropped ${item.name}`, '#d8c9a3'); return true;
@@ -264,12 +376,29 @@ const UI = {
       row.innerHTML = `<span><b>${slot.toUpperCase()}</b> · ${item ? U.esc(item.name) : 'Empty'}</span><button>${item ? 'Unequip' : 'Equip from inventory'}</button>`;
       row.querySelector('button').addEventListener('click', () => {
         if (item) { if (!Game.giveItem(item)) return; state.equipment[slot] = null; }
-        else { const i = pl.inv.findIndex(it => it && !it.potion && (it.slot === slot || (slot === 'offhand' && it.slot === 'offhand')) && (it.reqLvl || 1) <= state.level); if (i < 0) return this.announce(`No level-appropriate ${slot} in inventory`, '#ff6a5a'); state.equipment[slot] = pl.inv[i]; pl.inv[i] = null; }
+        else {
+          const controller = this.inventoryGrid;
+          controller.ensureGrid(pl);
+          const found = pl.inv.find(it => it && !it.potion && (it.slot === slot || (slot === 'offhand' && it.slot === 'offhand')) && (it.reqLvl || 1) <= state.level);
+          if (!found) return this.announce(`No level-appropriate ${slot} in inventory`, '#ff6a5a');
+          state.equipment[slot] = found; controller.removeItem(found, pl.inv);
+        }
         const live = G.monsters.find(m => m.mercenary && !m.dead); if (live) { live.dead = true; live.deathT = 0; } Ent.syncMercenary(); Save.saveChar(pl); this.renderMercenary();
       }); p.appendChild(row);
     }
     const dismiss = document.createElement('button'); dismiss.textContent = 'Dismiss mercenary'; dismiss.addEventListener('click', () => {
-      const gear = Object.values(state.equipment).filter(Boolean); if (gear.length && pl.inv.filter(Boolean).length + gear.length > pl.inv.length) return this.announce('Make room for their equipment first', '#ff6a5a');
+      const controller = this.inventoryGrid;
+      controller.ensureGrid(pl);
+      const gear = Object.values(state.equipment).filter(Boolean);
+      // Check if all gear pieces can fit
+      let canFit = true;
+      const testInv = pl.inv.slice();
+      for (const g of gear) {
+        const pos = controller.findSpace(g, testInv);
+        if (!pos) { canFit = false; break; }
+        g._gx = pos.col; g._gy = pos.row; testInv.push(g);
+      }
+      if (!canFit) return this.announce('Make room for their equipment first', '#ff6a5a');
       gear.forEach(it => Game.giveItem(it)); pl.mercenary = null; const live = G.monsters.find(m => m.mercenary); if (live) live.dead = true; Save.saveChar(pl); this.renderMercenary();
     }); p.appendChild(dismiss);
   },
@@ -278,11 +407,14 @@ const UI = {
     p.querySelector('.close-x').addEventListener('click', () => this.closeAll());
   },
 
-  // ---------------- inventory ----------------
+  // ---------------- inventory (10x6 variable-size grid) ----------------
   renderInv() {
     const p = this.panel('inv'), pl = G.player;
     this.head(p, 'INVENTORY');
     const controller = this.inventoryGrid;
+    controller.ensureGrid(pl);
+
+    // --- equipment paperdoll ---
     const eq = document.createElement('div');
     eq.className = 'equip-grid';
     const slots = [['helm', 'Helm'], ['amulet', 'Amulet'], ['weapon', 'Weapon'], ['chest', 'Chest'], ['offhand', 'Off-hand'],
@@ -307,40 +439,90 @@ const UI = {
       eq.appendChild(cell);
     }
     p.appendChild(eq);
+
+    // --- toolbar ---
     const toolbar = document.createElement('div');
     toolbar.className = 'inv-toolbar';
     toolbar.innerHTML = `<input class="inv-search" type="text" aria-label="Search inventory" placeholder="Search inventory" value="${U.esc(controller.query)}">
-      <select class="inv-sort" aria-label="Sort inventory"><option value="position">Grid position</option><option value="name">Name</option><option value="rarity">Rarity</option><option value="slot">Item type</option></select>
       ${['all', 'equipment', 'common', 'magic', 'rare', 'set', 'unique'].map(filter => `<button class="inv-filter-chip${controller.filter === filter ? ' active' : ''}" data-filter="${filter}">${filter[0].toUpperCase() + filter.slice(1)}</button>`).join('')}`;
-    toolbar.querySelector('.inv-sort').value = controller.sort;
     toolbar.querySelector('.inv-search').addEventListener('input', e => { controller.query = e.target.value; this.renderInv(); const input = p.querySelector('.inv-search'); input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
-    toolbar.querySelector('.inv-sort').addEventListener('change', e => { controller.sort = e.target.value; this.renderInv(); });
     toolbar.querySelectorAll('.inv-filter-chip').forEach(button => button.addEventListener('click', () => { controller.filter = button.dataset.filter; this.renderInv(); }));
     p.appendChild(toolbar);
+
+    // --- 10x6 grid with variable-size items ---
+    const CELL = 44; // cell size in px
+    const GAP = 2;
+    const COLS = controller.COLS, ROWS = controller.ROWS;
     const grid = document.createElement('div');
-    grid.className = 'inv-grid';
-    for (const entry of controller.entries(pl.inv)) {
-      const i = entry.position;
-      const cell = document.createElement('div');
-      cell.className = 'inv-cell';
-      cell.dataset.position = i;
-      const it = entry.item;
-      if (it) {
-        const icon = Sprites.itemIcon(it, 44);
-        icon.draggable = true;
-        icon.addEventListener('dragstart', e => controller.begin(e, { kind: 'inv', position: i }));
-        cell.appendChild(icon);
-        cell.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
-        cell.classList.toggle('filtered-out', !controller.matches(it));
-        this.hookTip(cell, () => Items.tooltip(it, pl) +
-          `<div style="color:#847252;margin-top:4px;font-size:11px">${this.openPanel === 'vendor' ? 'Click: SELL' : 'Click: equip · Right-click: sell later'}</div>`);
-        cell.addEventListener('click', () => { Game.equipFromInv(i); this.renderInv(); });
+    grid.className = 'inv-grid inv-grid-var';
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = `repeat(${COLS}, ${CELL}px)`;
+    grid.style.gridTemplateRows = `repeat(${ROWS}, ${CELL}px)`;
+    grid.style.gap = GAP + 'px';
+    grid.style.justifyContent = 'center';
+    grid.style.marginTop = '8px';
+    grid.style.position = 'relative';
+
+    // Build occupancy map for drop targets
+    const occ = controller.buildOccupancy(pl.inv);
+
+    // Render each cell as a drop target
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'inv-cell inv-bg-cell';
+        cell.dataset.col = c;
+        cell.dataset.row = r;
+        cell.style.gridColumn = `${c + 1}`;
+        cell.style.gridRow = `${r + 1}`;
+        // Drop handling on every cell
+        cell.addEventListener('dragover', e => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          cell.classList.add('inv-drop-hi');
+        });
+        cell.addEventListener('dragleave', () => cell.classList.remove('inv-drop-hi'));
+        cell.addEventListener('drop', e => {
+          e.preventDefault();
+          cell.classList.remove('inv-drop-hi');
+          const src = controller.source(e);
+          if (controller.moveToGrid(src, c, r)) this.renderInv();
+          else UI.announce('Cannot place item there', '#ff6a5a');
+        });
+        grid.appendChild(cell);
       }
-      cell.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
-      cell.addEventListener('drop', e => { e.preventDefault(); if (controller.moveToPosition(controller.source(e), i)) this.renderInv(); });
-      grid.appendChild(cell);
     }
+
+    // Render items spanning their footprint
+    const items = controller.uniqueItems(pl.inv);
+    for (const it of items) {
+      if (it._gx == null || it._gy == null) continue;
+      const [w, h] = Items.sizeOf(it);
+      const itemEl = document.createElement('div');
+      itemEl.className = 'inv-item-var';
+      itemEl.style.gridColumn = `${it._gx + 1} / span ${w}`;
+      itemEl.style.gridRow = `${it._gy + 1} / span ${h}`;
+      itemEl.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
+      itemEl.classList.toggle('filtered-out', !controller.matches(it));
+      itemEl.draggable = true;
+      itemEl.addEventListener('dragstart', e => controller.begin(e, { kind: 'inv', itemId: it.id }));
+      // Render item icon scaled to fit the cell footprint
+      const iconW = w * CELL + (w - 1) * GAP - 4;
+      const iconH = h * CELL + (h - 1) * GAP - 4;
+      const icon = Sprites.itemIcon(it, Math.min(iconW, iconH));
+      icon.style.width = iconW + 'px';
+      icon.style.height = iconH + 'px';
+      icon.style.objectFit = 'contain';
+      itemEl.appendChild(icon);
+      this.hookTip(itemEl, () => Items.tooltip(it, pl) + Items.compareTooltip(it, pl) +
+        `<div style="color:#847252;margin-top:4px;font-size:11px">${this.openPanel === 'vendor' ? 'Click: SELL' : 'Click: equip · Right-click: sell later'}</div>`);
+      itemEl.addEventListener('click', () => { Game.equipFromInv(it.id); this.renderInv(); });
+      grid.appendChild(itemEl);
+    }
+
     p.appendChild(grid);
+
+    // --- world drop zone ---
     const worldDrop = document.createElement('div');
     worldDrop.className = 'world-drop';
     worldDrop.textContent = 'Drag here to drop in the world';
@@ -638,9 +820,13 @@ const UI = {
       const buyPrice = Factions.price(it.price, pl.reputation, 'ironsong');
       this.hookTip(cell, () => Items.tooltip(it, pl) + `<div class="q-gold">Buy for ${U.fmt(buyPrice)} gold</div>`);
       cell.addEventListener('click', () => {
-        if (pl.gold >= buyPrice && pl.inv.filter(Boolean).length < 48) {
-          pl.gold -= buyPrice; Game.giveItem(it); G.shopStock[i] = null;
-          sfx('gold'); this.renderVendor();
+        if (pl.gold >= buyPrice) {
+          const controller = this.inventoryGrid;
+          controller.ensureGrid(pl);
+          if (controller.findSpace(it, pl.inv)) {
+            pl.gold -= buyPrice; Game.giveItem(it); G.shopStock[i] = null;
+            sfx('gold'); this.renderVendor();
+          } else { this.announce('Inventory full!', '#ff6a5a'); sfx('nope'); }
         } else sfx('nope');
       });
       list.appendChild(cell);
@@ -649,8 +835,9 @@ const UI = {
     p.insertAdjacentHTML('beforeend', '<h2 style="font-size:14px;margin-top:12px">YOUR GOODS — click to sell</h2>');
     const inv = document.createElement('div');
     inv.className = 'shop-list';
-    pl.inv.forEach((it, i) => {
-      if (!it) return;
+    const controller = this.inventoryGrid;
+    controller.ensureGrid(pl);
+    for (const it of controller.uniqueItems(pl.inv)) {
       const cell = document.createElement('div');
       cell.className = 'inv-cell';
       cell.appendChild(Sprites.itemIcon(it, 44));
@@ -658,12 +845,12 @@ const UI = {
       this.hookTip(cell, () => Items.tooltip(it, pl) + `<div class="q-gold">Sell for ${U.fmt(Items.sellPrice(it))} gold</div>`);
       cell.addEventListener('click', () => {
         pl.gold += Items.sellPrice(it);
-        pl.inv[i] = null;
+        controller.removeItem(it, pl.inv);
         sfx('gold');
         this.renderVendor();
       });
       inv.appendChild(cell);
-    });
+    }
     p.appendChild(inv);
   },
 
@@ -681,7 +868,6 @@ const UI = {
       b.textContent = `${label} — ${U.fmt(cost)} gold`;
       b.addEventListener('click', () => {
         if (pl.gold < cost) { sfx('nope'); return; }
-        if (pl.inv.filter(Boolean).length >= 48) { this.announce('Inventory full!', '#ff6a5a'); return; }
         pl.gold -= cost;
         let ftype = type;
         if (type === 'weapon') ftype = U.pick(U.rand, WEAPON_TYPES).id;
@@ -697,42 +883,102 @@ const UI = {
     p.appendChild(opts);
   },
 
+  // Migrate stash to grid format (same 10x6 grid).
+  _migrateStash() {
+    if (G._stashMigrated) return;
+    const controller = this.inventoryGrid;
+    const items = G.stash.filter(it => it != null);
+    const placed = [];
+    for (const item of items) {
+      if (item._gx != null && item._gy != null) { placed.push(item); continue; }
+      const pos = controller.findSpace(item, placed);
+      if (pos) { item._gx = pos.col; item._gy = pos.row; }
+      placed.push(item);
+    }
+    G.stash = placed;
+    G._stashMigrated = true;
+  },
+
   renderStash() {
     const p = this.panel('stash'), pl = G.player;
     this.head(p, 'SHARED VAULT');
     p.insertAdjacentHTML('beforeend', '<div class="npc-line">Items placed here are shared between all your heroes.</div>');
+    const controller = this.inventoryGrid;
+    controller.ensureGrid(pl);
+    this._migrateStash();
+
+    // --- Stash grid (10x6, same as inventory) ---
+    const CELL = 44, GAP = 2;
+    const COLS = controller.COLS, ROWS = controller.ROWS;
     const grid = document.createElement('div');
-    grid.className = 'inv-grid';
-    for (let i = 0; i < 48; i++) {
-      const cell = document.createElement('div');
-      cell.className = 'inv-cell';
-      const it = G.stash[i];
-      if (it) {
-        cell.appendChild(Sprites.itemIcon(it, 44));
-        cell.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
-        this.hookTip(cell, () => Items.tooltip(it, pl) + '<div style="color:#847252;font-size:11px">Click: take</div>');
-        cell.addEventListener('click', () => {
-          if (pl.inv.filter(Boolean).length < 48) { G.stash[i] = null; Game.giveItem(it); Save.saveStash(); this.renderStash(); }
-        });
+    grid.className = 'inv-grid inv-grid-var';
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = `repeat(${COLS}, ${CELL}px)`;
+    grid.style.gridTemplateRows = `repeat(${ROWS}, ${CELL}px)`;
+    grid.style.gap = GAP + 'px';
+    grid.style.justifyContent = 'center';
+    grid.style.marginTop = '8px';
+
+    // Background cells (drop targets)
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cell = document.createElement('div');
+        cell.className = 'inv-cell inv-bg-cell';
+        cell.style.gridColumn = `${c + 1}`;
+        cell.style.gridRow = `${r + 1}`;
+        grid.appendChild(cell);
       }
-      grid.appendChild(cell);
+    }
+
+    // Item overlays
+    for (const it of controller.uniqueItems(G.stash)) {
+      if (it._gx == null || it._gy == null) continue;
+      const [w, h] = Items.sizeOf(it);
+      const itemEl = document.createElement('div');
+      itemEl.className = 'inv-item-var';
+      itemEl.style.gridColumn = `${it._gx + 1} / span ${w}`;
+      itemEl.style.gridRow = `${it._gy + 1} / span ${h}`;
+      itemEl.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
+      const iconW = w * CELL + (w - 1) * GAP - 4;
+      const iconH = h * CELL + (h - 1) * GAP - 4;
+      const icon = Sprites.itemIcon(it, Math.min(iconW, iconH));
+      icon.style.width = iconW + 'px';
+      icon.style.height = iconH + 'px';
+      icon.style.objectFit = 'contain';
+      itemEl.appendChild(icon);
+      this.hookTip(itemEl, () => Items.tooltip(it, pl) + '<div style="color:#847252;font-size:11px">Click: take</div>');
+      itemEl.addEventListener('click', () => {
+        if (Game.giveItem(it)) {
+          const idx = G.stash.indexOf(it);
+          if (idx >= 0) G.stash.splice(idx, 1);
+          Save.saveStash(); this.renderStash();
+        }
+      });
+      grid.appendChild(itemEl);
     }
     p.appendChild(grid);
+
+    // --- Player pack: deposit items ---
     p.insertAdjacentHTML('beforeend', '<h2 style="font-size:14px;margin-top:10px">YOUR PACK — click to deposit</h2>');
     const inv = document.createElement('div');
     inv.className = 'shop-list';
-    pl.inv.forEach((it, i) => {
-      if (!it) return;
+    for (const it of controller.uniqueItems(pl.inv)) {
       const cell = document.createElement('div');
       cell.className = 'inv-cell';
       cell.appendChild(Sprites.itemIcon(it, 44));
       this.hookTip(cell, () => Items.tooltip(it, pl));
       cell.addEventListener('click', () => {
-        for (let s = 0; s < 48; s++) if (!G.stash[s]) { G.stash[s] = it; pl.inv[i] = null; break; }
+        const stashController = this.inventoryGrid;
+        const pos = stashController.findSpace(it, G.stash);
+        if (pos) {
+          it._gx = pos.col; it._gy = pos.row;
+          G.stash.push(it);
+          stashController.removeItem(it, pl.inv);
+        } else { this.announce('Stash full!', '#ff6a5a'); }
         Save.saveStash(); this.renderStash();
       });
       inv.appendChild(cell);
-    });
+    }
     p.appendChild(inv);
   },
 

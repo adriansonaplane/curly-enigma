@@ -170,7 +170,8 @@ const Save = {
   },
   loadStash() {
     try { G.stash = JSON.parse(localStorage.getItem(this.STASH) || '[]'); } catch (e) { G.stash = []; }
-    G.stash.length = 48;
+    // Migration: filter nulls from legacy 48-slot array format
+    G.stash = G.stash.filter(it => it != null);
   },
 };
 
@@ -187,7 +188,7 @@ const Game = {
       skills: {}, cds: {}, buffs: [],
       hotbar: { lmb: 'atk', rmb: null, s1: null, s2: null, s3: null, s4: null },
       equip: { weapon: null, offhand: null, helm: null, chest: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null },
-      inv: new Array(48).fill(null),
+      inv: [],
       gold: 120, potions: { hp: 3, mp: 2 },
       dialogue: DialogueState.create(),
       lore: Lore.create(),
@@ -213,13 +214,12 @@ const Game = {
       name: c.name, cls: c.cls, hardcore: c.hardcore, dead: false, deadForever: false,
       lvl: c.lvl, xp: c.xp, stats: c.stats, statPts: c.statPts, skillPts: c.skillPts,
       skills: c.skills || {}, cds: {}, buffs: [],
-      hotbar: c.hotbar, equip: c.equip, inv: c.inv || new Array(48).fill(null),
+      hotbar: c.hotbar, equip: c.equip, inv: (c.inv || []).filter(it => it != null),
       bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue), lore: Lore.migrate(c.lore), narrative: Narrative.migrate(c.narrative), reputation: Factions.migrate(c.reputation || c.factions),
       gold: c.gold, potions: c.potions, progress: c.progress,
       mercenary: Save.migrateMercenary(c.mercenary || c.merc),
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
-    pl.inv.length = 48;
     Save.normalizeItems(pl);
     G.stats.kills = c.kills || 0;
     this.start(pl);
@@ -371,10 +371,17 @@ const Game = {
     G.stairsCd = 1;
   },
 
-  // ---------------- items ----------------
+  // ---------------- items (grid-aware) ----------------
   giveItem(it) {
     const pl = G.player;
-    for (let i = 0; i < 48; i++) if (!pl.inv[i]) { pl.inv[i] = it; return true; }
+    const controller = UI.inventoryGrid;
+    controller.ensureGrid(pl);
+    const pos = controller.findSpace(it, pl.inv);
+    if (pos) {
+      it._gx = pos.col; it._gy = pos.row;
+      pl.inv.push(it);
+      return true;
+    }
     G.groundItems.push({ x: pl.x, y: pl.y, item: it });
     UI.announce('Inventory full!', '#ff6a5a');
     return false;
@@ -389,20 +396,43 @@ const Game = {
     return item.slot;
   },
 
-  equipFromInv(i) {
+  // Accept either a numeric index (legacy) or an item id string (grid).
+  equipFromInv(idOrIndex) {
     const pl = G.player;
-    const it = pl.inv[i];
+    const controller = UI.inventoryGrid;
+    controller.ensureGrid(pl);
+    let it;
+    if (typeof idOrIndex === 'string') {
+      it = pl.inv.find(x => x && x.id === idOrIndex);
+    } else {
+      it = pl.inv[idOrIndex];
+    }
     if (!it) return;
-    if (UI.openPanel === 'vendor') { // selling handled in vendor render
+    if (UI.openPanel === 'vendor') return;
+    if (it.potion) {
+      pl.potions[it.potion] = Math.min(20, pl.potions[it.potion] + 1);
+      controller.removeItem(it, pl.inv);
       return;
     }
-    if (it.potion) { pl.potions[it.potion] = Math.min(20, pl.potions[it.potion] + 1); pl.inv[i] = null; return; }
     if ((it.reqLvl || 1) > pl.lvl) { UI.announce(`Requires level ${it.reqLvl}`, '#ff6a5a'); sfx('nope'); return; }
     const slot = this.slotFor(it);
     if (!(slot in pl.equip)) return;
     const old = pl.equip[slot];
+    // Remove item from inventory
+    controller.removeItem(it, pl.inv);
     pl.equip[slot] = it;
-    pl.inv[i] = old || null;
+    // Place old equipped item in inventory
+    if (old) {
+      // Try the position where the new item was
+      old._gx = it._gx; old._gy = it._gy;
+      if (controller.canPlace(old, old._gx, old._gy, pl.inv)) {
+        pl.inv.push(old);
+      } else {
+        const pos = controller.findSpace(old, pl.inv);
+        if (pos) { old._gx = pos.col; old._gy = pos.row; pl.inv.push(old); }
+        else { pl.inv.push(old); } // overflow
+      }
+    }
     sfx('equip');
     Ent.computeDerived(pl);
     pl.hp = Math.min(pl.hp, pl.derived.maxHp);
@@ -412,8 +442,13 @@ const Game = {
     const pl = G.player;
     const it = pl.equip[slot];
     if (!it) return;
-    for (let i = 0; i < 48; i++) if (!pl.inv[i]) {
-      pl.inv[i] = it; pl.equip[slot] = null;
+    const controller = UI.inventoryGrid;
+    controller.ensureGrid(pl);
+    const pos = controller.findSpace(it, pl.inv);
+    if (pos) {
+      it._gx = pos.col; it._gy = pos.row;
+      pl.inv.push(it);
+      pl.equip[slot] = null;
       sfx('equip');
       Ent.computeDerived(pl);
       pl.hp = Math.min(pl.hp, pl.derived.maxHp);
