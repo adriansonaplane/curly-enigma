@@ -98,6 +98,27 @@ const Ent = {
     d.stunOnHit = (g.stunOnHit || 0);
     d.pierce = Math.max(0, Math.floor(g.pierce || 0));
     d.flatElem = { fire: g.fireDmg || 0, cold: g.coldDmg || 0, lite: g.liteDmg || 0, pois: g.poisDmg || 0, arc: g.arcDmg || 0, holy: g.holyDmg || 0 };
+    // attack rating: base from level + dex, plus gear
+    d.ar = Math.floor(20 + pl.lvl * 5 + d.dex * 4 + (g.ar || 0));
+    // deadly strike / crushing blow / open wounds from gear
+    d.deadlyStrike = U.clamp(g.deadlyStrike || 0, 0, 100);
+    d.crushBlow = U.clamp(g.crushBlow || 0, 0, 100);
+    d.openWounds = U.clamp(g.openWounds || 0, 0, 100);
+    // shield blocking
+    const shield = pl.equip.offhand;
+    const shieldBase = shield && shield.baseBlockPct ? shield.baseBlockPct : 0;
+    const bonusBlock = g.blockPct || 0;
+    if (shieldBase > 0) {
+      d.blockChance = U.clamp(Math.floor(d.dex / (d.dex + 15) * (shieldBase + bonusBlock)), 0, 75);
+    } else {
+      d.blockChance = 0;
+    }
+    // difficulty resistance penalty
+    const diff = typeof difficultyByIdx === 'function' ? difficultyByIdx(pl.difficultyIdx || 0) : null;
+    if (diff && diff.resPenalty) {
+      for (const r of ['fireRes', 'coldRes', 'liteRes', 'poisRes', 'arcRes'])
+        d[r] = U.clamp(d[r] - diff.resPenalty, -150, 75);
+    }
     pl.derived = d;
     return d;
   },
@@ -113,16 +134,30 @@ const Ent = {
     return w && w.dmg ? w.dmg : [1, 3];
   },
 
+  // Compute synergy damage bonus for a skill.
+  // Hard points only (pl.skills[synId]), NOT effective level from +skills gear.
+  synergyMult(pl, sk) {
+    if (!sk || !sk.syn || !sk.syn.length) return 1;
+    let totalBonus = 0;
+    for (const s of sk.syn) {
+      const hardPts = pl.skills[s.id] || 0;
+      totalBonus += s.pct * hardPts;
+    }
+    return 1 + totalBonus / 100;
+  },
+
   // physical/weapon-scaled skill damage roll
-  rollWeaponDmg(pl, mult) {
+  rollWeaponDmg(pl, mult, sk) {
     const [lo, hi] = this.weaponDmg(pl);
     const base = U.rf(U.rand, lo, hi) + (pl.equip.weapon && pl.equip.weapon.stats.dmgFlat || 0);
-    return base * mult * pl.derived.physMult;
+    const synMul = sk ? this.synergyMult(pl, sk) : 1;
+    return base * mult * pl.derived.physMult * synMul;
   },
 
   rollSpellDmg(pl, sk, lvl) {
     const growth = 1 + (sk.dmgLvl || 0.3) * (lvl - 1);
-    return U.rf(U.rand, sk.dmg[0], sk.dmg[1]) * growth * pl.derived.spellPower;
+    const synMul = this.synergyMult(pl, sk);
+    return U.rf(U.rand, sk.dmg[0], sk.dmg[1]) * growth * pl.derived.spellPower * synMul;
   },
 
   manaCost(sk, lvl) { return Math.round(sk.mana * (1 + 0.06 * (lvl - 1))); },
@@ -182,16 +217,22 @@ const Ent = {
         sfx('swing');
         const range = sk.range || 1.9, arcW = sk.arcW || 1.2, hits = sk.hits || 1;
         let any = false;
+        const isSpell = !sk.wd;
         for (const m of G.monsters) {
           if (m.ally || m.dead) continue;
           const dist = U.dist(pl.x, pl.y, m.x, m.y) - m.size * 0.3;
           if (dist > range) continue;
           if (Math.abs(U.angDiff(ang, U.angleTo(pl.x, pl.y, m.x, m.y))) > arcW / 2 + 0.2) continue;
+          if (!this.rollHitCheck(pl, m, isSpell)) {
+            UI.dmgNum(m.x, m.y - m.size * 0.5, 'Miss', '#999999');
+            continue;
+          }
           for (let hh = 0; hh < hits; hh++) {
-            let dmg = this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100) + elemFlat;
+            let dmg = this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100, sk) + elemFlat;
             if (sk.flat) dmg += U.rf(U.rand, sk.flat[0], sk.flat[1]) * (1 + 0.2 * (lvl - 1));
             const crit = U.chance(U.rand, d.critCh / 100);
             if (crit) dmg *= d.critDmg;
+            if (sk.elem === 'phys') dmg = this.applyPhysSpecials(dmg, m, pl);
             this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
             if (sk.wd) this.applyWeaponHitEffects(m, pl);
             if (sk.dot) this.applyDebuff(m, { dot: sk.dot * (1 + 0.2 * (lvl - 1)), dotElem: sk.elem === 'phys' ? 'pois' : sk.elem }, 4);
@@ -213,9 +254,14 @@ const Ent = {
         for (const m of G.monsters) {
           if (m.ally || m.dead) continue;
           if (U.dist(pl.x, pl.y, m.x, m.y) > radius + m.size * 0.3) continue;
-          let dmg = sk.wd ? this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100) + elemFlat : this.rollSpellDmg(pl, sk, lvl);
+          if (sk.wd && !this.rollHitCheck(pl, m, false)) {
+            UI.dmgNum(m.x, m.y - m.size * 0.5, 'Miss', '#999999');
+            continue;
+          }
+          let dmg = sk.wd ? this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100, sk) + elemFlat : this.rollSpellDmg(pl, sk, lvl);
           const crit = U.chance(U.rand, d.critCh / 100);
           if (crit) dmg *= d.critDmg;
+          if (sk.wd && sk.elem === 'phys') dmg = this.applyPhysSpecials(dmg, m, pl);
           this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
           if (sk.wd) this.applyWeaponHitEffects(m, pl);
           if (sk.stun) m.stunT = Math.max(m.stunT, sk.stun);
@@ -233,7 +279,7 @@ const Ent = {
           const off = count > 1 ? (i / (count - 1) - 0.5) * spread : 0;
           const a = ang + off;
           const dmg = sk.wd
-            ? this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100) + elemFlat + (sk.flat ? U.rf(U.rand, sk.flat[0], sk.flat[1]) * (1 + 0.2 * (lvl - 1)) : 0)
+            ? this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100, sk) + elemFlat + (sk.flat ? U.rf(U.rand, sk.flat[0], sk.flat[1]) * (1 + 0.2 * (lvl - 1)) : 0)
             : this.rollSpellDmg(pl, sk, lvl);
           G.projs.push({
             x: pl.x, y: pl.y, vx: Math.cos(a) * sk.speed, vy: Math.sin(a) * sk.speed,
@@ -252,7 +298,7 @@ const Ent = {
         for (let i = 0; i < count; i++) {
           const a = (i / count) * Math.PI * 2;
           let dmg = this.rollSpellDmg(pl, sk, lvl);
-          if (sk.wd) dmg += this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100);
+          if (sk.wd) dmg += this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100, sk);
           G.projs.push({
             x: pl.x, y: pl.y, vx: Math.cos(a) * sk.speed, vy: Math.sin(a) * sk.speed,
             dmg, elem: sk.elem, ally: true, from: pl, r: 0.3, ttl: 1.1,
@@ -386,9 +432,14 @@ const Ent = {
           for (const m of G.monsters) {
             if (m.ally || m.dead) continue;
             if (U.dist(pl.x, pl.y, m.x, m.y) > (sk.radius || 2)) continue;
-            let dmg = this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100) + elemFlat;
+            if (!this.rollHitCheck(pl, m, false)) {
+              UI.dmgNum(m.x, m.y - m.size * 0.5, 'Miss', '#999999');
+              continue;
+            }
+            let dmg = this.rollWeaponDmg(pl, (sk.wd + (sk.wdLvl || 0) * (lvl - 1)) / 100, sk) + elemFlat;
             const crit = U.chance(U.rand, d.critCh / 100);
             if (crit) dmg *= d.critDmg;
+            if (sk.elem === 'phys') dmg = this.applyPhysSpecials(dmg, m, pl);
             this.damageMonster(m, dmg, sk.elem, { crit, from: pl, srcName });
           }
           FX.ring(pl.x, pl.y, sk.radius || 2, ELEM[sk.elem].color);
@@ -412,6 +463,18 @@ const Ent = {
     return d.flatElem.fire + d.flatElem.cold + d.flatElem.lite + d.flatElem.pois + d.flatElem.arc + d.flatElem.holy;
   },
 
+  // AR vs Defense hit check. Spells always hit (isSpell=true skips the roll).
+  // Returns true if the attack lands, false if it misses.
+  rollHitCheck(attacker, target, isSpell) {
+    if (isSpell) return true;
+    const ar = (attacker && attacker.derived) ? attacker.derived.ar : 0;
+    const def = target.defense || 0;
+    if (ar <= 0 && def <= 0) return true; // both zero = no AR system for this pair
+    if (ar <= 0) return U.chance(U.rand, 0.05); // minimum 5%
+    const hitChance = U.clamp(ar / (ar + def) * 2 * 100, 5, 95);
+    return U.chance(U.rand, hitChance / 100);
+  },
+
   // stunOnHit's value is the stun duration in seconds. A qualifying weapon hit
   // rolls this fixed chance once; multiple sources add duration, not chance.
   STUN_ON_HIT_CHANCE: 0.2,
@@ -419,6 +482,29 @@ const Ent = {
     const duration = attacker && attacker.derived ? attacker.derived.stunOnHit : 0;
     if (duration > 0 && U.chance(U.rand, this.STUN_ON_HIT_CHANCE))
       target.stunT = Math.max(target.stunT || 0, duration);
+  },
+
+  // Deadly strike, crushing blow, and open wounds — applied to physical damage
+  // from the player. Called after base damage is computed but before
+  // damageMonster. Returns the modified damage value.
+  applyPhysSpecials(dmg, target, attacker) {
+    if (!attacker || !attacker.derived) return dmg;
+    const d = attacker.derived;
+    // Deadly strike: double physical damage
+    if (d.deadlyStrike > 0 && U.chance(U.rand, d.deadlyStrike / 100)) {
+      dmg *= 2;
+    }
+    // Crushing blow: additional 25% of target's current HP (10% vs bosses)
+    if (d.crushBlow > 0 && U.chance(U.rand, d.crushBlow / 100)) {
+      const cbPct = target.boss ? 0.10 : 0.25;
+      dmg += target.hp * cbPct;
+    }
+    // Open wounds: bleed DoT for 8 seconds
+    if (d.openWounds > 0 && U.chance(U.rand, d.openWounds / 100)) {
+      const bleedDps = (attacker.derived.physMult || 1) * 4 + (attacker.lvl || 1) * 0.8;
+      this.applyDebuff(target, { dot: bleedDps, dotElem: 'phys' }, 8);
+    }
+    return dmg;
   },
 
   basicAttack(pl, tx, ty) {
@@ -448,9 +534,14 @@ const Ent = {
         if (m.ally || m.dead) continue;
         if (U.dist(pl.x, pl.y, m.x, m.y) - m.size * 0.3 > 1.9) continue;
         if (Math.abs(U.angDiff(pl.dir, U.angleTo(pl.x, pl.y, m.x, m.y))) > 1.05) continue;
+        if (!this.rollHitCheck(pl, m, false)) {
+          UI.dmgNum(m.x, m.y - m.size * 0.5, 'Miss', '#999999');
+          continue;
+        }
         let dmg = this.rollWeaponDmg(pl, 1.35) + flat;
         const crit = U.chance(U.rand, d.critCh / 100);
         if (crit) dmg *= d.critDmg;
+        dmg = this.applyPhysSpecials(dmg, m, pl);
         this.damageMonster(m, dmg, 'phys', { crit, from: pl, srcName: 'Attack' });
         this.applyWeaponHitEffects(m, pl);
         any = true;
@@ -467,7 +558,8 @@ const Ent = {
 
   makeMonster(fam, x, y, opts = {}) {
     const def = MONSTERS[fam];
-    const mlvl = opts.mlvl || 1;
+    const diffAdd = (typeof difficultyByIdx === 'function') ? difficultyByIdx((G.player && G.player.difficultyIdx) || 0).mlvlAdd || 0 : 0;
+    const mlvl = (opts.mlvl || 1) + diffAdd;
     const m = {
       fam, def, name: def.name, x, y, size: def.size, lvl: mlvl,
       hp: 0, maxHp: 0, dmgLo: 0, dmgHi: 0, spd: def.spd, ai: def.ai, elem: def.elem || 'phys',
@@ -478,6 +570,15 @@ const Ent = {
     };
     m.maxHp = m.hp = this.scaleHp(def.hp, mlvl);
     m.dmgLo = this.scaleDmg(def.dmg[0], mlvl); m.dmgHi = this.scaleDmg(def.dmg[1], mlvl);
+    m.defense = Math.floor(10 + mlvl * 6 + mlvl * mlvl * 0.15);
+
+    // difficulty multipliers
+    const diff = typeof difficultyByIdx === 'function' ? difficultyByIdx((G.player && G.player.difficultyIdx) || 0) : null;
+    if (diff) {
+      m.maxHp = m.hp = Math.floor(m.maxHp * diff.hpMult);
+      m.dmgLo *= diff.dmgMult; m.dmgHi *= diff.dmgMult;
+      if (diff.monsterResAdd) m.resist += diff.monsterResAdd;
+    }
 
     if (opts.rank === 'champion') {
       m.rank = 'champion'; m.maxHp = m.hp = Math.floor(m.maxHp * 1.9); m.dmgLo *= 1.25; m.dmgHi *= 1.25;
@@ -503,7 +604,9 @@ const Ent = {
     return m;
   },
 
-  makeBoss(bossKey, x, y, mlvl) {
+  makeBoss(bossKey, x, y, mlvl_raw) {
+    const diffAdd = (typeof difficultyByIdx === 'function') ? difficultyByIdx((G.player && G.player.difficultyIdx) || 0).mlvlAdd || 0 : 0;
+    const mlvl = mlvl_raw + diffAdd;
     const def = BOSSES[bossKey];
     const m = {
       fam: bossKey, def, name: def.name, x, y, size: def.size, lvl: mlvl,
@@ -515,6 +618,16 @@ const Ent = {
       resist: 0.25, hitT: 0,
     };
     m.maxHp = m.hp = this.scaleHp(def.hp, Math.floor(mlvl * 0.72));
+    m.defense = Math.floor(20 + mlvl * 8 + mlvl * mlvl * 0.2);
+
+    // difficulty multipliers
+    const diff = typeof difficultyByIdx === 'function' ? difficultyByIdx((G.player && G.player.difficultyIdx) || 0) : null;
+    if (diff) {
+      m.maxHp = m.hp = Math.floor(m.maxHp * diff.hpMult);
+      m.dmgLo *= diff.dmgMult; m.dmgHi *= diff.dmgMult;
+      if (diff.monsterResAdd) m.resist += diff.monsterResAdd;
+    }
+
     G.monsters.push(m);
     return m;
   },
@@ -618,10 +731,22 @@ const Ent = {
     }
   },
 
+  BLOCK_COOLDOWN: 0.35,
   damagePlayer(amount, elem, src) {
     const pl = G.player;
     if (pl.dead || G.map.town) return;
     const d = pl.derived;
+    // shield blocking — physical attacks only, with cooldown
+    if ((elem === 'phys' || !elem) && d.blockChance > 0) {
+      if (!pl.blockCd || pl.blockCd <= 0) {
+        if (U.chance(U.rand, d.blockChance / 100)) {
+          pl.blockCd = this.BLOCK_COOLDOWN;
+          UI.dmgNum(pl.x, pl.y - 0.6, 'Block', '#8fc8ff');
+          sfx('hit');
+          return;
+        }
+      }
+    }
     let dmg = amount;
     if (elem === 'phys' || !elem) {
       const red = d.armor / (d.armor + 60 + 12 * (src && src.lvl ? src.lvl : G.map.mlvl));
@@ -1047,8 +1172,15 @@ const Ent = {
       for (const m of G.monsters) {
         if (m.ally || m.dead) continue;
         if (U.dist2(p.x, p.y, m.x, m.y) < Math.pow(p.r + m.size * 0.33, 2)) {
+          // hit check for weapon-based projectiles (arrows, wd skills)
+          if (p.weaponHit && p.from === G.player && !this.rollHitCheck(p.from, m, false)) {
+            UI.dmgNum(m.x, m.y - m.size * 0.5, 'Miss', '#999999');
+            if (p.pierce && p.pierce > 0) { p.pierce--; continue; }
+            p.dead = true; return;
+          }
           let dmg = p.dmg;
           if (p.crit && p.from === G.player) dmg *= G.player.derived.critDmg;
+          if (p.weaponHit && p.from === G.player && p.elem === 'phys') dmg = this.applyPhysSpecials(dmg, m, p.from);
           this.damageMonster(m, dmg, p.elem, { crit: p.crit, from: p.from, srcName: p.srcName });
           if (p.weaponHit) this.applyWeaponHitEffects(m, p.from);
           if (p.slowHit) this.applyDebuff(m, { slow: p.slowHit }, 2.5);

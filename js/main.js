@@ -122,7 +122,7 @@ const Save = {
       name: pl.name, cls: pl.cls, hardcore: pl.hardcore, dead: !!pl.deadForever,
       lvl: pl.lvl, xp: pl.xp, stats: pl.stats, statPts: pl.statPts, skillPts: pl.skillPts,
       skills: pl.skills, hotbar: pl.hotbar, equip: pl.equip, inv: pl.inv,
-      gold: pl.gold, potions: pl.potions, progress: pl.progress,
+      gold: pl.gold, potions: pl.potions, progress: pl.progress, difficultyIdx: pl.difficultyIdx || 0,
       bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: Dialogue.migrate(pl.dialogue), lore: Lore.migrate(pl.lore), narrative: Narrative.migrate(pl.narrative), reputation: Factions.migrate(pl.reputation),
       mercenary: this.migrateMercenary(pl.mercenary),
       kills: G.stats.kills, season: SEASON.current().num,
@@ -193,6 +193,7 @@ const Game = {
       lore: Lore.create(),
       narrative: Narrative.create(),
       progress: { actUnlocked: 0, bossKilled: [false, false, false, false, false], abyssBest: 0 },
+      difficultyIdx: 0,
       mercenary: null,
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
@@ -215,7 +216,7 @@ const Game = {
       skills: c.skills || {}, cds: {}, buffs: [],
       hotbar: c.hotbar, equip: c.equip, inv: c.inv || new Array(48).fill(null),
       bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue), lore: Lore.migrate(c.lore), narrative: Narrative.migrate(c.narrative), reputation: Factions.migrate(c.reputation || c.factions),
-      gold: c.gold, potions: c.potions, progress: c.progress,
+      gold: c.gold, potions: c.potions, progress: c.progress, difficultyIdx: c.difficultyIdx || 0,
       mercenary: Save.migrateMercenary(c.mercenary || c.merc),
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
@@ -715,6 +716,8 @@ const Game = {
       pl.hp = Math.min(d.maxHp, pl.hp + d.regenHp * dt);
       pl.mp = Math.min(d.maxMp, pl.mp + d.regenMp * dt);
     }
+    // block cooldown
+    if (pl.blockCd > 0) pl.blockCd -= dt;
 
     // camera orbit on held rotate keys — the camera moves, the world doesn't
     const km = WUI.keymap;

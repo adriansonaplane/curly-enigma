@@ -24,6 +24,8 @@ const Items = {
     allSkills: '+# to All Skills', thorns: 'Reflects # Damage', minionDmg: '+#% Minion Damage',
     minionHp: '+#% Minion Life', stunOnHit: '20% Chance to Stun for # Seconds',
     pierce: 'Weapon Projectiles Pierce # Additional Targets', xpGain: '+#% Experience',
+    ar: '+# Attack Rating', crushBlow: '#% Chance of Crushing Blow', deadlyStrike: '#% Deadly Strike',
+    openWounds: '#% Chance of Open Wounds', blockPct: '+#% Chance to Block',
   },
   statLine(k, v) {
     if (k === 'stunOnHit') return `20% Chance to Stun for ${Math.round(v * 10) / 10} ${v === 1 ? 'Second' : 'Seconds'}`;
@@ -64,26 +66,49 @@ const Items = {
     return 'a';
   },
 
+  // Item-level (and, via def[6]=minIlvl, quality-of-affix) gating: an affix
+  // simply cannot be chosen until the item's ilvl reaches its minIlvl. This
+  // is D2's real shape — the strongest affix tiers (and a few whole affixes
+  // like jewelry +skills) are reserved for higher-level drops — applied to
+  // this project's continuous baseVal+perTier scaling rather than D2's
+  // discrete per-affix tier table.
+  eligibleAffixes(pool, sc, ilvl) {
+    return pool.filter(def => (def[3].includes(sc) || (sc === 's' && def[3].includes('a'))) && ilvl >= (def[6] || 1));
+  },
+
   rollAffixes(rng, base, ilvl, count) {
     const sc = this.slotClassOf(base);
     const stats = {};
     const chosen = [];
     let prefixName = null, suffixName = null;
-    const pools = [PREFIXES, SUFFIXES];
+    const pools = [this.eligibleAffixes(PREFIXES, sc, ilvl), this.eligibleAffixes(SUFFIXES, sc, ilvl)];
     let guard = 0;
-    while (chosen.length < count && guard++ < 60) {
+    while (chosen.length < count && guard++ < 80) {
       const pool = pools[chosen.length % 2 === 0 ? 0 : 1];
+      if (!pool.length) break;
       const def = U.pick(rng, pool);
-      const slots = def[3];
-      if (!slots.includes(sc) && !(sc === 's' && slots.includes('a'))) continue;
       if (chosen.includes(def[0])) continue;
       chosen.push(def[0]);
       const val = this.affixTierVal(rng, def, ilvl);
       stats[def[1]] = (stats[def[1]] || 0) + val;
-      if (pool === PREFIXES && !prefixName) prefixName = def[2];
-      if (pool === SUFFIXES && !suffixName) suffixName = def[2];
+      if (pools[0].includes(def) && !prefixName) prefixName = def[2];
+      if (pools[1].includes(def) && !suffixName) suffixName = def[2];
     }
     return { stats, prefixName, suffixName };
+  },
+
+  // D2's real magic-find diminishing-returns formula (well documented,
+  // reproduced from memory): effectiveMF = MF * C / (MF + C), where C
+  // differs per rarity — 250 for Unique and 500 for Set are the two
+  // constants most consistently cited by the community; Rare/Magic use a
+  // larger, less aggressively-curving constant that is less precisely
+  // documented, approximated here as 600. This replaces raw MF scaling the
+  // odds linearly — at high MF the marginal value of another +1% keeps
+  // shrinking, matching real D2's "MF has soft caps" behavior.
+  effectiveMF(mf, rarity) {
+    const C = { unique: 250, set: 500, rare: 600, magic: 600 }[rarity];
+    if (!C || mf <= 0) return Math.max(0, mf);
+    return mf * C / (mf + C);
   },
 
   // Main generator. opts: { forceRarity, forceType, classId, mf }
@@ -95,9 +120,12 @@ const Items = {
 
     let rarity = opts.forceRarity;
     if (!rarity) {
-      const m = 1 + mf / 100;
+      const eU = 1 + this.effectiveMF(mf, 'unique') / 100;
+      const eS = 1 + this.effectiveMF(mf, 'set') / 100;
+      const eR = 1 + this.effectiveMF(mf, 'rare') / 100;
+      const eM = 1 + this.effectiveMF(mf, 'magic') / 100;
       rarity = U.weighted(rng, [
-        ['unique', 1.6 * m], ['set', 2.2 * m], ['rare', 11 * m], ['magic', 34 * Math.sqrt(m)], ['common', 46],
+        ['unique', 1.6 * eU], ['set', 2.2 * eS], ['rare', 11 * eR], ['magic', 34 * Math.sqrt(eM)], ['common', 46],
       ]);
     }
 
@@ -125,7 +153,13 @@ const Items = {
       item.stats = aff.stats;
       item.name = ((aff.prefixName ? aff.prefixName + ' ' : '') + item.baseName + (aff.suffixName ? ' ' + aff.suffixName : '')).trim();
     } else if (rarity === 'rare') {
-      const n = U.ri(rng, 3, 5);
+      // Up to 6 affixes (real D2 rares can roll up to 3 prefixes + 3
+      // suffixes = 6 total), gated by ilvl — low-level rares are more likely
+      // to run out of eligible affixes before hitting 6 anyway thanks to
+      // eligibleAffixes()'s minIlvl gate, but the *count itself* also climbs
+      // with ilvl so early rares don't reliably roll a full 6.
+      const maxN = ilvl >= 40 ? 6 : ilvl >= 24 ? 5 : 4;
+      const n = U.ri(rng, Math.min(3, maxN), maxN);
       const aff = this.rollAffixes(rng, base, ilvl, n);
       item.stats = aff.stats;
       item.name = U.pick(rng, RARE_NAME_A) + U.pick(rng, RARE_NAME_B) + ' ' + item.baseName.split(' ').pop();
@@ -135,12 +169,36 @@ const Items = {
     return item;
   },
 
-  makeBaseItem(rng, base, tier, ilvl) {
+  // Quality roll: superior (+enhanced dmg/defense) / normal / inferior
+  // (-dmg/defense). See ITEM_QUALITY in data.js for the cited rationale.
+  rollQuality(rng) {
+    return U.weighted(rng, [
+      ['superior', ITEM_QUALITY.superior.weight],
+      ['normal', ITEM_QUALITY.normal.weight],
+      ['inferior', ITEM_QUALITY.inferior.weight],
+    ]);
+  },
+
+  // Socket count: capped by the base type's maxSockets (0 for rings/
+  // amulets/gloves/boots/belts, matching real D2 — those slots never take
+  // sockets), and by an ilvl bracket so low-level items can't roll a
+  // max-socket item early. Roughly 1/3 of eligible drops are socketed at
+  // all, echoing D2's real drop rate being well under 100% even once a base
+  // qualifies.
+  rollSockets(rng, base, ilvl) {
+    const max = base.maxSockets || 0;
+    if (max <= 0) return 0;
+    const bracket = ilvl >= 41 ? max : ilvl >= 28 ? Math.min(max, 4) : ilvl >= 15 ? Math.min(max, 3) : Math.min(max, 2);
+    if (bracket <= 0 || !U.chance(rng, 1 / 3)) return 0;
+    return U.ri(rng, 1, bracket);
+  },
+
+  makeBaseItem(rng, base, tier, ilvl, opts = {}) {
     const item = {
       id: 'it' + (this._seq++) + '_' + Math.floor(Math.random() * 1e6),
       type: base.id, slot: base.slot, tier, ilvl,
       baseName: base.names[tier], name: base.names[tier],
-      rarity: 'common', stats: {}, reqLvl: TIER_LVLS[tier],
+      rarity: 'common', stats: {}, reqLvl: TIER_LVLS[tier], quality: 'normal',
     };
     if (base.dmg) {
       const [lo, hi] = base.dmg[tier];
@@ -150,13 +208,40 @@ const Items = {
     }
     if (base.armor && base.armor[tier]) item.armor = Math.round(base.armor[tier] * U.rf(rng, 0.85, 1.2));
     if (base.caster) item.spellPct = base.caster + tier * 6;
+    if (base.blockPct) item.baseBlockPct = base.blockPct;
+
+    // Quality never rolls on unique/set items — their magical properties
+    // are fixed rolls (makeUnique/makeSetPiece pass skipQuality).
+    if (!opts.skipQuality) {
+      item.quality = this.rollQuality(rng);
+      if (item.quality !== 'normal') {
+        const [lo2, hi2] = ITEM_QUALITY[item.quality].mulRange;
+        const mul = U.rf(rng, lo2, hi2);
+        if (item.dmg) { item.dmg[0] = Math.max(1, Math.round(item.dmg[0] * mul)); item.dmg[1] = Math.round(item.dmg[1] * mul); }
+        if (item.armor) item.armor = Math.max(1, Math.round(item.armor * mul));
+        item.name = (item.quality === 'superior' ? 'Superior ' : 'Crude ') + item.name;
+      }
+    }
+
+    // Ethereal — weapons and armor only, never rings/amulets.
+    if (base.slot !== 'ring' && base.slot !== 'amulet' && U.chance(rng, ETHEREAL_CHANCE)) {
+      item.ethereal = true;
+      if (item.dmg) { item.dmg[0] = Math.round(item.dmg[0] * ETHEREAL_WEAPON_MULT); item.dmg[1] = Math.round(item.dmg[1] * ETHEREAL_WEAPON_MULT); }
+      if (item.armor) item.armor = Math.round(item.armor * ETHEREAL_ARMOR_MULT);
+    }
+
+    // Sockets: capacity only; gems/runes are inserted later via socketGem().
+    const nSockets = this.rollSockets(rng, base, ilvl);
+    item.sockets = nSockets;
+    item.gems = new Array(nSockets).fill(null);
+
     item.price = this.price(item);
     return item;
   },
 
   makeUnique(rng, u) {
     const base = this.baseById(u.type);
-    const item = this.makeBaseItem(rng, base, u.tier, TIER_LVLS[u.tier]);
+    const item = this.makeBaseItem(rng, base, u.tier, TIER_LVLS[u.tier], { skipQuality: true });
     item.rarity = 'unique'; item.name = u.name; item.flavor = u.flavor;
     item.stats = Object.assign({}, u.stats);
     if (item.dmg) { item.dmg[0] = Math.round(item.dmg[0] * 1.25); item.dmg[1] = Math.round(item.dmg[1] * 1.25); }
@@ -167,16 +252,92 @@ const Items = {
 
   makeSetPiece(rng, set, piece) {
     const base = this.baseById(piece.type);
-    const item = this.makeBaseItem(rng, base, piece.tier, TIER_LVLS[piece.tier]);
+    const item = this.makeBaseItem(rng, base, piece.tier, TIER_LVLS[piece.tier], { skipQuality: true });
     item.rarity = 'set'; item.name = piece.name; item.setId = set.id; item.setName = set.name;
     item.stats = Object.assign({}, piece.stats);
     item.price = this.price(item);
     return item;
   },
 
+  // ---------- Sockets: gems, runes, rune words ----------
+  makeGem(type, quality) {
+    const t = GEM_TYPES[type];
+    if (!t) return null;
+    return { kind: 'gem', gemType: type, quality, name: quality[0].toUpperCase() + quality.slice(1) + ' ' + t.name, id: 'gem_' + type + '_' + quality + '_' + (this._seq++) };
+  },
+  makeRune(name) {
+    const r = RUNE_BY_NAME[name];
+    if (!r) return null;
+    return { kind: 'rune', name: r.name, ord: r.ord, id: r.id + '_' + (this._seq++) };
+  },
+
+  // What a single socketed gem/rune contributes "alone" (i.e. when it isn't
+  // part of a completed rune word) — see the citations on GEM_TYPES/RUNES in
+  // data.js. `isWeaponSlot` picks the weapon-flavored effect vs the
+  // armor/shield-flavored one, matching D2's real behavior that the same
+  // gem does something different depending on what it's socketed into.
+  gemAloneStat(g, isWeaponSlot) {
+    if (!g) return null;
+    if (g.kind === 'gem') {
+      const t = GEM_TYPES[g.gemType]; if (!t) return null;
+      const eff = isWeaponSlot ? t.weapon : t.armor;
+      const mul = GEM_QUALITY_MULT[g.quality] || 1;
+      return { key: eff.stat, val: Math.round(GEM_BASE_VAL * mul * 10) / 10 };
+    }
+    if (g.kind === 'rune') {
+      const r = RUNE_BY_NAME[g.name];
+      if (!r || !r.alonePct) return null; // Hel: no alone bonus, faithful to D2
+      return isWeaponSlot
+        ? { key: 'dmgPct', val: r.alonePct }
+        : { key: 'armorPct', val: Math.round(r.alonePct * 0.6 * 10) / 10 };
+    }
+    return null;
+  },
+
+  // Insert a gem/rune object into the item's first empty socket. Returns
+  // false if there's no empty socket. Re-checks the rune word recipe after.
+  socketGem(item, obj) {
+    if (!item.gems) return false;
+    const idx = item.gems.indexOf(null);
+    if (idx === -1) return false;
+    item.gems[idx] = obj;
+    this.applyRuneword(item);
+    return true;
+  },
+
+  // A rune word activates only when EVERY socket is filled, all fillers are
+  // runes (not gems), and the rune names match an eligible recipe for this
+  // item's base type in the exact order — faithful to real D2. Idempotent:
+  // re-checking an already-applied word does not re-add its stats.
+  applyRuneword(item) {
+    const wasId = item.runeword;
+    if (!item.gems || !item.gems.length || item.gems.some(g => g === null) || item.gems.some(g => g.kind !== 'rune')) {
+      delete item.runeword; delete item.runewordName;
+      return null;
+    }
+    const names = item.gems.map(g => g.name);
+    const match = runewordForBase(item.type).find(rw => rw.runes.length === names.length && rw.runes.every((n, i) => n === names[i]));
+    if (!match) { delete item.runeword; delete item.runewordName; return null; }
+    if (wasId === match.id) return match;
+    item.runeword = match.id; item.runewordName = match.name;
+    for (const k in match.stats) item.stats[k] = (item.stats[k] || 0) + match.stats[k];
+    return match;
+  },
+
+  // ---------- Gambling (see GAMBLE_CFG in data.js) ----------
+  // Pure-function mirror of js/ui.js's renderGamble() formula, for anything
+  // (including tests) that wants the gamble math without the DOM.
+  gambleCost(pl) { return GAMBLE_CFG.costBase + pl.lvl * GAMBLE_CFG.costPerLvl; },
+  gambleRarity(rng) { return U.weighted(rng, GAMBLE_CFG.rarityWeights); },
+
   price(item) {
     const rmul = { common: 1, magic: 3.2, rare: 8, set: 14, unique: 20 }[item.rarity] || 1;
     let p = (8 + item.ilvl * 6 + (item.tier || 0) * 30) * rmul;
+    if (item.quality === 'superior') p *= 1.15;
+    if (item.quality === 'inferior') p *= 0.7;
+    if (item.sockets) p *= 1 + item.sockets * 0.08;
+    if (item.ethereal) p *= ETHEREAL_PRICE_MULT;
+    if (item.runeword) p *= 1.6;
     return Math.round(p);
   },
 
@@ -198,7 +359,16 @@ const Items = {
     if (item.armor) h += `<div>Armor: <b>${item.armor}</b></div>`;
     if (item.spellPct) h += `<div class="tt-stat">+${item.spellPct}% Spell Damage</div>`;
     if (item.critBonus) h += `<div class="tt-stat">+${item.critBonus}% Critical Chance</div>`;
+    if (item.baseBlockPct) h += `<div class="tt-stat">Chance to Block: ${item.baseBlockPct}%</div>`;
+    if (item.ethereal) h += `<div style="color:#c0a0ff">Ethereal (cannot be repaired)</div>`;
+    if (item.quality === 'superior') h += `<div style="color:#8fd8ff">Superior Quality</div>`;
+    if (item.quality === 'inferior') h += `<div style="color:#a08060">Low Quality</div>`;
     for (const k in item.stats) h += `<div class="tt-stat">${this.statLine(k, item.stats[k])}</div>`;
+    if (item.runewordName) h += `<div class="q-set" style="color:#ffae57">Rune Word: ${U.esc(item.runewordName)}</div>`;
+    if (item.sockets) {
+      const filled = item.gems.filter(Boolean);
+      h += `<div>Sockets (${filled.length}/${item.sockets})${filled.length ? ': ' + filled.map(g => U.esc(g.name)).join(', ') : ''}</div>`;
+    }
     if (item.setId) {
       const set = SETS.find(s => s.id === item.setId);
       const owned = player ? Object.values(player.equip).filter(e => e && e.setId === item.setId).length : 0;

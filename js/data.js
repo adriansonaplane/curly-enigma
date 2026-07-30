@@ -390,9 +390,69 @@ for (const c of CLASSES) for (const tree of c.trees) {
   });
 }
 
-// Skill lookup table
+// ---------- Skill lookup table + tree metadata ----------
 const SKILL_BY_ID = {};
-for (const c of CLASSES) for (const t of c.trees) for (const s of t.skills) { s.cls = c.id; SKILL_BY_ID[s.id] = s; }
+for (const c of CLASSES) {
+  c.trees.forEach((t, treeIdx) => {
+    t.skills.forEach((s, idx) => {
+      s.cls = c.id; s.treeIdx = treeIdx; s.idx = idx; s.tier = Math.floor(idx / 2);
+      SKILL_BY_ID[s.id] = s;
+    });
+  });
+}
+
+// ---------- Synergies (D2's real skill-scaling model) ----------
+// In Diablo 2, many skills have a short list of *synergy* skills: every hard
+// point (a point the player personally allocated — NOT a +skills bonus from
+// gear) spent in a synergy skill adds a flat percentage to the parent
+// skill's damage, on top of the parent's own per-level growth. Classic
+// example: Fire Bolt and Warmth both synergize Fireball, which is why a
+// "pure" Meteorb sorceress puts points into skills she never casts.
+//
+// This project's 210 skills were generated programmatically by S()/T() above
+// rather than hand-authored with Blizzard's specific per-skill graph, so
+// there is no source to transcribe a bespoke prerequisite/synergy list from
+// for all 210. What follows implements the *mechanism* faithfully —
+// hard-point-only, additive-then-multiplicative, prerequisite-gated
+// unlocking — using one general, declared rule instead of 210 individually
+// invented balance calls:
+//
+//   PREREQUISITE: a skill in tier N (index pair 2N/2N+1 within its tree)
+//   requires at least one point already spent in a skill from tier N-1 of
+//   the SAME tree, in addition to the existing character-level gate
+//   (skillReqLvl). D2 gates on a specific named prior skill; "some skill one
+//   row up" is the closest rule that doesn't require authoring a bespoke
+//   graph, while still forcing players to commit to a tree's shape as they
+//   climb it, exactly like the real game does.
+//
+//   SYNERGY: every damage-dealing skill (arch in DMG_ARCHS) is synergized by
+//   up to two same-element damage skills that precede it in the same tree —
+//   the nearest ones. This mirrors D2's real pattern of an early, cheap
+//   skill (Fire Bolt) feeding later, expensive ones (Fireball, Meteor) of
+//   the same element. SYN_PCT (the per-point bonus) is a flat, invented
+//   number — real D2 synergy values range roughly 2%-20% per point and
+//   differ per pair; standardizing to one number is a stated simplification,
+//   not a claim of Blizzard's balance data.
+const DMG_ARCHS = new Set(['strike', 'slam', 'proj', 'nova', 'beam', 'meteor', 'chain', 'storm', 'trap']);
+const SYN_PCT = 4; // invented flat per-point synergy bonus, see comment above
+for (const c of CLASSES) for (const t of c.trees) t.skills.forEach((s, idx) => {
+  if (!DMG_ARCHS.has(s.arch)) return;
+  const syn = [];
+  for (let j = idx - 1; j >= 0 && syn.length < 2; j--) {
+    const cand = t.skills[j];
+    if (DMG_ARCHS.has(cand.arch) && cand.elem === s.elem) syn.push({ id: cand.id, pct: SYN_PCT });
+  }
+  if (syn.length) s.syn = syn;
+});
+
+// True if `sk` can be allocated by `pl` right now, ignoring skill points
+// remaining and max-level — see comment above for the rule.
+function skillPrereqOk(pl, sk) {
+  if (!sk || sk.tier === 0) return true;
+  const cls = CLASSES.find(c => c.id === sk.cls);
+  const tree = cls.trees[sk.treeIdx];
+  return tree.skills.some(s2 => s2.tier === sk.tier - 1 && (pl.skills[s2.id] || 0) > 0);
+}
 
 // ---------- Monster families ----------
 // body: shape archetype used by sprite baker: humanoid, brute, blob, spider, bat, serpent, ghost, skeleton
@@ -536,85 +596,318 @@ const ELITE_MODS = {
 const ELITE_NAME_A = ['Gore', 'Dread', 'Ash', 'Blight', 'Rot', 'Skull', 'Blood', 'Grim', 'Bile', 'Storm', 'Vile', 'Hate', 'Bone', 'Night', 'Fell'];
 const ELITE_NAME_B = ['maw', 'fang', 'claw', 'gut', 'howl', 'wound', 'shard', 'hide', 'brand', 'spike', 'wing', 'eye', 'tongue', 'render', 'bane'];
 
+// ---------- Difficulty tiers (Normal / Nightmare / Hell) ----------
+// Two numbers here are well-documented, specific D2 facts, reproduced
+// exactly from memory:
+//   - resPenalty: elemental resistance penalty applied before the normal cap
+//     — Normal 0, Nightmare -40, Hell -100. This is why a Hell character in
+//     starting gear reads deeply negative resist across the board until
+//     they specifically itemize for it.
+//   - monsterResAdd / hpMult / dmgMult: D2 hand-tunes every monster unit's
+//     per-difficulty HP/damage/resistance individually (MonStats.txt); that
+//     table was never public in closed form and isn't reproduced here.
+//     These are this project's own aggregate approximation of the same
+//     *shape* — Nightmare roughly doubles-to-triples Normal, Hell roughly
+//     doubles Nightmare again, and monsters gain material resistance (often
+//     tipping into outright immunity once ELITE_MODS/MONSTER_RES bonuses
+//     stack on top) each tier up.
+//   - mlvlAdd: area level added on top of the zone's own mlvl, so affix
+//     tiers and monster levels keep climbing in the higher difficulties the
+//     way D2's per-difficulty area-level tables do. Approximate, not a
+//     transcription of Blizzard's LvlPrest tables.
+const DIFFICULTIES = [
+  { id: 'normal',    name: 'Normal',    hpMult: 1,    dmgMult: 1,   resPenalty: 0,   monsterResAdd: 0,    mlvlAdd: 0  },
+  { id: 'nightmare', name: 'Nightmare', hpMult: 2.7,  dmgMult: 1.8, resPenalty: 40,  monsterResAdd: 0.20, mlvlAdd: 30 },
+  { id: 'hell',      name: 'Hell',      hpMult: 6.7,  dmgMult: 3.2, resPenalty: 100, monsterResAdd: 0.40, mlvlAdd: 60 },
+];
+function difficultyByIdx(i) { return DIFFICULTIES[U.clamp(i | 0, 0, DIFFICULTIES.length - 1)]; }
+
+// ---------- Monster elemental resistances ----------
+// Real D2 hand-authors resistance per monster unit. This project's MONSTERS
+// table doesn't carry that data, so this is an authored approximation:
+// every monster partially resists its own innate element (matching D2's
+// general pattern that elemental breeds/casters resist their own damage
+// type), undead families get heavy poison resistance (you cannot poison
+// something that doesn't metabolize — also a real D2 pattern, e.g. Skeletons
+// are poison-immune in the original game), and a couple of tougher,
+// clearly-elemental units are pushed to outright immunity for depth. None of
+// this claims to reproduce a specific Blizzard MonStats.txt row.
+const MONSTER_RES = {};
+for (const fam in MONSTERS) {
+  const def = MONSTERS[fam];
+  const r = {};
+  if (def.elem && def.elem !== 'phys') r[def.elem] = 0.5;
+  MONSTER_RES[fam] = r;
+}
+for (const fam of ['skeleton', 'skelarcher', 'skelmage', 'zombie', 'lich', 'wraith', 'mummy'])
+  if (MONSTER_RES[fam]) MONSTER_RES[fam].pois = Math.max(MONSTER_RES[fam].pois || 0, 0.75);
+if (MONSTER_RES.magmagolem) MONSTER_RES.magmagolem.fire = 1;      // molten construct: fire-immune
+if (MONSTER_RES.golem) MONSTER_RES.golem.pois = 0.9;               // stone/bone construct: nearly poison-immune
+const BOSS_RES = {};
+for (const key in BOSSES) { const b = BOSSES[key]; BOSS_RES[key] = b.elem && b.elem !== 'phys' ? { [b.elem]: 0.5 } : {}; }
+
+// ---------- Item quality (superior / normal / inferior) ----------
+// D2 rolls every dropped item's quality independent of its rarity: most
+// items are Normal; roughly 1 in 6 are Superior (bonus enhanced damage or
+// defense, and cannot be repaired past their max — durability isn't modeled
+// here so we keep the damage/defense bonus and drop the durability nuance);
+// a small fraction are Low Quality/Inferior (a damage or defense penalty).
+// Weights and the bonus/penalty ranges below are this project's own
+// approximation of that shape, not the exact ItemStatCost roll table.
+const ITEM_QUALITY = {
+  superior: { weight: 16, mulRange: [1.05, 1.15] },   // ~1-in-6, +5-15% enhanced dmg/defense
+  normal:   { weight: 78, mulRange: [1, 1] },
+  inferior: { weight: 6,  mulRange: [0.75, 0.9] },    // -10-25%
+};
+// Ethereal: D2's roughly 1-in-6 permanently-broken-but-boosted roll for
+// weapons and armor (never rings/amulets/jewelry). +50% enhanced defense or
+// +25% enhanced damage, cannot be repaired, sells for less. Reproduced
+// faithfully in shape; the exact drop-rate constant is approximated.
+const ETHEREAL_CHANCE = 1 / 6;
+const ETHEREAL_ARMOR_MULT = 1.5;
+const ETHEREAL_WEAPON_MULT = 1.25;
+const ETHEREAL_PRICE_MULT = 0.6;
+
+// ---------- Runes (33, in real ascending Horadric order) ----------
+// Names and relative order are the actual 33 Diablo 2 runes, reproduced
+// from memory. `lvl` is each rune's approximate character-level requirement
+// to socket — the two ends of the table (El=11, Zod=69) are well-known
+// reference points; the 31 in between are interpolated evenly rather than
+// transcribed from the exact ItemStatCost table, so treat them as
+// approximate. `alonePct` is this project's own invented scaling for what a
+// rune does socketed by itself (a flat, tier-scaled bonus to the stat
+// implied by its position — offensive runes early, defensive/utility runes
+// later) — D2's real "rune alone" effects are unique hand-written bonuses
+// per rune per base-item-class (weapon vs armor vs shield each differ) and
+// are not reproduced verbatim here. Hel is faithful to the real game in one
+// specific way: it has no "alone" bonus at all — in real D2, Hel Rune is
+// used exclusively in the Horadric Cube to strip socketed items back out,
+// which js/cube.js implements.
+const RUNES = [
+  'El','Eld','Tir','Nef','Eth','Ith','Tal','Ral','Ort','Thul','Amn','Sol','Shael','Dol',
+  'Hel','Io','Lum','Ko','Fal','Lem','Pul','Um','Mal','Ist','Gul','Vex','Ohm','Lo','Sur',
+  'Ber','Jah','Cham','Zod',
+].map((name, i) => ({
+  id: 'rune_' + name.toLowerCase(), name, ord: i + 1,
+  lvl: Math.round(11 + (69 - 11) * i / 32),
+  alonePct: name === 'Hel' ? 0 : Math.round((4 + i * 2.4) * 10) / 10,
+}));
+const RUNE_BY_NAME = {}; for (const r of RUNES) RUNE_BY_NAME[r.name] = r;
+
+// ---------- Gems (7 types x 5 qualities) ----------
+// The seven gem colors and their weapon/armor effect *categories* are
+// faithful to real D2 (Amethyst->Strength/enhanced defense, Topaz->
+// Lightning, Sapphire->Cold, Emerald->Poison, Ruby->Fire(+Life on armor),
+// Diamond->(vs.undead dmg)/All Resist, Skull->Leech/Life+Mana). The five
+// quality steps (chipped/flawed/normal/flawless/perfect) and their
+// multipliers are D2-shaped (each step is a materially bigger jump, perfect
+// being the strongest) but the exact numbers are this project's own,
+// not transcribed from ItemStatCost.
+const GEM_TYPES = {
+  amethyst: { name: 'Amethyst', weapon: { stat: 'str',      label: 'Strength' },        armor: { stat: 'armorPct', label: 'Enhanced Defense' } },
+  topaz:    { name: 'Topaz',    weapon: { stat: 'liteDmg',  label: 'Lightning Damage' }, armor: { stat: 'liteRes',  label: 'Lightning Resist' } },
+  sapphire: { name: 'Sapphire', weapon: { stat: 'coldDmg',  label: 'Cold Damage' },      armor: { stat: 'coldRes',  label: 'Cold Resist' } },
+  emerald:  { name: 'Emerald',  weapon: { stat: 'poisDmg',  label: 'Poison Damage' },    armor: { stat: 'poisRes',  label: 'Poison Resist' } },
+  ruby:     { name: 'Ruby',     weapon: { stat: 'fireDmg',  label: 'Fire Damage' },      armor: { stat: 'fireRes',  label: 'Fire Resist' } },
+  diamond:  { name: 'Diamond',  weapon: { stat: 'dmgPct',   label: 'Damage' },           armor: { stat: 'allRes',   label: 'All Resistances' } },
+  skull:    { name: 'Skull',    weapon: { stat: 'leechHp',  label: 'Life Leech' },       armor: { stat: 'hp',       label: 'Life' } },
+};
+const GEM_QUALITIES = ['chipped', 'flawed', 'normal', 'flawless', 'perfect'];
+const GEM_QUALITY_MULT = { chipped: 0.5, flawed: 0.75, normal: 1, flawless: 1.4, perfect: 2 };
+const GEM_BASE_VAL = 4; // invented base magnitude before the quality multiplier and rune/tier-style scaling
+
+// ---------- Rune words ----------
+// A representative faithful subset of real D2 low/mid rune words —
+// reproduced from memory: exact rune order, exact base-item restriction and
+// exact socket count. The numeric bonuses are this project's own
+// approximation of each rune word's real effect (kept in the same stat
+// categories, trimmed to fit this game's stat model) rather than an exact
+// transcription of Blizzard's per-rune-word bonus table.
+const RUNEWORDS = [
+  { id: 'steel', name: 'Steel', runes: ['Tir', 'El'], bases: ['sword', 'axe', 'mace'], sockets: 2,
+    stats: { dmgPct: 25, ar: 50, regenHp: 1.5 } },
+  { id: 'nadir', name: 'Nadir', runes: ['Nef', 'Tir'], bases: ['helm'], sockets: 2,
+    stats: { armor: 30, lightRad: -1, allRes: 5 } },
+  { id: 'ancients_pledge', name: "Ancient's Pledge", runes: ['Ral', 'Ort', 'Tal'], bases: ['shield'], sockets: 3,
+    stats: { allRes: 13, armorPct: 20 } },
+  { id: 'stealth', name: 'Stealth', runes: ['Tal', 'Eth'], bases: ['chest'], sockets: 2,
+    stats: { moveSpd: 25, atkSpd: 10, regenMp: 2 } },
+  { id: 'strength', name: 'Strength', runes: ['Amn', 'Tir'], bases: ['sword', 'axe', 'mace', 'spear'], sockets: 2,
+    stats: { dmgPct: 35, str: 20, leechHp: 3 } },
+  { id: 'rhyme', name: 'Rhyme', runes: ['Shael', 'Eth'], bases: ['shield'], sockets: 2,
+    stats: { blockPct: 20, allRes: 15, atkSpd: 5 } },
+  { id: 'black', name: 'Black', runes: ['Thul', 'Io', 'Nef'], bases: ['mace'], sockets: 3,
+    stats: { atkSpd: 20, vit: 12, critCh: 4 } },
+  { id: 'zephyr', name: 'Zephyr', runes: ['Ort', 'Eth'], bases: ['bow', 'crossbow'], sockets: 2,
+    stats: { atkSpd: 25, dmgPct: 33 } },
+  { id: 'lore', name: 'Lore', runes: ['Ort', 'Sol'], bases: ['helm'], sockets: 2,
+    stats: { allSkills: 1, ene: 10, lightRad: 3, fireRes: 22 } },
+  { id: 'spirit', name: 'Spirit', runes: ['Tal', 'Thul', 'Ort', 'Amn'], bases: ['sword', 'shield'], sockets: 4,
+    stats: { allSkills: 2, atkSpd: 25, mp: 120, vit: 15, allRes: 30 } },
+];
+function runewordForBase(baseId) { return RUNEWORDS.filter(rw => rw.bases.includes(baseId)); }
+
+// ---------- Mercenaries ----------
+// D2's four hireable mercenary archetypes, reproduced by act/weapon-kit/aura
+// shape from memory: Act 1 Rogue Scout (bow), Act 2 Desert Guardian (spear,
+// aura), Act 3 Iron Wolf (elemental caster), Act 5 Barbarian (melee, war
+// cry). Act 4 has no mercenary in real D2 either, so it's intentionally
+// absent here too. Equip slots (weapon/helm/armor only — no shield, no
+// jewelry, matching the original) and the aura-grants-party-a-buff shape are
+// faithful; exact base stats, hire cost and growth curves are this
+// project's own tuning, not a transcription of the hireling .txt tables.
+const MERC_DEFS = {
+  1: { act: 1, name: 'Rogue Scout', weapon: 'bow', armor: 'chest',
+       aura: null, hireCostBase: 300, hireCostPerLvl: 40,
+       base: { hp: 40, dmgLo: 3, dmgHi: 7, armor: 8 }, hpPerLvl: 6, dmgPerLvl: 0.9,
+       desc: 'Fires arrows from range; no aura, but cheap and reliable.' },
+  2: { act: 2, name: 'Desert Guardian', weapon: 'spear', armor: 'chest',
+       aura: 'Defiance', auraStats: { armor: 60 }, hireCostBase: 500, hireCostPerLvl: 55,
+       base: { hp: 60, dmgLo: 5, dmgHi: 10, armor: 14 }, hpPerLvl: 8, dmgPerLvl: 1.1,
+       desc: 'Melee spearman; Defiance aura raises the whole party\'s armor.' },
+  3: { act: 3, name: 'Iron Wolf', weapon: 'staff', armor: 'chest', elem: 'fire',
+       aura: null, hireCostBase: 650, hireCostPerLvl: 70,
+       base: { hp: 42, dmgLo: 6, dmgHi: 12, armor: 6 }, hpPerLvl: 5, dmgPerLvl: 1.3,
+       desc: 'Elemental caster; no aura, but the highest ranged damage growth.' },
+  5: { act: 5, name: 'Barbarian', weapon: 'axe', armor: 'chest',
+       aura: 'Battle Cry', auraStats: { dmgPct: 15 }, hireCostBase: 800, hireCostPerLvl: 85,
+       base: { hp: 75, dmgLo: 8, dmgHi: 15, armor: 16 }, hpPerLvl: 10, dmgPerLvl: 1.5,
+       desc: 'Melee brawler; Battle Cry aura raises the whole party\'s damage.' },
+};
+
+// ---------- Horadric Cube recipes (data; execution lives in js/cube.js) ----------
+// A representative faithful subset. Gem/rune "3-up-a-tier" recipes are real
+// D2 mechanics (gem combining is exact; the rune upgrade recipe is real for
+// the low/mid runes and this project applies the same ratio uniformly
+// through Zod as a documented simplification — high runes in real D2 use
+// progressively different ratios and extra ingredients that aren't
+// reproduced here). The socket recipe (Ral+Tal+Ort on a normal, unsocketed
+// item) and the tier-upgrade recipe are shaped after real Cube recipes
+// introduced in patch 1.10 but are approximate, not exact ingredient lists.
+const CUBE_RECIPES = [
+  { id: 'gem_upgrade', name: 'Upgrade Gem', desc: '3 same-type, same-quality gems -> 1 of the next quality.' },
+  { id: 'rune_upgrade', name: 'Upgrade Rune', desc: '3 of the same rune -> 1 of the next rune.' },
+  { id: 'add_sockets', name: 'Socket a normal item', desc: 'Ral + Tal + Ort + a normal, unsocketed weapon or armor -> the item gains sockets.' },
+  { id: 'upgrade_tier', name: 'Upgrade base tier', desc: 'A rare item + 1400 gold -> the base item tier is upgraded by one (Horadric transmutation).' },
+  { id: 'reroll_magic', name: 'Reroll magic item', desc: 'A magic item + 3 perfect gems (any) -> a fresh magic item of the same base at the same ilvl.' },
+  { id: 'remove_gems', name: 'Remove socketed items', desc: 'A Hel Rune + an item with socketed gems/runes + gold -> the item is destroyed, the sockets are returned empty and gems are lost, runes are recovered.' },
+  { id: 'upgrade_rare', name: 'Upgrade to Rare', desc: 'A magic item + 1 chipped gem (any) + 1 perfect skull -> a rare item of the same base at the same ilvl.' },
+];
+
+// ---------- Gambling ----------
+// This game already has a working gamble vendor (Peddler Vex, js/ui.js
+// renderGamble): cost scales with character level and the roll is
+// guaranteed Magic or better, matching the commonly-documented D2 rule that
+// gambled items are never plain (white). GAMBLE_CFG documents that contract
+// so it has one citable source of truth; js/items.js exposes
+// Items.gambleCost/Items.gambleRarity as reusable pure functions with the
+// same shape as ui.js's inline formula, for anything (including tests) that
+// wants gamble math without going through the DOM.
+const GAMBLE_CFG = {
+  costBase: 60, costPerLvl: 14,
+  rarityWeights: [['unique', 4], ['set', 5], ['rare', 34], ['magic', 57]], // never 'common'
+};
+
 // ---------- Items ----------
 const TIER_LVLS = [1, 12, 24, 38, 52];
+// maxSockets: the socket cap by base type. D2 caps sockets per base-item
+// class (swords/axes/maces/bows/staves up to 6, daggers/wands lower, etc.);
+// the exact table is a large per-item chart in the real game's ItemStatCost
+// data. These caps follow that general shape (fast small weapons cap low,
+// two-handed/heavy weapons and body armor cap at 6) but are this project's
+// own approximation, not a transcription of Blizzard's table.
 const WEAPON_TYPES = [
-  { id: 'sword',    slot: 'weapon', spd: 1.00, names: ['Short Sword', 'Broadsword', 'War Sword', 'Rune Blade', 'Doom Edge'],       dmg: [[2, 5], [7, 14], [14, 27], [25, 46], [40, 70]] },
-  { id: 'axe',      slot: 'weapon', spd: 0.85, names: ['Hatchet', 'Battle Axe', 'War Cleaver', 'Berserker Axe', 'Worldsplitter'],  dmg: [[3, 7], [9, 18], [17, 33], [30, 55], [48, 84]] },
-  { id: 'mace',     slot: 'weapon', spd: 0.80, names: ['Cudgel', 'Flanged Mace', 'War Hammer', 'Doom Maul', 'Star of Ruin'],       dmg: [[3, 8], [10, 20], [19, 36], [33, 60], [52, 92]] },
-  { id: 'dagger',   slot: 'weapon', spd: 1.40, critBonus: 6, names: ['Dirk', 'Stiletto', 'Kris', 'Night Fang', 'Heartseeker'],     dmg: [[1, 4], [5, 10], [10, 19], [18, 33], [29, 51]] },
-  { id: 'spear',    slot: 'weapon', spd: 0.95, names: ['Javelin', 'Pike', 'War Spear', 'Storm Pike', 'Sky Impaler'],               dmg: [[2, 6], [8, 16], [16, 30], [28, 51], [45, 78]] },
-  { id: 'claw',     slot: 'weapon', spd: 1.30, critBonus: 4, names: ['Katar', 'Wrist Blade', 'Battle Cestus', 'Shadow Claw', 'Godfist'], dmg: [[1, 5], [6, 11], [11, 21], [20, 36], [32, 56]] },
-  { id: 'bow',      slot: 'weapon', spd: 1.10, ranged: true, names: ['Short Bow', 'Hunter\'s Bow', 'Composite Bow', 'Sky Bow', 'Windforce'], dmg: [[2, 5], [7, 14], [14, 26], [24, 45], [39, 68]] },
-  { id: 'crossbow', slot: 'weapon', spd: 0.75, ranged: true, names: ['Light Crossbow', 'Arbalest', 'Siege Crossbow', 'Ballista', 'Hellrack'], dmg: [[4, 9], [11, 22], [21, 40], [36, 66], [57, 100]] },
-  { id: 'wand',     slot: 'weapon', spd: 1.15, caster: 12, names: ['Bone Wand', 'Grim Wand', 'Grave Wand', 'Lich Wand', 'Deathspire'], dmg: [[1, 3], [4, 8], [8, 15], [14, 26], [23, 40]] },
-  { id: 'staff',    slot: 'weapon', spd: 0.90, caster: 20, names: ['Gnarled Staff', 'Cedar Staff', 'Rune Staff', 'Archon Staff', 'Worldtree Rod'], dmg: [[2, 5], [6, 12], [12, 23], [21, 39], [34, 60]] },
+  { id: 'sword',    slot: 'weapon', spd: 1.00, maxSockets: 6, names: ['Short Sword', 'Broadsword', 'War Sword', 'Rune Blade', 'Doom Edge'],       dmg: [[2, 5], [7, 14], [14, 27], [25, 46], [40, 70]] },
+  { id: 'axe',      slot: 'weapon', spd: 0.85, maxSockets: 6, names: ['Hatchet', 'Battle Axe', 'War Cleaver', 'Berserker Axe', 'Worldsplitter'],  dmg: [[3, 7], [9, 18], [17, 33], [30, 55], [48, 84]] },
+  { id: 'mace',     slot: 'weapon', spd: 0.80, maxSockets: 6, names: ['Cudgel', 'Flanged Mace', 'War Hammer', 'Doom Maul', 'Star of Ruin'],       dmg: [[3, 8], [10, 20], [19, 36], [33, 60], [52, 92]] },
+  { id: 'dagger',   slot: 'weapon', spd: 1.40, critBonus: 6, maxSockets: 2, names: ['Dirk', 'Stiletto', 'Kris', 'Night Fang', 'Heartseeker'],     dmg: [[1, 4], [5, 10], [10, 19], [18, 33], [29, 51]] },
+  { id: 'spear',    slot: 'weapon', spd: 0.95, maxSockets: 4, names: ['Javelin', 'Pike', 'War Spear', 'Storm Pike', 'Sky Impaler'],               dmg: [[2, 6], [8, 16], [16, 30], [28, 51], [45, 78]] },
+  { id: 'claw',     slot: 'weapon', spd: 1.30, critBonus: 4, maxSockets: 3, names: ['Katar', 'Wrist Blade', 'Battle Cestus', 'Shadow Claw', 'Godfist'], dmg: [[1, 5], [6, 11], [11, 21], [20, 36], [32, 56]] },
+  { id: 'bow',      slot: 'weapon', spd: 1.10, ranged: true, maxSockets: 6, names: ['Short Bow', 'Hunter\'s Bow', 'Composite Bow', 'Sky Bow', 'Windforce'], dmg: [[2, 5], [7, 14], [14, 26], [24, 45], [39, 68]] },
+  { id: 'crossbow', slot: 'weapon', spd: 0.75, ranged: true, maxSockets: 6, names: ['Light Crossbow', 'Arbalest', 'Siege Crossbow', 'Ballista', 'Hellrack'], dmg: [[4, 9], [11, 22], [21, 40], [36, 66], [57, 100]] },
+  { id: 'wand',     slot: 'weapon', spd: 1.15, caster: 12, maxSockets: 1, names: ['Bone Wand', 'Grim Wand', 'Grave Wand', 'Lich Wand', 'Deathspire'], dmg: [[1, 3], [4, 8], [8, 15], [14, 26], [23, 40]] },
+  { id: 'staff',    slot: 'weapon', spd: 0.90, caster: 20, maxSockets: 6, names: ['Gnarled Staff', 'Cedar Staff', 'Rune Staff', 'Archon Staff', 'Worldtree Rod'], dmg: [[2, 5], [6, 12], [12, 23], [21, 39], [34, 60]] },
 ];
+// blockPct: base block chance a shield contributes to Ent.blockChance() —
+// see the formula and citation in entities.js. Only shields (not orbs) block.
 const ARMOR_TYPES = [
-  { id: 'helm',   slot: 'helm',   names: ['Cap', 'Full Helm', 'Casque', 'Winged Helm', 'Crown of Ages'],        armor: [4, 12, 24, 42, 66] },
-  { id: 'chest',  slot: 'chest',  names: ['Quilted Armor', 'Chain Mail', 'Plate Mail', 'Archon Plate', 'Sacred Aegis'], armor: [8, 24, 48, 82, 130] },
-  { id: 'gloves', slot: 'gloves', names: ['Leather Gloves', 'Chain Gauntlets', 'War Gauntlets', 'Ogre Gauntlets', 'Fists of Legend'], armor: [3, 9, 18, 31, 49] },
-  { id: 'boots',  slot: 'boots',  names: ['Worn Boots', 'Chain Boots', 'Greaves', 'War Treads', 'Shadow Striders'], armor: [3, 9, 18, 31, 49] },
-  { id: 'belt',   slot: 'belt',   names: ['Sash', 'Heavy Belt', 'Plated Belt', 'War Belt', 'Colossus Girdle'],   armor: [2, 7, 14, 25, 40] },
-  { id: 'shield', slot: 'offhand',names: ['Buckler', 'Kite Shield', 'Tower Shield', 'Ward of the Ancients', 'Bulwark of Dawn'], armor: [6, 18, 36, 62, 98] },
-  { id: 'orb',    slot: 'offhand',names: ['Glass Orb', 'Scrying Orb', 'Soul Orb', 'Void Sphere', 'Eye of Eternity'], armor: [2, 6, 12, 21, 33], caster: 14 },
+  { id: 'helm',   slot: 'helm',   maxSockets: 3, names: ['Cap', 'Full Helm', 'Casque', 'Winged Helm', 'Crown of Ages'],        armor: [4, 12, 24, 42, 66] },
+  { id: 'chest',  slot: 'chest',  maxSockets: 6, names: ['Quilted Armor', 'Chain Mail', 'Plate Mail', 'Archon Plate', 'Sacred Aegis'], armor: [8, 24, 48, 82, 130] },
+  { id: 'gloves', slot: 'gloves', maxSockets: 0, names: ['Leather Gloves', 'Chain Gauntlets', 'War Gauntlets', 'Ogre Gauntlets', 'Fists of Legend'], armor: [3, 9, 18, 31, 49] },
+  { id: 'boots',  slot: 'boots',  maxSockets: 0, names: ['Worn Boots', 'Chain Boots', 'Greaves', 'War Treads', 'Shadow Striders'], armor: [3, 9, 18, 31, 49] },
+  { id: 'belt',   slot: 'belt',   maxSockets: 0, names: ['Sash', 'Heavy Belt', 'Plated Belt', 'War Belt', 'Colossus Girdle'],   armor: [2, 7, 14, 25, 40] },
+  { id: 'shield', slot: 'offhand',maxSockets: 4, blockPct: 24, names: ['Buckler', 'Kite Shield', 'Tower Shield', 'Ward of the Ancients', 'Bulwark of Dawn'], armor: [6, 18, 36, 62, 98] },
+  { id: 'orb',    slot: 'offhand',maxSockets: 2, names: ['Glass Orb', 'Scrying Orb', 'Soul Orb', 'Void Sphere', 'Eye of Eternity'], armor: [2, 6, 12, 21, 33], caster: 14 },
 ];
 const JEWELRY_TYPES = [
   { id: 'ring',   slot: 'ring',   names: ['Copper Ring', 'Silver Ring', 'Gold Ring', 'Rune Band', 'Sigil of Kings'], armor: [0, 0, 0, 0, 0] },
   { id: 'amulet', slot: 'amulet', names: ['Bone Charm', 'Silver Amulet', 'Jade Talisman', 'Occult Pendant', 'Star of the Deep'], armor: [0, 0, 0, 0, 0] },
 ];
 
-// Affix pools: [key, statKey, isPct, name, slots, baseVal, perTier]
+// Affix pools: [key, statKey, name, slots, baseVal, perTier, minIlvl]
 // slots: w=weapon, a=armor pieces, j=jewelry, s=shield/offhand
+// minIlvl gates whether the affix can be *rolled at all* — D2 reserves its
+// strongest affix tiers (and a few whole affixes, like +skills jewelry) for
+// higher item levels; most affixes are available from ilvl 1 at a weak roll
+// and simply get better with ilvl via baseVal+perTier*tier (unchanged
+// mechanism, see affixTierVal in items.js). Only the small set of
+// swing-the-build-hardest stats (crit, +skills, crushing blow, deadly
+// strike, open wounds) are level-gated here; everything else defaults to 1.
 const PREFIXES = [
-  ['fierce',   'dmgPct',   'Fierce',    'wj',  8, 7],
-  ['cruel',    'dmgPct',   'Cruel',     'w',  20, 12],
-  ['sharp',    'dmgFlat',  'Honed',     'w',   2, 3],
-  ['blazing',  'fireDmg',  'Blazing',   'wj',  3, 4],
-  ['freezing', 'coldDmg',  'Freezing',  'wj',  3, 4],
-  ['charged',  'liteDmg',  'Charged',   'wj',  3, 5],
-  ['venom',    'poisDmg',  'Venomous',  'wj',  3, 4],
-  ['occult',   'arcDmg',   'Occult',    'wj',  3, 4],
-  ['sturdy',   'armorPct', 'Sturdy',    'as', 12, 9],
-  ['fortified','armor',    'Fortified', 'as',  6, 9],
-  ['beastly',  'str',      'Bear\'s',   'waj', 3, 3],
-  ['agile',    'dex',      'Falcon\'s', 'waj', 3, 3],
-  ['hearty',   'vit',      'Titan\'s',  'waj', 3, 3],
-  ['sage',     'ene',      'Sage\'s',   'waj', 3, 3],
-  ['gilded',   'goldFind', 'Gilded',    'aj', 15, 12],
-  ['seeker',   'mf',       'Seeker\'s', 'aj',  6, 5],
-  ['vampiric', 'leechHp',  'Vampiric',  'wj',  2, 1.5],
-  ['soulful',  'leechMp',  'Soulthirst','wj',  1.5, 1],
-  ['swift',    'atkSpd',   'Swift',     'w',   6, 5],
-  ['keen',     'critCh',   'Keen',      'wj',  3, 2.5],
-  ['brutalp',  'critDmg',  'Merciless', 'wj', 10, 8],
-  ['radiant',  'lightRad', 'Radiant',   'aj',  1, 0.5],
-  ['arch',     'allSkills','Archon\'s', 'wj',  1, 0.34],
+  ['fierce',   'dmgPct',   'Fierce',    'wj',  8, 7, 1],
+  ['cruel',    'dmgPct',   'Cruel',     'w',  20, 12, 1],
+  ['sharp',    'dmgFlat',  'Honed',     'w',   2, 3, 1],
+  ['blazing',  'fireDmg',  'Blazing',   'wj',  3, 4, 1],
+  ['freezing', 'coldDmg',  'Freezing',  'wj',  3, 4, 1],
+  ['charged',  'liteDmg',  'Charged',   'wj',  3, 5, 1],
+  ['venom',    'poisDmg',  'Venomous',  'wj',  3, 4, 1],
+  ['occult',   'arcDmg',   'Occult',    'wj',  3, 4, 1],
+  ['sturdy',   'armorPct', 'Sturdy',    'as', 12, 9, 1],
+  ['fortified','armor',    'Fortified', 'as',  6, 9, 1],
+  ['beastly',  'str',      'Bear\'s',   'waj', 3, 3, 1],
+  ['agile',    'dex',      'Falcon\'s', 'waj', 3, 3, 1],
+  ['hearty',   'vit',      'Titan\'s',  'waj', 3, 3, 1],
+  ['sage',     'ene',      'Sage\'s',   'waj', 3, 3, 1],
+  ['gilded',   'goldFind', 'Gilded',    'aj', 15, 12, 1],
+  ['seeker',   'mf',       'Seeker\'s', 'aj',  6, 5, 1],
+  ['vampiric', 'leechHp',  'Vampiric',  'wj',  2, 1.5, 1],
+  ['soulful',  'leechMp',  'Soulthirst','wj',  1.5, 1, 1],
+  ['swift',    'atkSpd',   'Swift',     'w',   6, 5, 1],
+  ['keen',     'critCh',   'Keen',      'wj',  3, 2.5, 12],
+  ['brutalp',  'critDmg',  'Merciless', 'wj', 10, 8, 18],
+  ['radiant',  'lightRad', 'Radiant',   'aj',  1, 0.5, 8],
+  ['arch',     'allSkills','Archon\'s', 'wj',  1, 0.34, 30],
+  ['accurate', 'ar',       'Accurate',  'wj', 35, 25, 1],
+  ['crushing', 'crushBlow','Crushing',  'w',   4, 3, 26],
+  ['rending',  'openWounds','Rending',  'w',   6, 5, 20],
 ];
 const SUFFIXES = [
-  ['bear',    'hp',       'of the Bear',      'waj', 10, 12],
-  ['fox',     'mp',       'of the Fox',       'waj',  8, 9],
-  ['vigor',   'regenHp',  'of Vigor',         'aj',   1, 0.8],
-  ['clarity', 'regenMp',  'of Clarity',       'aj',   0.8, 0.6],
-  ['flamew',  'fireRes',  'of Flame Warding', 'asj',  8, 6],
-  ['frostw',  'coldRes',  'of Frost Warding', 'asj',  8, 6],
-  ['stormw',  'liteRes',  'of Storm Warding', 'asj',  8, 6],
-  ['venomw',  'poisRes',  'of Venom Warding', 'asj',  8, 6],
-  ['nullw',   'arcRes',   'of the Null',      'asj',  8, 6],
-  ['rainbow', 'allRes',   'of the Rainbow',   'asj',  4, 3],
-  ['thorns',  'thorns',   'of Thorns',        'as',   4, 5],
-  ['alacrity','atkSpd',   'of Alacrity',      'wj',   5, 4],
-  ['zephyr',  'moveSpd',  'of the Zephyr',    'a',    4, 3],   // boots-ish but allow armor
-  ['precision','critCh',  'of Precision',     'wj',   2, 2],
-  ['ruin',    'critDmg',  'of Devastation',   'wj',   8, 7],
-  ['plenty',  'goldFind', 'of Plenty',        'aj',  12, 10],
-  ['fortune', 'mf',       'of Fortune',       'aj',   5, 4],
-  ['leech',   'leechHp',  'of the Leech',     'wj',   1.5, 1.2],
-  ['ox',      'str',      'of the Ox',        'waj',  2, 3],
-  ['cat',     'dex',      'of the Cat',       'waj',  2, 3],
-  ['whale',   'vit',      'of the Whale',     'waj',  2, 3],
-  ['owl',     'ene',      'of the Owl',       'waj',  2, 3],
-  ['power',   'allSkills','of Power',         'j',    1, 0.34],
+  ['bear',    'hp',       'of the Bear',      'waj', 10, 12, 1],
+  ['fox',     'mp',       'of the Fox',       'waj',  8, 9, 1],
+  ['vigor',   'regenHp',  'of Vigor',         'aj',   1, 0.8, 1],
+  ['clarity', 'regenMp',  'of Clarity',       'aj',   0.8, 0.6, 1],
+  ['flamew',  'fireRes',  'of Flame Warding', 'asj',  8, 6, 1],
+  ['frostw',  'coldRes',  'of Frost Warding', 'asj',  8, 6, 1],
+  ['stormw',  'liteRes',  'of Storm Warding', 'asj',  8, 6, 1],
+  ['venomw',  'poisRes',  'of Venom Warding', 'asj',  8, 6, 1],
+  ['nullw',   'arcRes',   'of the Null',      'asj',  8, 6, 1],
+  ['rainbow', 'allRes',   'of the Rainbow',   'asj',  4, 3, 14],
+  ['thorns',  'thorns',   'of Thorns',        'as',   4, 5, 1],
+  ['alacrity','atkSpd',   'of Alacrity',      'wj',   5, 4, 1],
+  ['zephyr',  'moveSpd',  'of the Zephyr',    'a',    4, 3, 1],   // boots-ish but allow armor
+  ['precision','critCh',  'of Precision',     'wj',   2, 2, 12],
+  ['ruin',    'critDmg',  'of Devastation',   'wj',   8, 7, 18],
+  ['plenty',  'goldFind', 'of Plenty',        'aj',  12, 10, 1],
+  ['fortune', 'mf',       'of Fortune',       'aj',   5, 4, 1],
+  ['leech',   'leechHp',  'of the Leech',     'wj',   1.5, 1.2, 1],
+  ['ox',      'str',      'of the Ox',        'waj',  2, 3, 1],
+  ['cat',     'dex',      'of the Cat',       'waj',  2, 3, 1],
+  ['whale',   'vit',      'of the Whale',     'waj',  2, 3, 1],
+  ['owl',     'ene',      'of the Owl',       'waj',  2, 3, 1],
+  ['power',   'allSkills','of Power',         'j',    1, 0.34, 30],
+  ['deadly',  'deadlyStrike','of Deadly Aim', 'wj',   4, 3, 22],
+  ['warded',  'blockPct', 'of Warding',       's',    5, 4, 16],
+  ['piercing','ar',       'of Piercing',      'wj',  30, 22, 1],
 ];
 
 // ---------- Unique items ----------
