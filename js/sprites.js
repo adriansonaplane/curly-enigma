@@ -259,9 +259,26 @@ const Sprites = {
   },
 
   // ======================= ITEM ICONS =======================
+  copyCanvas(source) {
+    const copy = document.createElement('canvas');
+    copy.width = source.width; copy.height = source.height;
+    copy.getContext('2d').drawImage(source, 0, 0);
+    return copy;
+  },
+
   itemIcon(item, size = 44) {
-    const key = (item.iconKey || (item.type + '_' + item.rarity)) + '_' + size;
-    if (this.itemIcons.has(key)) return this.itemIcons.get(key);
+    const unidentified = !!(item && Items.needsIdentification(item));
+    const identifyScroll = !!(item && Items.isIdentifyScroll(item));
+    const componentKey = item && (item.component || item.kind === 'gem' || item.kind === 'rune')
+      ? `${item.kind}_${item.gemType || item.name || item.type}_${item.quality || item.ord || ''}` : null;
+    const publicKey = unidentified ? `unidentified_${item.type}_${item.rarity}` : null;
+    const key = (identifyScroll ? 'identify_scroll' : publicKey || item.iconKey || componentKey || (item.type + '_' + item.rarity)) + '_' + size;
+    // A canvas is a DOM node, so returning the cached node itself silently
+    // moves it out of the previous item whenever a duplicate icon is appended
+    // elsewhere. Keep one detached painted master and hand every caller its
+    // own bitmap copy. Exact-input recipes can now show all three identical
+    // ingredients at the same time.
+    if (this.itemIcons.has(key)) return this.copyCanvas(this.itemIcons.get(key));
     const cv = document.createElement('canvas'); cv.width = size; cv.height = size;
     const ctx = cv.getContext('2d');
     const rc = Items.rarityColor(item.rarity);
@@ -270,7 +287,62 @@ const Sprites = {
     ctx.scale(s, s); ctx.lineCap = 'round';
     const metal = '#b8bcc4', wood = '#7a5a34', glowIf = (item.rarity !== 'common');
     if (glowIf) { ctx.shadowColor = rc; ctx.shadowBlur = 7; }
-    switch (item.type) {
+    if (identifyScroll) {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#d7c18a'; ctx.strokeStyle = '#6f5528'; ctx.lineWidth = 1.8;
+      ctx.beginPath(); ctx.moveTo(-11, -14); ctx.quadraticCurveTo(-6, -11, -2, -14);
+      ctx.lineTo(11, -11); ctx.lineTo(9, 12); ctx.quadraticCurveTo(3, 9, -2, 13);
+      ctx.lineTo(-11, 10); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#725a33'; ctx.lineWidth = 1.4;
+      for (const y of [-7, -2, 7]) { ctx.beginPath(); ctx.moveTo(-6, y); ctx.lineTo(6, y - 1); ctx.stroke(); }
+      ctx.fillStyle = '#6f4aa8'; ctx.strokeStyle = '#d6b7ff'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(1, 3, 5.3, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff2c7'; ctx.font = 'bold 9px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', 1, 3.4);
+    } else if (Items.isCharmRecord(item)) {
+      const form = item.form || String(item.type || '').replace('charm_', '');
+      const tall = form === 'grand' ? 15 : form === 'large' ? 12 : 9;
+      const wide = form === 'small' ? 10 : 8;
+      ctx.shadowBlur = item.rarity === 'common' ? 0 : 6;
+      ctx.fillStyle = form === 'grand' ? '#536557' : form === 'large' ? '#68583f' : '#725145';
+      ctx.strokeStyle = rc; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -tall); ctx.lineTo(wide, -tall * .45); ctx.lineTo(wide * .78, tall * .65);
+      ctx.lineTo(0, tall); ctx.lineTo(-wide * .78, tall * .65); ctx.lineTo(-wide, -tall * .45);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = '#d5c27e'; ctx.lineWidth = 1.4; ctx.shadowBlur = 0;
+      ctx.beginPath(); ctx.moveTo(0, -tall * .62); ctx.lineTo(0, tall * .52);
+      ctx.moveTo(-wide * .48, -tall * .05); ctx.lineTo(wide * .48, -tall * .05); ctx.stroke();
+      ctx.fillStyle = rc; ctx.beginPath(); ctx.arc(0, tall * .32, form === 'small' ? 2.4 : 3, 0, Math.PI * 2); ctx.fill();
+      if (form !== 'small') {
+        ctx.strokeStyle = 'rgba(235,220,155,.55)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(0, -tall * .35, 3.2, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else if (item.kind === 'gem' || item.component && item.gemType) {
+      const palette = { ruby:'#df3434', sapphire:'#378ee8', emerald:'#35bb70', diamond:'#e9efff', topaz:'#e9bc31', amethyst:'#a46de1', skull:'#e7e1cb' };
+      const qualityRank = Math.max(0, GEM_QUALITIES.indexOf(item.quality));
+      const radius = 11 + qualityRank;
+      const col = palette[item.gemType] || '#89c7ff';
+      ctx.fillStyle = col; ctx.strokeStyle = U.shade(col, .55); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(0, -radius); ctx.lineTo(radius * .78, -radius * .35); ctx.lineTo(radius * .5, radius * .78); ctx.lineTo(0, radius); ctx.lineTo(-radius * .5, radius * .78); ctx.lineTo(-radius * .78, -radius * .35); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.30)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, -radius); ctx.lineTo(0, radius); ctx.moveTo(-radius * .78, -radius * .35); ctx.lineTo(radius * .5, radius * .78); ctx.moveTo(radius * .78, -radius * .35); ctx.lineTo(-radius * .5, radius * .78); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,.58)'; ctx.beginPath(); ctx.moveTo(-radius * .34, -radius * .62); ctx.lineTo(radius * .08, -radius * .78); ctx.lineTo(-radius * .15, -radius * .05); ctx.closePath(); ctx.fill();
+    } else if (item.kind === 'rune' || item.component && item.ord) {
+      const ord = Number(item.ord || (RUNE_BY_NAME[item.name] && RUNE_BY_NAME[item.name].ord)) || 1;
+      ctx.fillStyle = '#626a70'; ctx.strokeStyle = '#c6b66e'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-11, -10); ctx.lineTo(7, -13); ctx.lineTo(13, -3); ctx.lineTo(10, 11); ctx.lineTo(-7, 14); ctx.lineTo(-13, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      const anchors = [[-7,-8],[1,-10],[8,-6],[-7,0],[1,0],[8,2],[-6,8],[2,10]];
+      let seed = ord * 17 + 11;
+      ctx.strokeStyle = '#f0dd80'; ctx.lineWidth = 2.1; ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        seed = (seed * 29 + 7) % 97; const a = anchors[seed % anchors.length];
+        seed = (seed * 29 + 7) % 97; const b = anchors[seed % anchors.length];
+        ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+      }
+      ctx.stroke();
+      ctx.fillStyle = '#fff0a4';
+      for (let i = 0; i < 1 + ord % 3; i++) { const p = anchors[(ord + i * 3) % anchors.length]; ctx.beginPath(); ctx.arc(p[0], p[1], 1.25, 0, Math.PI * 2); ctx.fill(); }
+    } else switch (item.type) {
       case 'sword': ctx.strokeStyle = metal; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-10, 12); ctx.lineTo(10, -12); ctx.stroke();
         ctx.strokeStyle = '#8a6b31'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-11, 5); ctx.lineTo(-4, 12); ctx.stroke(); break;
       case 'axe': ctx.strokeStyle = wood; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(-9, 13); ctx.lineTo(7, -9); ctx.stroke();
@@ -319,8 +391,15 @@ const Sprites = {
         for (const [gx, gy] of [[-5, 4], [4, 5], [0, -1], [-2, 8], [6, -2]]) { ctx.beginPath(); ctx.ellipse(gx, gy, 4.5, 3, 0, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#a08018'; ctx.lineWidth = 0.8; ctx.stroke(); } break;
       default: ctx.fillStyle = rc; ctx.fillRect(-8, -8, 16, 16);
     }
+    if (unidentified) {
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#56347f'; ctx.strokeStyle = '#d8b9ff'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(11, -11, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff4cf'; ctx.font = 'bold 10px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('?', 11, -10.6);
+    }
     ctx.restore();
     this.itemIcons.set(key, cv);
-    return cv;
+    return this.copyCanvas(cv);
   },
 };

@@ -58,19 +58,68 @@ const G = {
     else if (m.rank === 'champion') rolls = 1 + (U.chance(U.rand, 0.6) ? 1 : 0);
     else if (U.chance(U.rand, 0.2)) rolls = 1;
     for (let i = 0; i < rolls; i++) {
-      const opts = { classId: pl.cls, mf: d.mf };
+      const opts = { classId: pl.cls, mf: d.mf, unidentified: true };
       if (m.rank === 'boss' && i === 0)
         opts.forceRarity = U.weighted(U.rand, [['unique', 22], ['set', 22], ['rare', 56]]);
       const it = Items.generate(m.lvl + (m.rank === 'boss' ? 2 : 0), opts);
       this.groundItems.push({ ...scatter(), item: it });
       sfx(it.rarity === 'unique' || it.rarity === 'set' ? 'unique' : it.rarity === 'rare' ? 'rare' : 'drop');
-      if (it.rarity === 'unique') UI.announce(`✧ ${it.name} ✧`, Items.rarityColor('unique'));
+      if (it.rarity === 'unique') UI.announce(`✧ ${Items.displayName(it)} ✧`, Items.rarityColor('unique'));
     }
+    // Components are a separate progression stream. The item API determines
+    // their level/difficulty eligibility; ranks control how often players see
+    // them, with bosses guaranteeing an opportunity.
+    const componentChance = m.rank === 'boss' ? 1 : m.rank === 'elite' ? .28 : m.rank === 'champion' ? .13 : .035;
+    if (U.chance(U.rand, componentChance)) this.dropComponent(m.x, m.y, m.lvl + (m.rank === 'boss' ? 3 : 0));
+    const identifyChance = m.rank === 'boss' ? 1 : m.rank === 'elite' ? .18 : m.rank === 'champion' ? .09 : .035;
+    if (U.chance(U.rand, identifyChance)) this.dropIdentifyScroll(m.x, m.y);
+    const charmChance = typeof InventoryCharms !== 'undefined' && InventoryCharms.DROP_CHANCE
+      ? InventoryCharms.DROP_CHANCE[m.rank] || 0 : 0;
+    if (U.chance(U.rand, charmChance)) this.dropCharm(m.x, m.y, m.lvl + (m.rank === 'boss' ? 2 : 0));
+  },
+
+  dropComponent(x, y, ilvl) {
+    const pl = this.player;
+    if (!pl || typeof Items === 'undefined' || typeof Items.rollComponent !== 'function') return null;
+    const difficulty = Number(pl.difficultyIdx ?? (pl.difficulty && pl.difficulty.selected) ?? 0) || 0;
+    const item = Items.rollComponent(ilvl, difficulty, U.rand);
+    if (!item) return null;
+    G.groundItems.push({ x, y, item });
+    sfx('drop');
+    if (item.kind === 'rune') UI.announce(`Rune found: ${item.name}`, '#ffff77', 1800);
+    return item;
+  },
+
+  dropIdentifyScroll(x, y) {
+    if (typeof Items === 'undefined' || typeof Items.makeIdentifyScroll !== 'function') return null;
+    const pl = G.player || {};
+    const records = (pl.inv || []).concat(Object.values(pl.equip || {}), G.stash || [],
+      Object.values(pl.mercenary && pl.mercenary.equipment || {}),
+      (pl.corpses || []).flatMap(corpse => (corpse.gear || []).map(entry => entry && entry.item)),
+      (G.groundItems || []).map(ground => ground && ground.item),
+      (G.dungeonSave && G.dungeonSave.groundItems || []).map(ground => ground && ground.item));
+    const used = new Set(records.filter(Boolean).map(record => record.id));
+    let item = null;
+    do item = Items.makeIdentifyScroll(); while (item && used.has(item.id));
+    if (!item) return null;
+    G.groundItems.push({ x: x + U.rf(U.rand, -0.45, 0.45), y: y + U.rf(U.rand, -0.45, 0.45), item });
+    sfx('drop');
+    return item;
+  },
+
+  dropCharm(x, y, ilvl) {
+    if (typeof Items === 'undefined' || typeof Items.makeCharm !== 'function') return null;
+    const item = Items.makeCharm(ilvl);
+    if (!item) return null;
+    G.groundItems.push({ x: x + U.rf(U.rand, -0.6, 0.6), y: y + U.rf(U.rand, -0.6, 0.6), item });
+    sfx('drop');
+    return item;
   },
 
   onBossKilled(m) {
     const pl = this.player;
     const actIdx = this.map.actIdx;
+    let unlockedDifficulty = null;
     UI.announce(`${BOSSES[this.map.bossKey || ACTS[actIdx].boss].name.split(',')[0]} HAS FALLEN`, '#ff8a5a', 4200);
     this.map.bossDead = true;
     if (typeof actIdx === 'number') {
@@ -80,8 +129,13 @@ const G = {
         setTimeout(() => UI.announce(`Act ${U.roman(actIdx + 2)} unlocked: ${ACTS[actIdx + 1].name}`, '#8fc8ff', 4000), 4400);
       } else {
         pl.progress.actUnlocked = 5;
+        unlockedDifficulty = DifficultyState.unlockNext(pl.difficulty, pl.difficultyIdx);
         setTimeout(() => UI.announce('THE ENDLESS ABYSS AWAITS', '#c07bff', 5000), 4400);
       }
+    }
+    if (unlockedDifficulty !== null) {
+      const name = DIFFICULTIES[unlockedDifficulty].name.toUpperCase();
+      setTimeout(() => UI.announce(`${name} DIFFICULTY UNLOCKED`, unlockedDifficulty === 2 ? '#ff765e' : '#b9a8ff', 5200), 7000);
     }
     G.shake += 14;
     Save.saveChar(pl);
@@ -98,7 +152,11 @@ const G = {
       pl.deadForever = true;
       Save.saveChar(pl);   // preserved as a fallen hero on the ladder
     } else {
+      const captured = CorpseState.capture(pl, Game.corpseLocation(this.map, pl.x, pl.y));
+      this.lastDeathCorpseId = captured.ok ? captured.corpse.id : null;
       pl.gold = Math.floor(pl.gold * 0.9);
+      Ent.computeDerived(pl);
+      pl.mp = Math.min(pl.mp, pl.derived.maxMp);
       Save.saveChar(pl);
     }
     setTimeout(() => UI.showDeath(pl.hardcore), 900);
@@ -116,18 +174,25 @@ const Save = {
     return Object.values(all).sort((a, b) => b.lvl - a.lvl);
   },
   saveChar(pl) {
-    this.normalizeItems(pl);
+    DifficultyState.capture(pl);
+    this.normalizeItems(pl, G.stash);
     const all = this._all();
     all[pl.name.toLowerCase()] = {
       name: pl.name, cls: pl.cls, hardcore: pl.hardcore, dead: !!pl.deadForever,
       lvl: pl.lvl, xp: pl.xp, stats: pl.stats, statPts: pl.statPts, skillPts: pl.skillPts,
-      skills: pl.skills, hotbar: pl.hotbar, equip: pl.equip, inv: pl.inv,
+      skills: pl.skills, hotbar: pl.hotbar, equip: pl.equip, inv: pl.inv, corpses: pl.corpses,
       gold: pl.gold, potions: pl.potions, progress: pl.progress, difficultyIdx: pl.difficultyIdx || 0,
+      difficulty: pl.difficulty,
       bars: pl.bars, macros: pl.macros, quests: pl.quests, dialogue: Dialogue.migrate(pl.dialogue), lore: Lore.migrate(pl.lore), narrative: Narrative.migrate(pl.narrative), reputation: Factions.migrate(pl.reputation),
       mercenary: this.migrateMercenary(pl.mercenary),
       kills: G.stats.kills, season: SEASON.current().num,
     };
-    try { localStorage.setItem(this.CHARS, JSON.stringify(all)); } catch (e) { /* storage full */ }
+    try {
+      localStorage.setItem(this.CHARS, JSON.stringify(all));
+      return true;
+    } catch (e) {
+      return false;
+    }
   },
   migrateMercenary(raw) {
     if (!raw) return null;
@@ -140,24 +205,264 @@ const Save = {
       equipment: Object.assign({}, equipment), dead: !!(raw.dead || raw.isDead),
     };
   },
+  _normalizeCharmOwnership(pl, stash) {
+    if (typeof InventoryCharms === 'undefined' || !InventoryCharms || typeof InventoryCharms.isCharmRecord !== 'function') return 0;
+    const locators = [];
+    const arrayEntries = (scope, list, itemOf = value => value) => {
+      (Array.isArray(list) ? list : []).forEach((value, index) => locators.push({
+        scope, item: itemOf(value), clear() { if (scope === 'ground' || scope === 'dungeon-ground') { if (list[index]) list[index].item = null; } else list[index] = null; },
+      }));
+    };
+    // Valid-owner precedence is deterministic. Invalid equipment locations
+    // are visited last so they can never displace a legitimate carried copy.
+    arrayEntries('inventory', pl.inv);
+    arrayEntries('stash', stash);
+    arrayEntries('ground', G.groundItems, entry => entry && entry.item);
+    const dungeonGround = G.dungeonSave && G.dungeonSave.groundItems;
+    // Returning through a portal deliberately restores the saved ground array
+    // by reference. Do not scan that one physical owner twice: the duplicate
+    // locator would otherwise clear the live item as an alias of itself.
+    if (dungeonGround !== G.groundItems)
+      arrayEntries('dungeon-ground', dungeonGround, entry => entry && entry.item);
+    for (const corpse of pl.corpses || []) for (const entry of corpse.gear || [])
+      locators.push({ scope: 'corpse', item: entry && entry.item, clear() { if (entry) entry.item = null; } });
+    for (const slot of Object.keys(pl.equip || {}))
+      locators.push({ scope: 'equipment', item: pl.equip[slot], clear() { pl.equip[slot] = null; } });
+    for (const slot of Object.keys(pl.mercenary && pl.mercenary.equipment || {}))
+      locators.push({ scope: 'mercenary', item: pl.mercenary.equipment[slot], clear() { pl.mercenary.equipment[slot] = null; } });
+
+    const seenObjects = new Set(), seenIds = new Set();
+    // Reserve every already-valid top-level id before assigning legacy charm
+    // ids. Without this prepass, an earlier missing-id record could claim the
+    // id of a later valid charm and make normalization delete that valid item.
+    const reservedIds = new Set();
+    for (const locator of locators) {
+      try {
+        const id = locator.item && locator.item.id;
+        if (typeof id === 'string' && id.trim() && id.trim() === id) reservedIds.add(id);
+      } catch (_error) { /* hostile legacy getter is discarded below */ }
+    }
+    let removed = 0, serial = 0;
+    const discard = locator => {
+      try { locator.clear(); } catch (_error) { /* malformed immutable owner */ }
+      removed++;
+    };
+    for (const locator of locators) {
+      const item = locator.item;
+      if (!item) continue;
+      let charmRecord = false;
+      try { charmRecord = InventoryCharms.isCharmRecord(item); }
+      catch (_error) { discard(locator); continue; }
+      if (!charmRecord) continue;
+      try {
+        if (locator.scope === 'equipment' || locator.scope === 'mercenary' || seenObjects.has(item)) {
+          discard(locator); continue;
+        }
+        if (typeof item.id !== 'string' || !item.id.trim() || item.id.trim() !== item.id) {
+          let id;
+          do id = `legacy-charm-${locator.scope}-${++serial}`; while (reservedIds.has(id));
+          item.id = id;
+          if (item.id !== id) { discard(locator); continue; }
+          reservedIds.add(id);
+        }
+        if (seenIds.has(item.id) || !InventoryCharms.normalize(item)) {
+          discard(locator); continue;
+        }
+        seenObjects.add(item); seenIds.add(item.id);
+      } catch (_error) {
+        discard(locator); continue;
+      }
+    }
+
+    const compact = list => {
+      if (!Array.isArray(list)) return;
+      for (let index = list.length - 1; index >= 0; index--) if (!list[index]) list.splice(index, 1);
+    };
+    compact(pl.inv); compact(stash);
+    const compactGround = list => {
+      if (!Array.isArray(list)) return;
+      for (let index = list.length - 1; index >= 0; index--) {
+        const entry = list[index];
+        if (!entry || (!entry.item && !entry.gold)) list.splice(index, 1);
+      }
+    };
+    compactGround(G.groundItems);
+    compactGround(G.dungeonSave && G.dungeonSave.groundItems);
+    for (const corpse of pl.corpses || []) corpse.gear = (corpse.gear || []).filter(entry => entry && entry.item);
+    pl.corpses = (pl.corpses || []).filter(corpse => corpse.gear && corpse.gear.length);
+    return removed;
+  },
   normalizeItems(pl) {
-    const seen = new Set();
+    if (!pl || typeof pl !== 'object' || Array.isArray(pl)) return;
+    if (!Array.isArray(pl.inv)) pl.inv = [];
+    if (!pl.equip || typeof pl.equip !== 'object' || Array.isArray(pl.equip)) pl.equip = {};
+    if (pl.mercenary && (typeof pl.mercenary !== 'object' || Array.isArray(pl.mercenary))) pl.mercenary = null;
+    if (pl.mercenary && (!pl.mercenary.equipment || typeof pl.mercenary.equipment !== 'object' ||
+        Array.isArray(pl.mercenary.equipment))) pl.mercenary.equipment = {};
+    if (!Array.isArray(G.groundItems)) G.groundItems = [];
+    if (G.dungeonSave && !Array.isArray(G.dungeonSave.groundItems)) G.dungeonSave.groundItems = [];
+    if (typeof CorpseState !== 'undefined') pl.corpses = CorpseState.migrate(pl.corpses);
+    const seen = new Set(), seenObjects = new Set();
+    const invalid = new Set();
+    let stash = arguments.length > 1 ? arguments[1] : G.stash;
+    if (!Array.isArray(stash)) {
+      if (stash === G.stash || arguments.length < 2) G.stash = [];
+      stash = [];
+    }
+    this._normalizeCharmOwnership(pl, stash);
+    const corpseGear = (pl.corpses || []).flatMap((corpse, corpseIndex) =>
+      (corpse.gear || []).map((entry, gearIndex) =>
+        [`corpse-${corpseIndex}-${gearIndex}-${entry.slot}`, entry.item]));
     const locations = Object.keys(pl.equip || {}).map(slot => ['equip-' + slot, pl.equip[slot]])
       .concat((pl.inv || []).map((item, i) => ['inv-' + i, item]))
       .concat(Object.entries(pl.mercenary && pl.mercenary.equipment || {})
-        .map(([slot, item]) => ['merc-' + slot, item]));
+        .map(([slot, item]) => ['merc-' + slot, item]))
+      .concat(corpseGear)
+      .concat((stash || []).map((item, i) => ['stash-' + i, item]))
+      .concat((G.groundItems || []).map((ground, i) => ['ground-' + i, ground && ground.item]))
+      .concat((G.dungeonSave && G.dungeonSave.groundItems || []).map((ground, i) => ['dungeon-ground-' + i, ground && ground.item]));
+    // Reserve every already-present identity before assigning any legacy id.
+    // Location order must never let an earlier missing-id generic item steal a
+    // later canonical charm/component id.
+    const reservedIds = new Set(), reservedObjects = new Set();
+    const reserveIds = item => {
+      if (!item || typeof item !== 'object' || reservedObjects.has(item)) return;
+      reservedObjects.add(item);
+      try {
+        const id = item.id;
+        if (typeof id === 'string' && id.trim() && id.trim() === id) reservedIds.add(id);
+        if (Array.isArray(item.gems)) for (const component of item.gems) reserveIds(component);
+      } catch (_error) { /* hostile records are pruned in the main pass */ }
+    };
+    for (const [, item] of locations) reserveIds(item);
     for (const [location, item] of locations) {
       if (!item) continue;
-      let id = item.id && String(item.id);
+      if (typeof item !== 'object' || Array.isArray(item)) {
+        invalid.add(item);
+        continue;
+      }
+      if (seenObjects.has(item)) continue;
+      seenObjects.add(item);
+      const candidateSeen = new Set(seen);
+      const candidateReserved = new Set(reservedIds);
+      try {
+        const isComponent = item.component || item.kind === 'gem' || item.kind === 'rune';
+        if (isComponent && !this._normalizeComponent(item, location)) {
+          invalid.add(item);
+          continue;
+        }
+        const charmRecord = typeof InventoryCharms !== 'undefined' && InventoryCharms.isCharmRecord(item);
+        if (charmRecord && typeof item.id === 'string' && seen.has(item.id)) {
+          invalid.add(item);
+          continue;
+        }
+        if (!this._normalizeItemId(item, location, candidateSeen, candidateReserved)) {
+          invalid.add(item);
+          continue;
+        }
+        if (charmRecord && !InventoryCharms.normalize(item)) {
+          invalid.add(item);
+          continue;
+        }
+        if (typeof ItemIdentification !== 'undefined' && ItemIdentification && typeof ItemIdentification.normalize === 'function')
+          ItemIdentification.normalize(item);
+        // Durability belongs only to top-level equipment. Socket fillers and
+        // standalone components retain their own authoritative component data.
+        if (!isComponent && typeof ItemCondition !== 'undefined' && ItemCondition && typeof ItemCondition.normalize === 'function')
+          ItemCondition.normalize(item);
+        this._normalizeSocketState(item, location, candidateSeen, candidateReserved);
+      } catch (_error) {
+        // Immutable/accessor-backed legacy records cannot be made canonical.
+        // Fail closed by pruning that exact owner instead of aborting the save.
+        invalid.add(item);
+        continue;
+      }
+      // Identity claims become authoritative only after this exact record and
+      // its surviving socket fillers finish canonicalization successfully.
+      for (const id of candidateSeen) seen.add(id);
+      for (const id of candidateReserved) reservedIds.add(id);
+    }
+    // Malformed standalone component records cannot be made safe to use. Drop
+    // them deterministically instead of leaving an unequippable ghost item in
+    // a save. Malformed nested fillers are already cleared above.
+    for (let i = (pl.inv || []).length - 1; i >= 0; i--) if (invalid.has(pl.inv[i])) pl.inv.splice(i, 1);
+    for (const slot of Object.keys(pl.equip || {})) if (invalid.has(pl.equip[slot])) pl.equip[slot] = null;
+    for (const slot of Object.keys(pl.mercenary && pl.mercenary.equipment || {}))
+      if (invalid.has(pl.mercenary.equipment[slot])) pl.mercenary.equipment[slot] = null;
+    for (const corpse of pl.corpses || [])
+      corpse.gear = (corpse.gear || []).filter(entry => entry.item && !invalid.has(entry.item));
+    pl.corpses = (pl.corpses || []).filter(corpse => corpse.gear.length);
+    for (let i = (stash || []).length - 1; i >= 0; i--) if (invalid.has(stash[i])) stash.splice(i, 1);
+    for (let i = (G.groundItems || []).length - 1; i >= 0; i--)
+      if (G.groundItems[i] && invalid.has(G.groundItems[i].item)) G.groundItems.splice(i, 1);
+    const dungeonGround = G.dungeonSave && G.dungeonSave.groundItems || [];
+    for (let i = dungeonGround.length - 1; i >= 0; i--)
+      if (dungeonGround[i] && invalid.has(dungeonGround[i].item)) dungeonGround.splice(i, 1);
+    // Normalization can remove an active charm or repair an invalid/duplicate
+    // grid into one active owner. Keep live derived resources truthful before
+    // any caller serializes or renders the repaired state; refresh never heals.
+    if (pl === G.player && typeof Ent !== 'undefined' && Ent && typeof Ent.refreshDerived === 'function')
+      Ent.refreshDerived(pl);
+  },
+  _normalizeItemId(item, location, seen, reserved = new Set()) {
+    try {
+      let id = typeof item.id === 'string' && item.id.trim() && item.id.trim() === item.id ? item.id : '';
       if (!id || seen.has(id)) {
-        const stem = String(item.type || item.potion || 'item').replace(/[^a-z0-9_-]/gi, '-');
+        const stem = String(item.type || item.kind || item.potion || 'item').replace(/[^a-z0-9_-]/gi, '-');
         id = `legacy-${stem}-${location}`;
         let suffix = 2;
-        while (seen.has(id)) id = `legacy-${stem}-${location}-${suffix++}`;
+        while (seen.has(id) || reserved.has(id)) id = `legacy-${stem}-${location}-${suffix++}`;
         item.id = id;
+        if (item.id !== id) return false;
       }
-      seen.add(id);
+      seen.add(id); reserved.add(id);
+      return true;
+    } catch (_error) {
+      return false;
     }
+  },
+  _normalizeSocketState(item, location, seen, reserved) {
+    if (!item || !Array.isArray(item.gems)) return;
+    const sockets = Math.max(0, Math.floor(Number(item.sockets) || 0));
+    item.sockets = sockets;
+    // Old saves occasionally have a short/long gem array. Keep valid fillers
+    // and make the capacity explicit before reconciling the word overlay.
+    item.gems = item.gems.slice(0, sockets);
+    while (item.gems.length < sockets) item.gems.push(null);
+    item.gems.forEach((component, index) => {
+      if (!component) return;
+      try {
+        const normalized = this._normalizeComponent(component, `${location}-socket-${index}`);
+        if (!normalized) { item.gems[index] = null; return; }
+        item.gems[index] = normalized;
+        if (!this._normalizeItemId(normalized, `${location}-socket-${index}`, seen, reserved)) item.gems[index] = null;
+      } catch (_error) {
+        // A corrupt/immutable filler must not destroy its otherwise valid host.
+        item.gems[index] = null;
+      }
+    });
+    // New socket stats are derived at use time. This removes one legacy word
+    // overlay exactly once and is idempotent on all subsequent saves/loads.
+    if (typeof Items !== 'undefined' && typeof Items.applyRuneword === 'function') Items.applyRuneword(item);
+  },
+  _normalizeComponent(raw, location) {
+    if (typeof Items !== 'undefined' && typeof Items.normalizeComponent === 'function') {
+      const normalized = Items.normalizeComponent(raw);
+      if (normalized) return normalized;
+    }
+    const kind = raw.kind === 'gem' || raw.gemType ? 'gem'
+      : raw.kind === 'rune' || (typeof raw.name === 'string' && typeof RUNE_BY_NAME !== 'undefined' && RUNE_BY_NAME[raw.name.replace(/ Rune$/, '')]) ? 'rune' : null;
+    let made = null;
+    if (kind === 'gem' && typeof Items.makeGem === 'function') made = Items.makeGem(raw.gemType || raw.type, raw.quality || raw.tier || 'chipped');
+    if (kind === 'rune' && typeof Items.makeRune === 'function') made = Items.makeRune(String(raw.name || raw.rune || '').replace(/ Rune$/, ''));
+    if (!made) return null;
+    // Preserve save identity/placement metadata, but regenerate every gameplay
+    // field from the authoritative component definition.
+    const identity = { id: raw.id, _gx: raw._gx, _gy: raw._gy };
+    Object.assign(raw, made, identity, { kind, component: true });
+    if (kind === 'gem') { raw.gemType = made.gemType; raw.quality = made.quality; }
+    if (kind === 'rune') { raw.name = made.name; raw.ord = made.ord; }
+    return raw;
   },
   loadChar(name) { return this._all()[name.toLowerCase()] || null; },
   deleteChar(name, permanent) {
@@ -166,12 +471,23 @@ const Save = {
     localStorage.setItem(this.CHARS, JSON.stringify(all));
   },
   saveStash() {
-    try { localStorage.setItem(this.STASH, JSON.stringify(G.stash)); } catch (e) {}
+    this.normalizeItems(G.player || {}, G.stash);
+    try {
+      localStorage.setItem(this.STASH, JSON.stringify(G.stash));
+      return true;
+    } catch (e) {
+      return false;
+    }
   },
   loadStash() {
     try { G.stash = JSON.parse(localStorage.getItem(this.STASH) || '[]'); } catch (e) { G.stash = []; }
     // Migration: filter nulls from legacy 48-slot array format
-    G.stash = G.stash.filter(it => it != null);
+    G.stash = (Array.isArray(G.stash) ? G.stash : []).filter(it => it != null);
+    this.normalizeItems(G.player || {}, G.stash);
+    // Ownership normalization may prune a stale copy whose canonical owner is
+    // the active character. Persist that repair now so selling or dropping the
+    // winning copy cannot resurrect the stale stash record on the next load.
+    try { localStorage.setItem(this.STASH, JSON.stringify(G.stash)); } catch (e) { /* storage full */ }
   },
 };
 
@@ -179,6 +495,52 @@ const Save = {
 const Game = {
   keys: {}, mouse: { x: 0, y: 0, lmb: false, rmb: false }, lmbCasting: false,
   potCd: 0,
+
+  mapKey(map) {
+    if (!map || map.town) return 'town';
+    if (!map._corpseKey) {
+      const difficulty = Number(G.player && G.player.difficultyIdx) || 0;
+      map._corpseKey = `d${difficulty}:a${map.actIdx}:f${map.depth || 0}:b${map.abyssFloor || 0}:s${map.seed ?? 'live'}`;
+    }
+    return map._corpseKey;
+  },
+
+  corpseLocation(map, x, y) {
+    if (!map || map.town) return Object.assign(this.townCorpseLocation(), { x, y });
+    return { kind: 'dungeon', dungeon: this.mapKey(map), area: map.name || 'Unknown depths',
+      act: Number.isFinite(Number(map.actIdx)) ? Number(map.actIdx) : undefined,
+      floor: Number(map.abyssFloor || map.depth) || 0, x, y };
+  },
+
+  townCorpseLocation() {
+    return { kind: 'town', town: "Haven's Rest", area: 'Recovery shrine', x: 14.5, y: 18.5 };
+  },
+
+  arrangeTownCorpses(pl = G.player) {
+    const offsets = [[0,0],[-1.1,0],[1.1,0],[-.55,.95],[.55,.95],[-.55,-.95],[.55,-.95]];
+    (pl && pl.corpses || []).filter(corpse => corpse.location && corpse.location.kind === 'town')
+      .forEach((corpse, index) => {
+        const offset = offsets[index % offsets.length];
+        corpse.location.x = 14.5 + offset[0]; corpse.location.y = 18.5 + offset[1];
+        corpse.location.town = "Haven's Rest"; corpse.location.area = 'Recovery shrine';
+      });
+  },
+
+  relocateCorpsesToTown(isAccessible) {
+    const pl = G.player;
+    if (!pl || typeof CorpseState === 'undefined') return 0;
+    const count = CorpseState.relocateInaccessible(pl, isAccessible, this.townCorpseLocation());
+    this.arrangeTownCorpses(pl);
+    return count;
+  },
+
+  corpsesOnMap(map = G.map) {
+    const corpses = G.player && G.player.corpses || [];
+    if (!map) return [];
+    if (map.town) return corpses.filter(corpse => corpse.location && corpse.location.kind === 'town');
+    const key = this.mapKey(map);
+    return corpses.filter(corpse => corpse.location && corpse.location.kind === 'dungeon' && corpse.location.dungeon === key);
+  },
 
   newGame(name, clsId, hardcore) {
     const cls = CLASSES.find(c => c.id === clsId);
@@ -188,13 +550,13 @@ const Game = {
       skills: {}, cds: {}, buffs: [],
       hotbar: { lmb: 'atk', rmb: null, s1: null, s2: null, s3: null, s4: null },
       equip: { weapon: null, offhand: null, helm: null, chest: null, gloves: null, boots: null, belt: null, amulet: null, ring1: null, ring2: null },
-      inv: [],
+      inv: [], corpses: [],
       gold: 120, potions: { hp: 3, mp: 2 },
       dialogue: DialogueState.create(),
       lore: Lore.create(),
       narrative: Narrative.create(),
-      progress: { actUnlocked: 0, bossKilled: [false, false, false, false, false], abyssBest: 0 },
-      difficultyIdx: 0,
+      quests: QuestState.create(),
+      difficulty: DifficultyState.create(),
       mercenary: null,
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
@@ -204,30 +566,38 @@ const Game = {
     const firstSkill = cls.trees[0].skills[0];
     pl.skills[firstSkill.id] = 1;
     pl.hotbar.rmb = firstSkill.id;
+    DifficultyState.activate(pl, pl.difficulty, 0);
     G.stats.kills = 0;
     this.start(pl);
   },
 
-  loadGame(name) {
+  loadGame(name, requestedDifficulty) {
     const c = Save.loadChar(name);
-    if (!c || c.dead) return;
+    if (!c || c.dead) return false;
+    const difficulty = DifficultyState.migrate(c.difficulty, c);
+    const selected = requestedDifficulty === undefined ? difficulty.selected : Number(requestedDifficulty);
+    if (!DifficultyState.canSelect(difficulty, selected)) return false;
     const pl = {
       name: c.name, cls: c.cls, hardcore: c.hardcore, dead: false, deadForever: false,
       lvl: c.lvl, xp: c.xp, stats: c.stats, statPts: c.statPts, skillPts: c.skillPts,
       skills: c.skills || {}, cds: {}, buffs: [],
-      hotbar: c.hotbar, equip: c.equip, inv: (c.inv || []).filter(it => it != null),
-      bars: c.bars || null, macros: c.macros || [], quests: QuestState.migrate(c.quests), dialogue: Dialogue.migrate(c.dialogue), lore: Lore.migrate(c.lore), narrative: Narrative.migrate(c.narrative), reputation: Factions.migrate(c.reputation || c.factions),
-      gold: c.gold, potions: c.potions, progress: c.progress, difficultyIdx: c.difficultyIdx || 0,
+      hotbar: c.hotbar, equip: c.equip, inv: (Array.isArray(c.inv) ? c.inv : []).filter(it => it != null),
+      corpses: CorpseState.migrate(c.corpses),
+      bars: c.bars || null, macros: c.macros || [], dialogue: Dialogue.migrate(c.dialogue), lore: Lore.migrate(c.lore), narrative: Narrative.migrate(c.narrative), reputation: Factions.migrate(c.reputation || c.factions),
+      gold: c.gold, potions: c.potions, difficulty,
       mercenary: Save.migrateMercenary(c.mercenary || c.merc),
       x: 0, y: 0, dir: 0, hp: 1, mp: 1, gcd: 0, attackT: 0, hurtT: 0, moving: false,
     };
+    DifficultyState.activate(pl, difficulty, selected);
     Save.normalizeItems(pl);
     G.stats.kills = c.kills || 0;
     this.start(pl);
+    return true;
   },
 
   start(pl) {
-    pl.quests = QuestState.migrate(pl.quests);
+    pl.difficulty = DifficultyState.migrate(pl.difficulty, pl);
+    DifficultyState.activate(pl, pl.difficulty, pl.difficulty.selected);
     pl.dialogue = Dialogue.migrate(pl.dialogue);
     pl.lore = Lore.migrate(pl.lore);
     pl.narrative = Narrative.migrate(pl.narrative);
@@ -237,6 +607,10 @@ const Game = {
     Ent.computeDerived(pl);
     pl.hp = pl.derived.maxHp; pl.mp = pl.derived.maxMp;
     G.town = Dungeon.generateTown();
+    // Dungeon maps are intentionally session-local. A saved corpse from an
+    // interrupted session returns beside the town recovery shrine instead of
+    // stranding equipment in a map that no longer exists.
+    this.relocateCorpsesToTown(() => false);
     this.restock();
     G.state = 'game';
     document.getElementById('menu-screen').classList.add('hidden');
@@ -256,7 +630,10 @@ const Game = {
   },
 
   toTown(keepDungeon) {
-    if (!keepDungeon) { G.dungeonSave = null; G.portal = null; }
+    if (!keepDungeon) {
+      this.relocateCorpsesToTown(() => false);
+      G.dungeonSave = null; G.portal = null;
+    }
     this.clearWorld();
     G.map = G.town;
     const pl = G.player;
@@ -272,10 +649,14 @@ const Game = {
   },
 
   enterDungeon(actIdx, depth, abyssFloor) {
+    // Entering another generated map closes the previous recovery route. Move
+    // any unresolved gear home before invalidating that route.
+    this.relocateCorpsesToTown(() => false);
     this.clearWorld();
     G.portal = null; G.dungeonSave = null;
     const seed = (Math.random() * 0xffffffff) >>> 0;
     const map = Dungeon.generate({ actIdx, depth, abyssFloor, seed, narrativeState: G.player.narrative });
+    map.seed = seed;
     this.loadMap(map);
     if (actIdx === 'abyss') {
       const pl = G.player;
@@ -329,7 +710,31 @@ const Game = {
   respawn() {
     const pl = G.player;
     pl.dead = false;
-    this.toTown();
+    if (G.map && !G.map.town) {
+      G.dungeonSave = { monsters: G.monsters, groundItems: G.groundItems };
+      G.portal = { x: pl.x, y: pl.y, mapRef: G.map, deathReturn: true };
+      this.toTown(true);
+      UI.announce('A blood-red portal leads back to your corpse.', '#ff7a5f', 3200);
+    } else this.toTown();
+  },
+
+  recoverCorpse(corpseId) {
+    const pl = G.player;
+    UI.inventoryGrid.ensureGrid(pl);
+    const outcome = CorpseState.recover(pl, corpseId);
+    if (!outcome.ok) {
+      const message = outcome.reason === 'inventory-full'
+        ? 'Recovery blocked: clear inventory space or empty the occupied gear slot.'
+        : 'That corpse can no longer be recovered.';
+      UI.announce(message, '#ff6a5a', 3000);
+      return outcome;
+    }
+    Ent.refreshDerived(pl);
+    Save.saveChar(pl);
+    sfx('equip'); FX.ring(pl.x, pl.y, 1.8, '#ff715b', .7);
+    UI.announce(`Corpse recovered: ${outcome.restored} equipped, ${outcome.spilled} moved to inventory.`, '#ffd79a', 3200);
+    Render.drawMinimap();
+    return outcome;
   },
 
   castPortal() {
@@ -381,11 +786,194 @@ const Game = {
     if (pos) {
       it._gx = pos.col; it._gy = pos.row;
       pl.inv.push(it);
+      if (typeof Ent.refreshDerived === 'function') Ent.refreshDerived(pl);
       return true;
     }
-    G.groundItems.push({ x: pl.x, y: pl.y, item: it });
     UI.announce('Inventory full!', '#ff6a5a');
     return false;
+  },
+
+  // Shared stash spans two localStorage keys, so moves persist the destination
+  // before clearing the source. Any failed write rolls the live move back, and
+  // a compensating write restores the first key when the second key failed.
+  // If both the write and compensation fail, ownership normalization still
+  // deterministically repairs the resulting durable duplicate on next load.
+  depositStashItem(itemId) {
+    const pl = G.player, controller = UI.inventoryGrid;
+    if (!pl || !Array.isArray(pl.inv) || !Array.isArray(G.stash))
+      return { ok: false, reason: 'invalid-container' };
+    controller.ensureGrid(pl);
+    const item = pl.inv.find(entry => entry && entry.id === itemId);
+    if (!item) return { ok: false, reason: 'missing-item' };
+    const position = controller.findSpace(item, G.stash);
+    if (!position) return { ok: false, reason: 'stash-full' };
+    const sourceIndex = pl.inv.indexOf(item);
+    const xDescriptor = Object.getOwnPropertyDescriptor(item, '_gx');
+    const yDescriptor = Object.getOwnPropertyDescriptor(item, '_gy');
+    const restoreAnchor = () => {
+      try {
+        if (xDescriptor) Object.defineProperty(item, '_gx', xDescriptor); else delete item._gx;
+        if (yDescriptor) Object.defineProperty(item, '_gy', yDescriptor); else delete item._gy;
+      } catch (_error) { /* valid live items have writable placement metadata */ }
+    };
+    const rollback = () => {
+      const stashIndex = G.stash.indexOf(item);
+      if (stashIndex >= 0) G.stash.splice(stashIndex, 1);
+      restoreAnchor();
+      if (!pl.inv.includes(item)) pl.inv.splice(Math.min(sourceIndex, pl.inv.length), 0, item);
+      Ent.refreshDerived(pl);
+    };
+
+    pl.inv.splice(sourceIndex, 1);
+    try {
+      item._gx = position.col; item._gy = position.row;
+      if (item._gx !== position.col || item._gy !== position.row) throw new TypeError('immutable placement');
+      G.stash.push(item);
+    } catch (_error) {
+      rollback();
+      return { ok: false, reason: 'immutable-item' };
+    }
+    Ent.refreshDerived(pl);
+    if (!Save.saveStash() || !G.stash.includes(item)) {
+      rollback();
+      return { ok: false, reason: 'storage-failure', failedKey: 'stash' };
+    }
+    if (!Save.saveChar(pl)) {
+      rollback();
+      const compensated = Save.saveStash();
+      return { ok: false, reason: 'storage-failure', failedKey: 'character', durableDuplicate: !compensated };
+    }
+    return { ok: true, item };
+  },
+
+  takeStashItem(itemId) {
+    const pl = G.player, controller = UI.inventoryGrid;
+    if (!pl || !Array.isArray(pl.inv) || !Array.isArray(G.stash))
+      return { ok: false, reason: 'invalid-container' };
+    controller.ensureGrid(pl);
+    const item = G.stash.find(entry => entry && entry.id === itemId);
+    if (!item) return { ok: false, reason: 'missing-item' };
+    const position = controller.findSpace(item, pl.inv);
+    if (!position) return { ok: false, reason: 'inventory-full' };
+    const sourceIndex = G.stash.indexOf(item);
+    const xDescriptor = Object.getOwnPropertyDescriptor(item, '_gx');
+    const yDescriptor = Object.getOwnPropertyDescriptor(item, '_gy');
+    const restoreAnchor = () => {
+      try {
+        if (xDescriptor) Object.defineProperty(item, '_gx', xDescriptor); else delete item._gx;
+        if (yDescriptor) Object.defineProperty(item, '_gy', yDescriptor); else delete item._gy;
+      } catch (_error) { /* valid live items have writable placement metadata */ }
+    };
+    const rollback = () => {
+      const inventoryIndex = pl.inv.indexOf(item);
+      if (inventoryIndex >= 0) pl.inv.splice(inventoryIndex, 1);
+      restoreAnchor();
+      if (!G.stash.includes(item)) G.stash.splice(Math.min(sourceIndex, G.stash.length), 0, item);
+      Ent.refreshDerived(pl);
+    };
+
+    G.stash.splice(sourceIndex, 1);
+    try {
+      item._gx = position.col; item._gy = position.row;
+      if (item._gx !== position.col || item._gy !== position.row) throw new TypeError('immutable placement');
+      pl.inv.push(item);
+    } catch (_error) {
+      rollback();
+      return { ok: false, reason: 'immutable-item' };
+    }
+    Ent.refreshDerived(pl);
+    if (!Save.saveChar(pl) || !pl.inv.includes(item)) {
+      rollback();
+      return { ok: false, reason: 'storage-failure', failedKey: 'character' };
+    }
+    if (!Save.saveStash()) {
+      rollback();
+      const compensated = Save.saveChar(pl);
+      return { ok: false, reason: 'storage-failure', failedKey: 'stash', durableDuplicate: !compensated };
+    }
+    return { ok: true, item };
+  },
+
+  // Single transaction shared by inventory UI and keyboard/controller paths.
+  // The component remains in inventory unless the item API accepts it, so a
+  // failed level/capacity check cannot consume or partially move anything.
+  insertSocket(componentId, targetId) {
+    const pl = G.player;
+    if (!pl || !componentId || !targetId || componentId === targetId) return { ok: false, reason: 'Select a component and a different socketed item.' };
+    const component = pl.inv && pl.inv.find(item => item && item.id === componentId);
+    const targets = Object.values(pl.equip || {}).concat(pl.inv || [], Object.values(pl.mercenary && pl.mercenary.equipment || {}));
+    const target = targets.find(item => item && item.id === targetId);
+    if (!component || !component.component || !target) return { ok: false, reason: 'That socket transaction is no longer valid.' };
+    if (Items.isCharmRecord(target)) return { ok: false, reason: 'Charms cannot hold socket components.' };
+    if (Items.needsIdentification(target)) return { ok: false, reason: 'Identify that item before socketing it.' };
+    if (typeof Items.insertSocket !== 'function' || !Items.insertSocket(target, component, pl.lvl))
+      return { ok: false, reason: 'Cannot socket that component there.' };
+    // `component` came from this exact array, so this splice cannot target a
+    // different record. Keep the state commit independent of view helpers.
+    pl.inv.splice(pl.inv.indexOf(component), 1);
+    Ent.refreshDerived(pl);
+    Save.saveChar(pl);
+    UI.announce(`${component.name} socketed into ${target.name || target.baseName || 'item'}.`, component.kind === 'rune' ? '#ffff77' : '#8fc8ff', 2200);
+    sfx('equip');
+    return { ok: true, target, component };
+  },
+
+  identificationFailure(reason) {
+    const messages = {
+      'missing-scroll': 'That Scroll of Identification is no longer in your inventory.',
+      'wrong-utility': 'Select a valid Scroll of Identification.',
+      'missing-target': 'That item is no longer in your inventory.',
+      'ineligible-target': 'That item does not need identification.',
+      'already-identified': 'That item is already identified.',
+      'duplicate-item-id': 'Identification stopped because the inventory contains conflicting item records.',
+      'stale-scroll': 'The selected scroll changed. Nothing was consumed.',
+      'stale-target': 'The selected item changed. Nothing was consumed.',
+      'stale-membership': 'Your inventory changed. No items were identified.',
+      'stale-replacement': 'An inventory item changed. No items were identified.',
+      'stale-state': 'The identification state changed. Nothing was consumed.',
+      'town-only': 'Old Maras can identify carried items only while you are in town.',
+    };
+    return messages[reason] || 'Identification could not be completed. Nothing was consumed.';
+  },
+
+  identifyItem(scrollId, targetId) {
+    const pl = G.player;
+    if (!pl || typeof ItemIdentification === 'undefined') return { ok: false, reason: 'unavailable' };
+    const plan = ItemIdentification.quote(pl, scrollId, targetId);
+    const result = ItemIdentification.commit(pl, plan);
+    if (!result.ok) {
+      UI.announce(this.identificationFailure(result.reason), '#ff6a5a', 3200);
+      return result;
+    }
+    const target = pl.inv.find(item => item && item.id === targetId);
+    Ent.refreshDerived(pl);
+    Save.saveChar(pl);
+    sfx('unique');
+    UI.announce(`Identified: ${Items.displayName(target)}`, Items.rarityColor(target && target.rarity), 3000);
+    return Object.assign({}, result, { target });
+  },
+
+  identifyAllCarried() {
+    const pl = G.player;
+    if (!pl || typeof ItemIdentification === 'undefined') return { ok: false, reason: 'unavailable' };
+    if (!G.map || !G.map.town) {
+      const result = { ok: false, reason: 'town-only', count: 0, identified: [] };
+      UI.announce(this.identificationFailure(result.reason), '#ff6a5a', 3200);
+      return result;
+    }
+    const plan = ItemIdentification.quoteAll(pl);
+    const result = ItemIdentification.commitAll(pl, plan);
+    if (!result.ok) {
+      UI.announce(this.identificationFailure(result.reason), '#ff6a5a', 3200);
+      return result;
+    }
+    Ent.refreshDerived(pl);
+    Save.saveChar(pl);
+    if (result.count) {
+      sfx('unique');
+      UI.announce(`Old Maras identified ${result.count} carried item${result.count === 1 ? '' : 's'}.`, '#d8b9ff', 3400);
+    } else UI.announce('You carry nothing veiled.', '#8a7444', 2200);
+    return result;
   },
 
   slotFor(item) {
@@ -410,33 +998,42 @@ const Game = {
     }
     if (!it) return;
     if (UI.openPanel === 'vendor') return;
+    if (Items.isIdentifyScroll(it)) { UI.announce('Select the scroll in your inventory, then choose an unidentified item.', '#d8b9ff'); return; }
+    if (Items.isCharmRecord(it)) {
+      UI.announce(Items.needsIdentification(it) ? 'Identify this charm before its magic can awaken.' : 'Charms grant bonuses while legally placed in your carried inventory.', Items.needsIdentification(it) ? '#d8b9ff' : '#8fc8ff');
+      return;
+    }
     if (it.potion) {
       pl.potions[it.potion] = Math.min(20, pl.potions[it.potion] + 1);
       controller.removeItem(it, pl.inv);
       return;
     }
+    if (Items.needsIdentification(it)) { UI.announce('Identify this item before equipping it.', '#d8b9ff'); sfx('nope'); return; }
     if ((it.reqLvl || 1) > pl.lvl) { UI.announce(`Requires level ${it.reqLvl}`, '#ff6a5a'); sfx('nope'); return; }
     const slot = this.slotFor(it);
     if (!(slot in pl.equip)) return;
     const old = pl.equip[slot];
+    let oldPlace = null;
+    if (old) {
+      const remaining = pl.inv.slice();
+      const sourceIndex = remaining.indexOf(it);
+      if (sourceIndex >= 0) remaining.splice(sourceIndex, 1);
+      if (controller.canPlace(old, it._gx, it._gy, remaining)) oldPlace = { col: it._gx, row: it._gy };
+      else oldPlace = controller.findSpace(old, remaining);
+      if (!oldPlace) {
+        UI.announce('Make room for the displaced equipment first.', '#ff6a5a');
+        sfx('nope'); return;
+      }
+    }
     // Remove item from inventory
     controller.removeItem(it, pl.inv);
     pl.equip[slot] = it;
-    // Place old equipped item in inventory
     if (old) {
-      // Try the position where the new item was
-      old._gx = it._gx; old._gy = it._gy;
-      if (controller.canPlace(old, old._gx, old._gy, pl.inv)) {
-        pl.inv.push(old);
-      } else {
-        const pos = controller.findSpace(old, pl.inv);
-        if (pos) { old._gx = pos.col; old._gy = pos.row; pl.inv.push(old); }
-        else { pl.inv.push(old); } // overflow
-      }
+      old._gx = oldPlace.col; old._gy = oldPlace.row; pl.inv.push(old);
     }
     sfx('equip');
-    Ent.computeDerived(pl);
-    pl.hp = Math.min(pl.hp, pl.derived.maxHp);
+    Ent.refreshDerived(pl);
+    Save.saveChar(pl);
   },
 
   unequip(slot) {
@@ -451,8 +1048,8 @@ const Game = {
       pl.inv.push(it);
       pl.equip[slot] = null;
       sfx('equip');
-      Ent.computeDerived(pl);
-      pl.hp = Math.min(pl.hp, pl.derived.maxHp);
+      Ent.refreshDerived(pl);
+      Save.saveChar(pl);
       return;
     }
     UI.announce('Inventory full!', '#ff6a5a');
@@ -502,11 +1099,13 @@ const Game = {
         list.push({ kind: 'prop', x: pr.x, y: pr.y, pr, label: 'Smash ' + pr.kind });
       }
     }
-    for (const gi of G.groundItems) if (!gi.gold) list.push({ kind: 'gitem', x: gi.x, y: gi.y, gi, label: gi.item.name });
+    for (const gi of G.groundItems) if (!gi.gold) list.push({ kind: 'gitem', x: gi.x, y: gi.y, gi, label: Items.displayName(gi.item) });
     for (const n of G.npcs) list.push({ kind: 'npc', x: n.x, y: n.y, npc: n, label: n.def.name });
     if (G.map.waypoint) list.push({ kind: 'waypoint', x: G.map.waypoint.x, y: G.map.waypoint.y, label: 'Waypoint' });
     const pp = G.portalOnMap(G.map);
-    if (pp) list.push({ kind: 'portal', x: pp.x, y: pp.y, label: 'Town Portal' });
+    if (pp) list.push({ kind: 'portal', x: pp.x, y: pp.y, label: G.portal && G.portal.deathReturn ? 'Return to your corpse' : 'Town Portal' });
+    for (const corpse of this.corpsesOnMap()) list.push({ kind: 'corpse', x: corpse.location.x, y: corpse.location.y,
+      corpse, label: `Recover corpse (${corpse.gear.length} item${corpse.gear.length === 1 ? '' : 's'})` });
     return list;
   },
 
@@ -553,6 +1152,7 @@ const Game = {
       case 'npc': UI.npcDialog(it.npc); break;
       case 'waypoint': UI.open('waypoint'); break;
       case 'portal': this.usePortal(); break;
+      case 'corpse': this.recoverCorpse(it.corpse.id); break;
       case 'gitem': {
         const gi = it.gi;
         if (gi.item.potion) {
@@ -561,6 +1161,8 @@ const Game = {
         } else if (!this.giveItem(gi.item)) return;
         else sfx('drop');
         G.groundItems.splice(G.groundItems.indexOf(gi), 1);
+        Ent.refreshDerived(pl);
+        Save.saveChar(pl);
         break;
       }
       case 'thing': this.useThing(it.th); break;
@@ -603,7 +1205,8 @@ const Game = {
       Physics.burst(pr.x, pr.y, pr.mat || 'wood', 10, { speed: 3.4, size: 3.2, z: 8 });
       Physics.impulse(pr.x, pr.y, 1.6, 1.4);
       if (U.chance(U.rand, 0.30)) G.groundItems.push({ x: pr.x, y: pr.y, gold: Math.ceil((3 + map.mlvl * 1.8) * U.rf(U.rand, 0.5, 1.5)) });
-      else if (U.chance(U.rand, 0.12)) G.groundItems.push({ x: pr.x, y: pr.y, item: Items.generate(map.mlvl, { classId: pl.cls, mf: pl.derived.mf }) });
+      else if (U.chance(U.rand, 0.10)) this.dropComponent(pr.x, pr.y, map.mlvl);
+      else if (U.chance(U.rand, 0.12)) G.groundItems.push({ x: pr.x, y: pr.y, item: Items.generate(map.mlvl, { classId: pl.cls, mf: pl.derived.mf, unidentified: true }) });
       return;
     }
     switch (pr.kind) {
@@ -618,7 +1221,7 @@ const Game = {
           for (let i = 0; i < U.ri(U.rand, 2, 4); i++) {
             const sx = c.x + U.rf(U.rand, -0.7, 0.7), sy = c.y + U.rf(U.rand, -0.7, 0.7);
             if (U.chance(U.rand, 0.45)) G.groundItems.push({ x: sx, y: sy, gold: Math.ceil((8 + map.mlvl * 3.4) * U.rf(U.rand, 0.7, 1.6)) });
-            else G.groundItems.push({ x: sx, y: sy, item: Items.generate(map.mlvl + 2, { classId: pl.cls, mf: pl.derived.mf + 15 }) });
+            else G.groundItems.push({ x: sx, y: sy, item: Items.generate(map.mlvl + 2, { classId: pl.cls, mf: pl.derived.mf + 15, unidentified: true }) });
           }
           FX.ring(c.x, c.y, 1.8, '#ffd94f');
           Physics.burst(c.x, c.y, 'stone', 8, { speed: 2.4 });
@@ -647,8 +1250,11 @@ const Game = {
         pr.searched = true;
         sfx('ui');
         if (U.chance(U.rand, 0.55)) {
-          const it = Items.generate(map.mlvl + 1, { classId: pl.cls, mf: pl.derived.mf + 10 });
-          G.groundItems.push({ x: pr.x, y: pr.y + 0.6, item: it });
+          if (U.chance(U.rand, 0.22)) this.dropComponent(pr.x, pr.y + 0.6, map.mlvl + 1);
+          else {
+            const it = Items.generate(map.mlvl + 1, { classId: pl.cls, mf: pl.derived.mf + 10, unidentified: true });
+            G.groundItems.push({ x: pr.x, y: pr.y + 0.6, item: it });
+          }
           UI.announce('Something was hidden among the pages.', '#8fc8ff', 2000);
         } else {
           const amt = Math.ceil((6 + map.mlvl * 2.2) * U.rf(U.rand, 0.6, 1.4));
@@ -686,7 +1292,8 @@ const Game = {
         Physics.impulse(th.x, th.y, 1.8, 1.6);
         if (th.explosive) Ent.explode(th.x, th.y, 2.2, [map.mlvl * 3 + 8, map.mlvl * 5 + 14], 'fire', { both: true });
         if (U.chance(U.rand, 0.35)) G.groundItems.push({ x: th.x, y: th.y, gold: Math.ceil((3 + map.mlvl * 2) * U.rf(U.rand, 0.5, 1.5)) });
-        else if (U.chance(U.rand, 0.15)) G.groundItems.push({ x: th.x, y: th.y, item: Items.generate(map.mlvl, { classId: pl.cls, mf: pl.derived.mf }) });
+        else if (U.chance(U.rand, 0.12)) this.dropComponent(th.x, th.y, map.mlvl);
+        else if (U.chance(U.rand, 0.15)) G.groundItems.push({ x: th.x, y: th.y, item: Items.generate(map.mlvl, { classId: pl.cls, mf: pl.derived.mf, unidentified: true }) });
         break;
       }
       case 'chest': {
@@ -696,7 +1303,8 @@ const Game = {
         const n = U.ri(U.rand, 2, 3);
         for (let i = 0; i < n; i++) {
           if (U.chance(U.rand, 0.35)) G.groundItems.push({ x: th.x + U.rf(U.rand, -0.8, 0.8), y: th.y + U.rf(U.rand, -0.8, 0.8), gold: Math.ceil((6 + map.mlvl * 3) * U.rf(U.rand, 0.7, 1.6)) });
-          else G.groundItems.push({ x: th.x + U.rf(U.rand, -0.8, 0.8), y: th.y + U.rf(U.rand, -0.8, 0.8), item: Items.generate(map.mlvl + 1, { classId: pl.cls, mf: pl.derived.mf + 20 }) });
+          else if (i === 0 || U.chance(U.rand, 0.24)) this.dropComponent(th.x + U.rf(U.rand, -0.8, 0.8), th.y + U.rf(U.rand, -0.8, 0.8), map.mlvl + 1);
+          else G.groundItems.push({ x: th.x + U.rf(U.rand, -0.8, 0.8), y: th.y + U.rf(U.rand, -0.8, 0.8), item: Items.generate(map.mlvl + 1, { classId: pl.cls, mf: pl.derived.mf + 20, unidentified: true }) });
         }
         FX.ring(th.x, th.y, 1.4, '#ffd94f');
         break;

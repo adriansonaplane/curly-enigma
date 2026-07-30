@@ -64,6 +64,7 @@
 <!-- ============ PANELS ============ -->
 <div id="panels">
   <div id="panel-inv" class="panel hidden"></div>
+  <div id="panel-cube" class="panel wide hidden"></div>
   <div id="panel-char" class="panel hidden"></div>
   <div id="panel-skills" class="panel wide hidden"></div>
   <div id="panel-mercenary" class="panel wide hidden"></div>
@@ -76,7 +77,7 @@
   <div id="panel-death" class="panel hidden"></div>
   <div id="panel-menu" class="panel hidden"></div>
 </div>
-<div id="tooltip" class="hidden"></div>
+<div id="tooltip" class="hidden" role="tooltip"></div>
 
 <!-- ============ MAIN MENU ============ -->
 <div id="menu-screen">
@@ -86,6 +87,13 @@
     <div class="logo-sub">ASHES OF THE NEPHALEM</div>
     <div id="season-banner"></div>
     <div id="char-list"></div>
+    <section id="difficulty-panel" class="hidden" aria-labelledby="difficulty-title">
+      <div class="difficulty-kicker">SELECT CAMPAIGN TIER</div>
+      <h2 id="difficulty-title">CHOOSE DIFFICULTY</h2>
+      <div id="difficulty-hero"></div>
+      <div id="difficulty-options"></div>
+      <button id="btn-difficulty-back" class="big-btn dark">BACK</button>
+    </section>
     <div id="create-panel" class="hidden">
       <input id="char-name" maxlength="14" placeholder="Name your hero..." autocomplete="off">
       <div id="class-cards"></div>
@@ -114,9 +122,15 @@
 <script src="js/factions.js"></script>
 <script src="js/lore.js"></script>
 <script src="js/narrative.js"></script>
+<script src="js/difficulty-state.js"></script>
 <script src="js/sprites.js"></script>
 <script src="js/dungeon.js"></script>
 <script src="js/items.js"></script>
+<script src="js/item-identification.js"></script>
+<script src="js/inventory-charms.js"></script>
+<script src="js/item-condition.js"></script>
+<script src="js/corpse-state.js"></script>
+<script src="js/cube.js"></script>
 <script src="js/entities.js"></script>
 <script src="vendor/three.min.js"></script>
 <script src="js/graphics-config.js"></script>

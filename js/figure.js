@@ -463,7 +463,10 @@ const Figure = {
   // Reads the player's actual equipped items into drawing fixtures.
   equipOf(pl) {
     const cls = CLASSES.find(c => c.id === pl.cls) || { pal: {} };
-    const e = pl.equip || {};
+    const e = {};
+    for (const [slot, item] of Object.entries(pl.equip || {}))
+      e[slot] = (typeof ItemIdentification !== 'undefined' && ItemIdentification.needsIdentification(item)) ||
+        (typeof InventoryCharms !== 'undefined' && InventoryCharms.isCharmRecord(item)) ? null : item;
     const rc = it => it ? Items.rarityColor(it.rarity) : null;
     const wep = e.weapon;
     const base = wep ? Items.baseById(wep.type) : null;

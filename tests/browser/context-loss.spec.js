@@ -44,8 +44,12 @@ test('context losses restore at progressively degraded workloads', async ({ page
     await page.waitForFunction(losses => R3._contextLost && R3._contextLosses === losses, expectedLosses);
     await page.evaluate(() => window.__ext.restoreContext());
     // The renderer must draw again on its own, without a reload.
-    await page.waitForFunction(losses => R3.stats().calls > 0 && !R3._contextLost
-      && R3.stats().gpu.contextLosses === losses, expectedLosses, { timeout: 15000 });
+    await page.waitForFunction(losses => {
+      const stats = R3.stats();
+      const postPasses = stats.frame.calls - stats.scene.calls;
+      return stats.calls > 0 && !R3._contextLost && stats.gpu.contextLosses === losses
+        && postPasses === (losses >= 2 ? 0 : 1);
+    }, expectedLosses, { timeout: 15000 });
     return page.evaluate(() => R3.stats());
   };
 
@@ -62,7 +66,11 @@ test('context losses restore at progressively degraded workloads', async ({ page
   expect(second.lightBudget).toBe(first.lightBudget);
   expect(second.grade).toBe(false);
   expect(second.shadows).toBe(false);
-  expect(second.calls).toBeLessThan(first.calls);
+  // Scene contents can change while authored resources resolve, so comparing
+  // total calls across two restores is racy. The grade pass is exactly the
+  // difference between the counters captured at the scene and frame boundaries.
+  expect(first.frame.calls - first.scene.calls).toBe(1);
+  expect(second.frame.calls - second.scene.calls).toBe(0);
 
   // Several governor-driven frames must not undo the context-loss safety caps.
   await page.waitForTimeout(500);

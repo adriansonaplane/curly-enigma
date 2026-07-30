@@ -11,53 +11,73 @@ class InventoryGridController {
     this.COLS = 10; this.ROWS = 6;
   }
 
+  dimensions(item) {
+    const size = Items.sizeOf(item);
+    return Array.isArray(size) && size.length === 2 && size.every(Number.isInteger) && size.every(value => value > 0)
+      ? size : null;
+  }
+
   matches(item) {
     if (!item) return true;
     const q = this.query.trim().toLowerCase();
-    if (q && ![item.name, item.baseName, item.type, item.slot, item.rarity]
+    if (q && ![Items.displayName(item), item.baseName, item.type, item.slot, item.rarity, item.kind, item.form,
+      Items.isCharmRecord(item) ? 'charm carried talisman' : '',
+      Items.isIdentifyScroll(item) ? 'scroll identification utility' : '']
       .some(value => String(value || '').toLowerCase().includes(q))) return false;
+    const component = !!(item.component || item.kind === 'gem' || item.kind === 'rune' || Items.isIdentifyScroll(item));
+    const charm = Items.isCharmRecord(item);
     return this.filter === 'all' || item.rarity === this.filter ||
-      (this.filter === 'equipment' && !item.potion);
+      (this.filter === 'equipment' && !item.potion && !component && !charm && !!item.slot) ||
+      (this.filter === 'charms' && charm) ||
+      (this.filter === 'components' && component);
   }
 
   // Build an occupancy grid from a flat inventory array.
-  // Returns a 2D array [row][col] = item id string or null.
-  buildOccupancy(inv) {
+  // Returns a 2D array [row][col] = exact item object or null. Object identity
+  // prevents a duplicate id from being mistaken for the item being moved.
+  buildOccupancy(inv, ignoreItem = null) {
     const occ = [];
     for (let r = 0; r < this.ROWS; r++) { occ[r] = []; for (let c = 0; c < this.COLS; c++) occ[r][c] = null; }
-    for (const item of inv) {
-      if (!item || item._gx == null || item._gy == null) continue;
-      const [w, h] = Items.sizeOf(item);
+    for (const item of Array.isArray(inv) ? inv : []) {
+      if (!item || item === ignoreItem || !Number.isInteger(item._gx) || !Number.isInteger(item._gy)) continue;
+      const size = this.dimensions(item);
+      if (!size) continue;
+      const [w, h] = size;
+      if (item._gx < 0 || item._gy < 0 || item._gx + w > this.COLS || item._gy + h > this.ROWS) continue;
       for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
         const r = item._gy + dy, c = item._gx + dx;
-        if (r < this.ROWS && c < this.COLS) occ[r][c] = item.id;
+        if (!occ[r][c]) occ[r][c] = item;
       }
     }
     return occ;
   }
 
   // Check if item with given size can be placed at (col, row).
-  canPlace(item, col, row, inv, ignoreId) {
-    const [w, h] = Items.sizeOf(item);
+  canPlace(item, col, row, inv, ignoreItem = null) {
+    const size = this.dimensions(item);
+    if (!size || !Number.isInteger(col) || !Number.isInteger(row)) return false;
+    const [w, h] = size;
     if (col < 0 || row < 0 || col + w > this.COLS || row + h > this.ROWS) return false;
-    const occ = this.buildOccupancy(inv);
+    const occ = this.buildOccupancy(inv, ignoreItem);
     for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
       const cell = occ[row + dy][col + dx];
-      if (cell && cell !== ignoreId) return false;
+      if (cell) return false;
     }
     return true;
   }
 
   // Find first available position for an item in the grid. Returns {col, row} or null.
-  findSpace(item, inv, ignoreId) {
-    const [w, h] = Items.sizeOf(item);
-    const occ = this.buildOccupancy(inv);
+  findSpace(item, inv, ignoreItem = null) {
+    const size = this.dimensions(item);
+    if (!size) return null;
+    const [w, h] = size;
+    const occ = this.buildOccupancy(inv, ignoreItem);
     for (let r = 0; r <= this.ROWS - h; r++) {
       for (let c = 0; c <= this.COLS - w; c++) {
         let ok = true;
         for (let dy = 0; dy < h && ok; dy++) for (let dx = 0; dx < w && ok; dx++) {
           const cell = occ[r + dy][c + dx];
-          if (cell && cell !== ignoreId) ok = false;
+          if (cell) ok = false;
         }
         if (ok) return { col: c, row: r };
       }
@@ -80,7 +100,11 @@ class InventoryGridController {
 
   // Get unique items (each item once, based on id).
   uniqueItems(inv) {
-    return inv.filter(it => it != null);
+    const objects = new Set(), ids = new Set();
+    return (Array.isArray(inv) ? inv : []).filter(item => {
+      if (!item || objects.has(item) || (typeof item.id === 'string' && ids.has(item.id))) return false;
+      objects.add(item); if (typeof item.id === 'string') ids.add(item.id); return true;
+    });
   }
 
   // Migrate a legacy flat 48-slot inventory to the grid system.
@@ -89,26 +113,42 @@ class InventoryGridController {
   migrateInv(inv) {
     // Already an object-based inv (array of items without nulls for empty slots)
     // or legacy 48-slot with positional nulls.
-    const items = inv.filter(it => it != null);
-    const needPlacement = items.filter(it => it._gx == null || it._gy == null);
-    if (needPlacement.length === 0) return items;
-    // Place items that don't have positions
-    const placed = items.filter(it => it._gx != null && it._gy != null);
-    for (const item of needPlacement) {
-      const pos = this.findSpace(item, placed);
-      if (pos) { item._gx = pos.col; item._gy = pos.row; placed.push(item); }
-      // If can't fit, still include but without position (will show as overflow)
-      else placed.push(item);
+    const items = (Array.isArray(inv) ? inv : []).filter(it =>
+      it !== null && typeof it === 'object' && !Array.isArray(it));
+    const placed = [];
+    for (const item of items) {
+      let anchorIsLegal = false;
+      try {
+        anchorIsLegal = Number.isInteger(item._gx) && Number.isInteger(item._gy) &&
+          this.canPlace(item, item._gx, item._gy, placed);
+      } catch (_error) { continue; }
+      if (!anchorIsLegal) {
+        let pos = null;
+        try { pos = this.findSpace(item, placed); } catch (_error) { continue; }
+        if (pos) {
+          try {
+            item._gx = pos.col; item._gy = pos.row;
+            if (item._gx !== pos.col || item._gy !== pos.row) continue;
+          } catch (_error) { continue; }
+        } else {
+          // An item that cannot currently fit remains fail-closed and unplaced.
+          // Immutable invalid anchors cannot be repaired, so prune them rather
+          // than letting a later strict-mode assignment crash every panel.
+          try {
+            delete item._gx; delete item._gy;
+            if ('_gx' in item || '_gy' in item) continue;
+          } catch (_error) { continue; }
+        }
+      }
+      placed.push(item);
     }
     return placed;
   }
 
   // Ensure player inventory is migrated to grid format.
   ensureGrid(pl) {
-    if (!pl._invMigrated) {
-      pl.inv = this.migrateInv(pl.inv);
-      pl._invMigrated = true;
-    }
+    pl.inv = this.migrateInv(pl.inv);
+    pl._invMigrated = true;
   }
 
   source(event) {
@@ -128,7 +168,8 @@ class InventoryGridController {
     return G.player.inv[source.position] || null;
   }
   accepts(item, slot) {
-    return !!item && !item.potion && (item.slot === slot ||
+    return !!item && !item.potion && !item.component && !Items.isIdentifyScroll(item) && !Items.isCharmRecord(item) && !Items.needsIdentification(item) &&
+      item.kind !== 'gem' && item.kind !== 'rune' && (item.slot === slot ||
       (item.slot === 'ring' && (slot === 'ring1' || slot === 'ring2')));
   }
 
@@ -138,7 +179,7 @@ class InventoryGridController {
     if (!item) return false;
     if (source.kind === 'inv' || source.itemId) {
       // Moving within inventory
-      if (!this.canPlace(item, col, row, pl.inv, item.id)) return false;
+      if (!this.canPlace(item, col, row, pl.inv, item)) return false;
       item._gx = col; item._gy = row;
     } else {
       // Moving from equipment to inventory
@@ -146,7 +187,7 @@ class InventoryGridController {
       pl.equip[source.slot] = null;
       item._gx = col; item._gy = row;
       pl.inv.push(item);
-      Ent.computeDerived(pl);
+      Ent.refreshDerived(pl);
     }
     Save.saveChar(pl); return true;
   }
@@ -161,6 +202,8 @@ class InventoryGridController {
   equip(source, slot) {
     const pl = G.player, item = this.itemAt(source);
     if (!item || item.potion || (item.reqLvl || 1) > pl.lvl) return false;
+    if (Items.isCharmRecord(item)) { UI.announce('Charms are active only while carried in the inventory grid.', '#8fc8ff'); return false; }
+    if (Items.needsIdentification(item)) { UI.announce('Identify this item before equipping it.', '#d8b9ff'); return false; }
     if (!this.accepts(item, slot)) { UI.announce(`That item cannot be equipped as ${slot}`, '#ff6a5a'); return false; }
     if (source.kind === 'equip') {
       if (source.slot === slot) return false;
@@ -170,39 +213,43 @@ class InventoryGridController {
       [pl.equip[source.slot], pl.equip[slot]] = [pl.equip[slot], pl.equip[source.slot]];
     } else {
       const old = pl.equip[slot];
+      let oldPlace = null;
+      if (old) {
+        const remaining = pl.inv.slice();
+        const sourceIndex = remaining.indexOf(item);
+        if (sourceIndex >= 0) remaining.splice(sourceIndex, 1);
+        if (this.canPlace(old, item._gx, item._gy, remaining)) oldPlace = { col: item._gx, row: item._gy };
+        else oldPlace = this.findSpace(old, remaining);
+        if (!oldPlace) {
+          UI.announce('Make room for the displaced equipment first.', '#ff6a5a');
+          sfx('nope'); return false;
+        }
+      }
       // Remove from inv
       this.removeItem(item, pl.inv);
       pl.equip[slot] = item;
-      // If there was an equipped item, place it in inv where the dragged item was
       if (old) {
-        old._gx = item._gx; old._gy = item._gy;
-        // Check if old item fits at that position
-        if (this.canPlace(old, old._gx, old._gy, pl.inv)) {
-          pl.inv.push(old);
-        } else {
-          // Try to find any space
-          const pos = this.findSpace(old, pl.inv);
-          if (pos) { old._gx = pos.col; old._gy = pos.row; pl.inv.push(old); }
-          else { pl.inv.push(old); } // add anyway, will overflow
-        }
+        old._gx = oldPlace.col; old._gy = oldPlace.row; pl.inv.push(old);
       }
     }
-    Ent.computeDerived(pl); pl.hp = Math.min(pl.hp, pl.derived.maxHp);
+    Ent.refreshDerived(pl);
     Save.saveChar(pl); sfx('equip'); return true;
   }
   dropToWorld(source) {
     const pl = G.player, item = this.itemAt(source);
     if (!item) return false;
     if (source.kind === 'inv' || source.itemId) this.removeItem(item, pl.inv);
-    else { pl.equip[source.slot] = null; Ent.computeDerived(pl); }
+    else { pl.equip[source.slot] = null; }
     G.groundItems.push({ x: pl.x, y: pl.y, item });
-    Save.saveChar(pl); UI.announce(`Dropped ${item.name}`, '#d8c9a3'); return true;
+    Ent.refreshDerived(pl);
+    Save.saveChar(pl); UI.announce(`Dropped ${Items.displayName(item)}`, '#d8c9a3'); return true;
   }
 }
 
 const UI = {
   els: {}, openPanel: null, treeTab: 0, ladderTab: 0, menuFxT: null,
   inventoryGrid: new InventoryGridController(),
+  socketSelection: null, identificationSelection: null, cubeSelection: [], cubeRecipesOpen: true,
 
   init() {
     const ids = ['hud', 'zone-label', 'announce', 'hp-fill', 'mp-fill', 'hp-text', 'mp-text', 'xp-fill',
@@ -210,6 +257,11 @@ const UI = {
     for (const id of ids) this.els[id] = document.getElementById(id);
     document.querySelectorAll('#hud-buttons button[data-panel]').forEach(b =>
       b.addEventListener('click', () => this.toggle(b.dataset.panel)));
+    // Kept dynamic so older saves/pages do not need a markup migration.
+    if (!this.panel('cube')) {
+      const cube = document.createElement('div'); cube.id = 'panel-cube'; cube.className = 'panel wide hidden';
+      document.getElementById('panels').appendChild(cube);
+    }
     document.getElementById('btn-mute').addEventListener('click', () => {
       const m = AUDIO.toggleMute();
       document.getElementById('btn-mute').textContent = m ? '✕' : '♪';
@@ -239,13 +291,72 @@ const UI = {
     let tx = x + 18, ty = y + 14;
     if (tx + r.width > innerWidth - 8) tx = x - r.width - 14;
     if (ty + r.height > innerHeight - 8) ty = innerHeight - r.height - 8;
-    t.style.left = tx + 'px'; t.style.top = Math.max(6, ty) + 'px';
+    tx = U.clamp(tx, 8, Math.max(8, innerWidth - r.width - 8));
+    ty = U.clamp(ty, 6, Math.max(6, innerHeight - r.height - 8));
+
+    // Inventory status surfaces carry the current power state/next action and must remain readable while
+    // a keyboard-focused item keeps its tooltip open. Prefer the free space
+    // above/below those surfaces instead of merely clamping to the
+    // viewport (which can place a tall phone tooltip directly over that bar).
+    const statusSurfaces = Array.from(document.querySelectorAll(
+      '#panel-inv:not(.hidden) [data-testid="charm-summary"], #panel-inv:not(.hidden) [data-testid="identify-status"]'
+    )).sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    for (const statusSurface of statusSurfaces) {
+      const blocked = statusSurface.getBoundingClientRect();
+      const gap = 8;
+      const overlapsX = tx < blocked.right + gap && tx + r.width > blocked.left - gap;
+      const overlapsY = ty < blocked.bottom + gap && ty + r.height > blocked.top - gap;
+      if (overlapsX && overlapsY) {
+        const above = blocked.top - r.height - gap;
+        const below = blocked.bottom + gap;
+        if (above >= 6) ty = above;
+        else if (below + r.height <= innerHeight - 8) ty = below;
+      }
+    }
+
+    ty = U.clamp(ty, 6, Math.max(6, innerHeight - r.height - 8));
+    t.style.left = tx + 'px'; t.style.top = ty + 'px';
   },
   hideTip() { this.els.tooltip.classList.add('hidden'); },
 
   hookTip(el, htmlFn) {
     el.addEventListener('mouseenter', e => this.tip(htmlFn(), e.clientX, e.clientY));
     el.addEventListener('mouseleave', () => this.hideTip());
+    el.setAttribute('aria-describedby', 'tooltip');
+    el.addEventListener('focus', () => {
+      const rect = el.getBoundingClientRect();
+      this.tip(htmlFn(), rect.left + rect.width / 2, rect.top + rect.height / 2);
+    });
+    el.addEventListener('blur', () => this.hideTip());
+  },
+
+  itemBroken(item) {
+    return !Items.needsIdentification(item) && typeof ItemCondition !== 'undefined' && ItemCondition.isBroken(item);
+  },
+  itemLow(item) {
+    if (!item || Items.needsIdentification(item) || typeof ItemCondition === 'undefined') return false;
+    const state = ItemCondition.condition(item);
+    return state.maxDurability > 0 && state.durability > 0 && state.durability / state.maxDurability <= 0.2;
+  },
+  itemConditionLabel(item) {
+    if (!item || Items.needsIdentification(item) || typeof ItemCondition === 'undefined') return '';
+    const state = ItemCondition.condition(item);
+    if (!state.maxDurability) return '';
+    if (state.durability === 0) return ' (broken)';
+    return state.durability / state.maxDurability <= 0.2
+      ? ` (low durability, ${state.durability} of ${state.maxDurability})` : '';
+  },
+
+  charmCarriedState(item, player = G.player) {
+    if (!Items.isCharmRecord(item)) return { active: false, label: '' };
+    const aggregate = player && player.charmState;
+    const active = !!(aggregate && aggregate.ok && aggregate.activeIds.includes(item.id));
+    if (active) return { active: true, label: 'active while carried' };
+    if (Items.needsIdentification(item)) return { active: false, label: 'inactive until identified' };
+    if (aggregate && !aggregate.ok) return { active: false, label: 'inactive because the inventory grid is invalid' };
+    if (player && player.lvl < (item.reqLvl || 1))
+      return { active: false, label: `inactive until level ${item.reqLvl}` };
+    return { active: false, label: 'inactive while carried' };
   },
 
   // ---------------- announcements / floating text ----------------
@@ -280,7 +391,19 @@ const UI = {
     this.els['xp-fill'].style.width = U.clamp((pl.xp - xpPrev) / (xpNext - xpPrev) * 100, 0, 100) + '%';
     this.els['hp-pot-n'].textContent = pl.potions.hp;
     this.els['mp-pot-n'].textContent = pl.potions.mp;
-    this.els['zone-label'].textContent = G.map ? G.map.name + (G.map.town ? '' : `  ·  Monster Lvl ${G.map.mlvl}`) : '';
+    this.els['zone-label'].textContent = G.map ? `${G.map.name}${G.map.town ? '' : `  ·  Monster Lvl ${G.map.mlvl + difficultyByIdx(pl.difficultyIdx).mlvlAdd}`}  ·  ${difficultyByIdx(pl.difficultyIdx).name}` : '';
+    const equipped = Object.values(pl.equip || {}).filter(Boolean);
+    const brokenGear = equipped.filter(item => this.itemBroken(item)).length;
+    const lowGear = equipped.filter(item => this.itemLow(item)).length;
+    const inventoryButton = this._conditionButton || (this._conditionButton = document.querySelector('#hud-buttons [data-panel="inv"]'));
+    if (inventoryButton) {
+      inventoryButton.classList.toggle('condition-broken', brokenGear > 0);
+      inventoryButton.classList.toggle('condition-low', !brokenGear && lowGear > 0);
+      const warning = brokenGear ? ` — ${brokenGear} broken equipped item${brokenGear === 1 ? '' : 's'}`
+        : lowGear ? ` — ${lowGear} low-durability equipped item${lowGear === 1 ? '' : 's'}` : '';
+      inventoryButton.title = `Inventory (I)${warning}`;
+      inventoryButton.setAttribute('aria-label', `Inventory${warning}`);
+    }
 
     // hotbar icons + cooldowns
     document.querySelectorAll('.hot-slot').forEach(slot => {
@@ -322,6 +445,7 @@ const UI = {
   closeAll() {
     document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
     this.openPanel = null;
+    this.identificationSelection = null;
     this.hideTip();
   },
   toggle(name) {
@@ -336,6 +460,7 @@ const UI = {
     p.classList.remove('hidden');
     switch (name) {
       case 'inv': this.renderInv(); break;
+      case 'cube': this.renderCube(); break;
       case 'char': this.renderChar(); break;
       case 'skills': this.renderSkills(); break;
       case 'mercenary': this.renderMercenary(); break;
@@ -373,20 +498,37 @@ const UI = {
     p.insertAdjacentHTML('beforeend', '<h3>EQUIPMENT</h3>');
     for (const slot of def.slots) {
       const item = state.equipment[slot], row = document.createElement('div'); row.className = 'vendor-row';
-      row.innerHTML = `<span><b>${slot.toUpperCase()}</b> · ${item ? U.esc(item.name) : 'Empty'}</span><button>${item ? 'Unequip' : 'Equip from inventory'}</button>`;
+      const visibleName = item ? Items.displayName(item) : '';
+      const unidentified = Items.needsIdentification(item);
+      const broken = this.itemBroken(item);
+      row.classList.toggle('item-unidentified', unidentified);
+      row.classList.toggle('item-broken', broken);
+      row.classList.toggle('item-low', this.itemLow(item));
+      if (item) {
+        row.dataset.testid = `mercenary-item-${item.id}`;
+        row.tabIndex = 0;
+        row.setAttribute('role', 'group');
+        row.setAttribute('aria-label', `Mercenary ${slot}: ${visibleName}${this.itemConditionLabel(item)}`);
+      }
+      row.innerHTML = `<span><b>${slot.toUpperCase()}</b> · ${item ? U.esc(visibleName) : 'Empty'}${unidentified ? ' · <strong class="unidentified-label">UNIDENTIFIED</strong>' : ''}${broken ? ' · <strong class="broken-label">BROKEN</strong>' : ''}</span><button>${item ? 'Unequip' : 'Equip from inventory'}</button>`;
+      row.querySelector('button').setAttribute('aria-label', item
+        ? `Unequip ${visibleName}${this.itemConditionLabel(item)} from mercenary`
+        : `Equip ${slot} from inventory on mercenary`);
+      if (item) this.hookTip(row, () => Items.tooltip(item, pl));
       row.querySelector('button').addEventListener('click', () => {
         if (item) { if (!Game.giveItem(item)) return; state.equipment[slot] = null; }
         else {
           const controller = this.inventoryGrid;
           controller.ensureGrid(pl);
-          const found = pl.inv.find(it => it && !it.potion && (it.slot === slot || (slot === 'offhand' && it.slot === 'offhand')) && (it.reqLvl || 1) <= state.level);
+          const found = pl.inv.find(it => it && !it.potion && !Items.isCharmRecord(it) && !Items.needsIdentification(it) &&
+            (it.slot === slot || (slot === 'offhand' && it.slot === 'offhand')) && (it.reqLvl || 1) <= state.level);
           if (!found) return this.announce(`No level-appropriate ${slot} in inventory`, '#ff6a5a');
           state.equipment[slot] = found; controller.removeItem(found, pl.inv);
         }
         const live = G.monsters.find(m => m.mercenary && !m.dead); if (live) { live.dead = true; live.deathT = 0; } Ent.syncMercenary(); Save.saveChar(pl); this.renderMercenary();
       }); p.appendChild(row);
     }
-    const dismiss = document.createElement('button'); dismiss.textContent = 'Dismiss mercenary'; dismiss.addEventListener('click', () => {
+    const dismiss = document.createElement('button'); dismiss.className = 'merc-dismiss'; dismiss.textContent = 'Dismiss mercenary'; dismiss.addEventListener('click', () => {
       const controller = this.inventoryGrid;
       controller.ensureGrid(pl);
       const gear = Object.values(state.equipment).filter(Boolean);
@@ -403,7 +545,8 @@ const UI = {
     }); p.appendChild(dismiss);
   },
   head(p, title) {
-    p.innerHTML = `<span class="close-x">✕</span><h2>${title}</h2>`;
+    p.innerHTML = '<button type="button" class="close-x" aria-label="Close panel">✕</button><h2></h2>';
+    p.querySelector('h2').textContent = title;
     p.querySelector('.close-x').addEventListener('click', () => this.closeAll());
   },
 
@@ -413,6 +556,9 @@ const UI = {
     this.head(p, 'INVENTORY');
     const controller = this.inventoryGrid;
     controller.ensureGrid(pl);
+    if (typeof InventoryCharms !== 'undefined' && typeof Ent.refreshDerived === 'function') Ent.refreshDerived(pl);
+    const selectedIdentifyScroll = pl.inv.find(item => item && item.id === this.identificationSelection);
+    if (!Items.isIdentifyScroll(selectedIdentifyScroll)) this.identificationSelection = null;
 
     // --- equipment paperdoll ---
     const eq = document.createElement('div');
@@ -425,6 +571,14 @@ const UI = {
       cell.dataset.slot = slot;
       cell.innerHTML = `<span class="eq-label">${label}</span>`;
       const it = pl.equip[slot];
+      const eligible = this.socketSelection && this.socketEligible(it);
+      const unidentified = Items.needsIdentification(it);
+      const broken = this.itemBroken(it);
+      cell.classList.toggle('socket-target', !!eligible);
+      cell.classList.toggle('item-unidentified', unidentified);
+      cell.classList.toggle('item-broken', broken);
+      cell.classList.toggle('item-low', this.itemLow(it));
+      cell.dataset.testid = `socket-target-equip-${slot}`;
       if (it) {
         const cv = Sprites.itemIcon(it, 52);
         cv.draggable = true;
@@ -432,7 +586,21 @@ const UI = {
         cell.appendChild(cv);
         cell.style.borderColor = Items.rarityColor(it.rarity);
         this.hookTip(cell, () => Items.tooltip(it, pl));
-        cell.addEventListener('click', () => { Game.unequip(slot); this.renderInv(); });
+        cell.tabIndex = 0; cell.setAttribute('role', 'button');
+        const visibleName = Items.displayName(it);
+        cell.setAttribute('aria-label', (eligible ? `Socket into equipped ${visibleName}` : `Unequip ${visibleName}`) + this.itemConditionLabel(it));
+        const activate = () => {
+          if (this.socketSelection) {
+            if (eligible) return this.socketInto(it.id);
+            return this.announce('That item cannot accept the selected component.', '#ff6a5a');
+          }
+          Game.unequip(slot); this.renderInv();
+        };
+        cell.addEventListener('click', activate);
+        cell.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault(); activate();
+        });
       }
       cell.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
       cell.addEventListener('drop', e => { e.preventDefault(); if (controller.equip(controller.source(e), slot)) this.renderInv(); });
@@ -444,15 +612,19 @@ const UI = {
     const toolbar = document.createElement('div');
     toolbar.className = 'inv-toolbar';
     toolbar.innerHTML = `<input class="inv-search" type="text" aria-label="Search inventory" placeholder="Search inventory" value="${U.esc(controller.query)}">
-      ${['all', 'equipment', 'common', 'magic', 'rare', 'set', 'unique'].map(filter => `<button class="inv-filter-chip${controller.filter === filter ? ' active' : ''}" data-filter="${filter}">${filter[0].toUpperCase() + filter.slice(1)}</button>`).join('')}`;
+      ${['all', 'equipment', 'charms', 'components', 'common', 'magic', 'rare', 'set', 'unique'].map(filter => `<button type="button" class="inv-filter-chip${controller.filter === filter ? ' active' : ''}" data-filter="${filter}" aria-pressed="${controller.filter === filter}">${filter[0].toUpperCase() + filter.slice(1)}</button>`).join('')}
+      <button type="button" class="inv-cube-open" data-testid="open-cube" aria-label="Open Horadric Cube">Horadric Cube</button>`;
     toolbar.querySelector('.inv-search').addEventListener('input', e => { controller.query = e.target.value; this.renderInv(); const input = p.querySelector('.inv-search'); input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
     toolbar.querySelectorAll('.inv-filter-chip').forEach(button => button.addEventListener('click', () => { controller.filter = button.dataset.filter; this.renderInv(); }));
+    toolbar.querySelector('.inv-cube-open').addEventListener('click', () => this.open('cube'));
     p.appendChild(toolbar);
 
     // --- 10x6 grid with variable-size items ---
-    const CELL = 44; // cell size in px
     const GAP = 2;
     const COLS = controller.COLS, ROWS = controller.ROWS;
+    const panelStyle = getComputedStyle(p);
+    const usableWidth = p.clientWidth - parseFloat(panelStyle.paddingLeft) - parseFloat(panelStyle.paddingRight);
+    const CELL = Math.min(44, Math.max(30, Math.floor((usableWidth - GAP * (COLS - 1)) / COLS)));
     const grid = document.createElement('div');
     grid.className = 'inv-grid inv-grid-var';
     grid.style.display = 'grid';
@@ -498,12 +670,43 @@ const UI = {
     for (const it of items) {
       if (it._gx == null || it._gy == null) continue;
       const [w, h] = Items.sizeOf(it);
+      const visibleName = Items.displayName(it);
+      const identifyScroll = Items.isIdentifyScroll(it);
+      const charm = Items.isCharmRecord(it);
+      const unidentified = Items.needsIdentification(it);
+      const identifyTarget = !!(this.identificationSelection && unidentified);
       const itemEl = document.createElement('div');
       itemEl.className = 'inv-item-var';
+      itemEl.dataset.testid = `inventory-item-${it.id}`;
       itemEl.style.gridColumn = `${it._gx + 1} / span ${w}`;
       itemEl.style.gridRow = `${it._gy + 1} / span ${h}`;
       itemEl.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
       itemEl.classList.toggle('filtered-out', !controller.matches(it));
+      itemEl.classList.toggle('socket-component-selected', this.socketSelection === it.id);
+      itemEl.classList.toggle('socket-target', !!(this.socketSelection && this.socketEligible(it)));
+      itemEl.classList.toggle('identify-scroll-selected', this.identificationSelection === it.id);
+      itemEl.classList.toggle('identify-target', identifyTarget);
+      itemEl.classList.toggle('item-unidentified', unidentified);
+      itemEl.classList.toggle('item-charm', charm);
+      const activeCharm = !!(charm && pl.charmState && pl.charmState.ok && pl.charmState.activeIds.includes(it.id));
+      itemEl.classList.toggle('charm-active', activeCharm);
+      itemEl.classList.toggle('charm-inactive', charm && !activeCharm);
+      const broken = this.itemBroken(it);
+      itemEl.classList.toggle('item-broken', broken);
+      itemEl.classList.toggle('item-low', this.itemLow(it));
+      itemEl.tabIndex = 0; itemEl.setAttribute('role', 'button');
+      if (identifyScroll) itemEl.setAttribute('aria-pressed', String(this.identificationSelection === it.id));
+      const charmAction = activeCharm ? 'Active while carried; drag to rearrange'
+        : pl.charmState && !pl.charmState.ok ? 'Inactive because the inventory grid is invalid; drag to rearrange'
+          : pl.lvl < (it.reqLvl || 1) ? `Inactive until level ${it.reqLvl}; drag to rearrange`
+            : 'Inactive while carried; drag to rearrange';
+      const actionLabel = identifyScroll
+        ? `${this.identificationSelection === it.id ? 'Selected' : 'Select'} ${visibleName} for identification`
+        : identifyTarget ? `Identify ${visibleName}`
+          : unidentified ? `${visibleName}. Identify before ${charm ? 'its magic becomes active' : 'equipping'}`
+            : charm ? `${visibleName}. ${charmAction}`
+            : it.component ? `Select ${visibleName} for socketing` : `Equip ${visibleName}`;
+      itemEl.setAttribute('aria-label', actionLabel + this.itemConditionLabel(it));
       itemEl.draggable = true;
       itemEl.addEventListener('dragstart', e => controller.begin(e, { kind: 'inv', itemId: it.id }));
       // Render item icon scaled to fit the cell footprint
@@ -514,13 +717,78 @@ const UI = {
       icon.style.height = iconH + 'px';
       icon.style.objectFit = 'contain';
       itemEl.appendChild(icon);
-      this.hookTip(itemEl, () => Items.tooltip(it, pl) + Items.compareTooltip(it, pl) +
-        `<div style="color:#847252;margin-top:4px;font-size:11px">${this.openPanel === 'vendor' ? 'Click: SELL' : 'Click: equip · Right-click: sell later'}</div>`);
-      itemEl.addEventListener('click', () => { Game.equipFromInv(it.id); this.renderInv(); });
+      this.hookTip(itemEl, () => Items.tooltip(it, pl) + (it.component || identifyScroll || charm ? '' : Items.compareTooltip(it, pl)) +
+        `<div style="color:#847252;margin-top:4px;font-size:11px">${identifyScroll ? 'Enter/click: select this scroll' : identifyTarget ? 'Enter/click: identify with the selected scroll' : unidentified ? 'Identification required before use' : charm ? `Drag to rearrange · ${activeCharm ? 'active while carried' : 'currently inactive'}` : it.component ? 'Enter/click: select for socketing' : 'Enter/click: equip'}</div>`);
+      const activate = () => {
+        if (this.identificationSelection) {
+          if (identifyScroll && this.identificationSelection === it.id) {
+            this.identificationSelection = null; this.renderInv(); return;
+          }
+          if (unidentified) return this.identifyWithScroll(it.id);
+          this.announce('Choose a glowing unidentified item, or cancel identification.', '#d8b9ff');
+          return;
+        }
+        if (identifyScroll) {
+          this.identificationSelection = it.id;
+          this.socketSelection = null;
+          this.renderInv();
+          const replacement = Array.from(this.panel('inv').querySelectorAll('.inv-item-var'))
+            .find(element => element.dataset.testid === `inventory-item-${it.id}`);
+          if (replacement) replacement.focus();
+          return;
+        }
+        if (this.socketSelection && this.socketEligible(it)) return this.socketInto(it.id);
+        if (it.component) { this.socketSelection = this.socketSelection === it.id ? null : it.id; this.renderInv(); return; }
+        if (unidentified) { this.announce(charm ? 'Identify this charm before its magic can awaken.' : 'Identify this item before equipping it.', '#d8b9ff'); sfx('nope'); return; }
+        if (charm) { this.announce(activeCharm ? 'This charm is active while it remains in your carried grid.' : 'This charm is currently inactive.', activeCharm ? '#8fc8ff' : '#b7a4c7'); return; }
+        Game.equipFromInv(it.id); this.renderInv();
+      };
+      itemEl.addEventListener('click', activate);
+      itemEl.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault(); activate();
+      });
       grid.appendChild(itemEl);
     }
 
     p.appendChild(grid);
+
+    const charmState = typeof InventoryCharms !== 'undefined'
+      ? InventoryCharms.aggregate(pl, Items.sizeOf.bind(Items)) : { ok: true, stats: {}, activeIds: [], inactive: [] };
+    pl.charmState = charmState;
+    const charmSummary = document.createElement('div');
+    charmSummary.className = 'charm-summary' + (charmState.ok ? '' : ' invalid');
+    charmSummary.dataset.testid = 'charm-summary';
+    charmSummary.setAttribute('role', 'status');
+    if (!charmState.ok) {
+      charmSummary.innerHTML = '<b>CHARMS INACTIVE</b><span>Resolve the invalid or overlapping inventory layout before any charm grants power.</span>';
+    } else {
+      const lines = Object.keys(charmState.stats).map(key => Items.statLine(key, charmState.stats[key]));
+      const inactiveCount = charmState.inactive.length;
+      charmSummary.innerHTML = `<b>${charmState.activeIds.length} ACTIVE CHARM${charmState.activeIds.length === 1 ? '' : 'S'}</b>` +
+        `<span>${lines.length ? U.esc(lines.join(' · ')) : 'Carry identified, level-eligible charms in this grid to awaken their magic.'}${inactiveCount ? ` · ${inactiveCount} inactive` : ''}</span>`;
+    }
+    p.appendChild(charmSummary);
+
+    const socketBar = document.createElement('div'); socketBar.className = 'socket-bar'; socketBar.setAttribute('role', 'status');
+    const selected = pl.inv.find(item => item && item.id === this.socketSelection);
+    const socketTargets = selected ? Object.values(pl.equip || {}).concat(pl.inv || []).filter(item => this.socketEligible(item)).length : 0;
+    socketBar.innerHTML = selected ? `<span>Socketing: <b>${U.esc(Items.displayName(selected))}</b>. ${socketTargets ? `Choose one of ${socketTargets} glowing target${socketTargets === 1 ? '' : 's'}.` : 'No eligible empty socket is available.'}</span><button type="button" data-testid="socket-cancel" aria-label="Cancel socketing">Cancel</button>` : '<span>Select a gem or rune to socket it into an empty-socket item.</span>';
+    const cancel = socketBar.querySelector('button'); if (cancel) cancel.addEventListener('click', () => { this.socketSelection = null; this.renderInv(); });
+    p.appendChild(socketBar);
+
+    const identifyBar = document.createElement('div');
+    identifyBar.className = 'identify-bar';
+    identifyBar.dataset.testid = 'identify-status';
+    identifyBar.setAttribute('role', 'status');
+    const identifyScrollItem = pl.inv.find(item => item && item.id === this.identificationSelection && Items.isIdentifyScroll(item));
+    const veiledCount = pl.inv.filter(item => Items.needsIdentification(item)).length;
+    identifyBar.innerHTML = identifyScrollItem
+      ? `<span><b>IDENTIFICATION READY</b> · ${veiledCount ? `Choose one of ${veiledCount} glowing unidentified item${veiledCount === 1 ? '' : 's'}.` : 'No unidentified target is currently carried.'}</span><button type="button" data-testid="identify-cancel" aria-label="Cancel identification">Cancel</button>`
+      : `<span><b>${veiledCount} UNIDENTIFIED</b> · Select a Scroll of Identification, or visit Old Maras in town.</span>`;
+    const identifyCancel = identifyBar.querySelector('button');
+    if (identifyCancel) identifyCancel.addEventListener('click', () => { this.identificationSelection = null; this.renderInv(); });
+    p.appendChild(identifyBar);
 
     // --- world drop zone ---
     const worldDrop = document.createElement('div');
@@ -536,6 +804,106 @@ const UI = {
     p.appendChild(gold);
   },
 
+  socketEligible(item) {
+    if (!item || item.component || Items.needsIdentification(item) || !Array.isArray(item.gems) || !item.gems.includes(null)) return false;
+    const component = G.player && G.player.inv && G.player.inv.find(entry => entry && entry.id === this.socketSelection);
+    return !!component && typeof Items.insertSocket === 'function' &&
+      // Probe a clone, preserving the live target until the atomic Game helper acts.
+      Items.insertSocket({ ...item, gems: item.gems.slice(), stats: { ...(item.stats || {}) } }, { ...component }, G.player.lvl);
+  },
+
+  socketInto(targetId) {
+    const sourceId = this.socketSelection;
+    if (!sourceId) return;
+    const result = typeof Game.insertSocket === 'function'
+      ? Game.insertSocket(sourceId, targetId)
+      : { ok: false, reason: 'Socketing is unavailable.' };
+    if (!result || !result.ok) { this.announce((result && result.reason) || 'Cannot socket that component there.', '#ff6a5a'); return; }
+    this.socketSelection = null;
+    this.renderInv();
+  },
+
+  identifyWithScroll(targetId) {
+    const scrollId = this.identificationSelection;
+    if (!scrollId) return;
+    const result = Game.identifyItem(scrollId, targetId);
+    if (!result || !result.ok) {
+      if (!G.player.inv.some(item => item && item.id === scrollId && Items.isIdentifyScroll(item))) this.identificationSelection = null;
+      this.renderInv();
+      return;
+    }
+    this.identificationSelection = null;
+    this.renderInv();
+    const revealed = Array.from(this.panel('inv').querySelectorAll('.inv-item-var'))
+      .find(element => element.dataset.testid === `inventory-item-${targetId}`);
+    if (revealed) revealed.focus();
+  },
+
+  renderCube() {
+    const p = this.panel('cube'), pl = G.player;
+    this.head(p, 'HORADRIC CUBE');
+    const controller = this.inventoryGrid; controller.ensureGrid(pl); Ent.refreshDerived(pl);
+    this.cubeSelection = this.cubeSelection.filter(id => pl.inv.some(item => item && item.id === id));
+    const preview = typeof Cube !== 'undefined' ? Cube.preview(pl, this.cubeSelection) : { ok: false, reason: 'The Cube is unavailable.' };
+    p.insertAdjacentHTML('beforeend', '<div class="cube-intro">Select the exact inventory instances to transmute. The preview is pure; only Transmute changes your inventory.</div>');
+    const guide = document.createElement('details'); guide.className = 'cube-recipes'; guide.open = this.cubeRecipesOpen; guide.dataset.testid = 'cube-recipes';
+    guide.innerHTML = `<summary>Known recipes (${Cube.recipes.length})</summary><div class="cube-recipe-grid">${Cube.recipes.map(recipe => `<div class="cube-recipe"><b>${U.esc(recipe.name)}</b><span>${U.esc(recipe.desc)}</span></div>`).join('')}</div>`;
+    guide.addEventListener('toggle', () => { this.cubeRecipesOpen = guide.open; });
+    p.appendChild(guide);
+    const list = document.createElement('div'); list.className = 'cube-inputs'; list.setAttribute('aria-label', 'Cube inventory inputs');
+    for (const item of pl.inv) {
+      if (!item) continue;
+      const selected = this.cubeSelection.includes(item.id);
+      const unidentified = Items.needsIdentification(item);
+      const charm = Items.isCharmRecord(item);
+      const charmState = this.charmCarriedState(item, pl);
+      const visibleName = Items.displayName(item);
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'cube-input' + (selected ? ' selected' : '');
+      button.classList.toggle('item-unidentified', unidentified);
+      button.classList.toggle('item-charm', charm);
+      button.classList.toggle('charm-active', charm && charmState.active);
+      button.classList.toggle('charm-inactive', charm && !charmState.active);
+      button.dataset.testid = `cube-input-${item.id}`; button.setAttribute('aria-pressed', String(selected));
+      button.setAttribute('aria-label', unidentified ? `${visibleName}. Identify before using in the Cube`
+        : charm ? `${visibleName}. Charms have no Cube recipe` : `Cube input ${visibleName}`);
+      button.disabled = unidentified || charm;
+      button.appendChild(Sprites.itemIcon(item, 38));
+      const text = document.createElement('span'); text.textContent = unidentified ? `${visibleName} · IDENTIFY FIRST`
+        : charm ? `${visibleName} · NO CHARM RECIPE` : visibleName; button.appendChild(text);
+      button.addEventListener('click', () => {
+        this.cubeSelection = selected ? this.cubeSelection.filter(id => id !== item.id) : this.cubeSelection.concat(item.id);
+        this.renderCube();
+        const replacement = Array.from(p.querySelectorAll('.cube-input')).find(entry => entry.dataset.testid === `cube-input-${item.id}`);
+        if (replacement) replacement.focus();
+      });
+      list.appendChild(button);
+    }
+    p.appendChild(list);
+    const result = document.createElement('div'); result.className = 'cube-preview'; result.dataset.testid = 'cube-preview'; result.setAttribute('role', 'status');
+    if (preview.ok) {
+      const recipe = Cube.recipes.find(entry => entry.id === preview.recipeId);
+      const outputLabel = output => {
+        const name = output.name || output.baseName || output.type || 'Transmuted item';
+        const sockets = output.sockets && typeof output.sockets === 'object' ? ` (${output.sockets.min}–${output.sockets.max} sockets)` : '';
+        return U.esc(name + sockets);
+      };
+      result.innerHTML = `<b>Ready: ${U.esc(recipe ? recipe.name : preview.recipeId)}</b> · Cost: <span class="q-gold">${U.fmt(preview.cost)} gold</span><div class="cube-output">${preview.outputs.map(outputLabel).join(' + ')}</div>`;
+    } else result.textContent = preview.reason || 'Select Cube inputs.';
+    p.appendChild(result);
+    const controls = document.createElement('div'); controls.className = 'cube-controls';
+    const clear = document.createElement('button'); clear.type = 'button'; clear.textContent = 'Clear'; clear.dataset.testid = 'cube-clear'; clear.addEventListener('click', () => { this.cubeSelection = []; this.renderCube(); p.querySelector('[data-testid="cube-clear"]').focus(); });
+    const transmute = document.createElement('button'); transmute.type = 'button'; transmute.className = 'big-btn'; transmute.textContent = 'Transmute'; transmute.dataset.testid = 'cube-transmute'; transmute.disabled = !preview.ok;
+    transmute.addEventListener('click', () => {
+      const check = Cube.preview(pl, this.cubeSelection);
+      if (!check.ok) { this.announce(check.reason, '#ff6a5a'); this.renderCube(); return; }
+      const outcome = Cube.transmute(pl, this.cubeSelection, U.rand);
+      if (!outcome.ok) { this.announce(outcome.reason, '#ff6a5a'); this.renderCube(); return; }
+      Ent.refreshDerived(pl); Save.saveChar(pl);
+      this.cubeSelection = []; this.announce(`Cube transmutation complete: ${outcome.outputs.map(o => o.name).join(', ')}`, '#ffd77a'); this.renderCube();
+    });
+    controls.append(clear, transmute); p.appendChild(controls);
+  },
+
   // ---------------- character ----------------
   // Gear score is deliberately based only on persisted item fields so the same
   // equipment always produces the same score:
@@ -544,7 +912,7 @@ const UI = {
   gearScore(equip) {
     const rarityBonus = { common: 0, magic: 5, rare: 10, set: 15, unique: 20 };
     return Object.values(equip || {}).reduce((total, item) => {
-      if (!item) return total;
+      if (!item || Items.needsIdentification(item) || Items.isCharmRecord(item)) return total;
       const ilvl = Number.isFinite(+item.ilvl) ? +item.ilvl : 0;
       const tier = Number.isFinite(+item.tier) ? +item.tier : 0;
       return total + Math.max(0, Math.round(ilvl + 5 * (tier + 1) + (rarityBonus[item.rarity] || 0)));
@@ -560,6 +928,8 @@ const UI = {
     const rows = [
       ['Class', cls.name + (pl.hardcore ? ' <span class="hc-tag">HARDCORE</span>' : '')],
       ['Level', pl.lvl + '  <span style="color:#847252">(' + U.fmt(pl.xp) + ' xp)</span>'],
+      ['Difficulty', `<span class="difficulty-text difficulty-text-${pl.difficultyIdx}">${difficultyByIdx(pl.difficultyIdx).name}</span>`],
+      ['Campaign', this.difficultySummary(pl.difficulty.campaigns[pl.difficultyIdx])],
       ['Deepest Abyss', pl.progress.abyssBest || '—'],
       ['Monsters slain', U.fmt(G.stats.kills)],
       ['hr'],
@@ -610,9 +980,17 @@ const UI = {
       cell.innerHTML = `<span class="pd-label">${U.esc(meta[0])}</span>`;
       const item = pl.equip[slot];
       if (item) {
+        const visibleName = Items.displayName(item);
+        const unidentified = Items.needsIdentification(item);
+        const broken = this.itemBroken(item);
+        cell.classList.toggle('item-unidentified', unidentified);
+        cell.classList.toggle('item-broken', broken);
+        cell.classList.toggle('item-low', this.itemLow(item));
+        cell.tabIndex = 0;
+        cell.setAttribute('role', 'group');
         cell.appendChild(Sprites.itemIcon(item, 42));
         cell.style.borderColor = Items.rarityColor(item.rarity);
-        cell.setAttribute('aria-label', `Inspect ${item.name}`);
+        cell.setAttribute('aria-label', `Inspect ${visibleName}${this.itemConditionLabel(item)}`);
         this.hookTip(cell, () => Items.tooltip(item, pl) +
           '<div style="color:#847252;margin-top:4px;font-size:11px">Inspect item · Use × to unequip</div>');
 
@@ -620,8 +998,8 @@ const UI = {
         unequip.className = 'pd-unequip';
         unequip.type = 'button';
         unequip.textContent = '×';
-        unequip.title = `Unequip ${item.name}`;
-        unequip.setAttribute('aria-label', `Unequip ${item.name}`);
+        unequip.title = `Unequip ${visibleName}${this.itemConditionLabel(item)}`;
+        unequip.setAttribute('aria-label', `Unequip ${visibleName}${this.itemConditionLabel(item)}`);
         unequip.addEventListener('click', e => {
           e.stopPropagation();
           this.hideTip();
@@ -801,13 +1179,184 @@ const UI = {
   },
 
   // ---------------- vendor / gamble / stash / healer ----------------
+  smithRepairCatalog(pl = G.player) {
+    if (typeof ItemCondition === 'undefined') return { ok: false, cost: 0, entries: [], ownedById: new Map() };
+    const stash = Array.isArray(G.stash) ? G.stash : [];
+    // The condition core intentionally knows about corpse gear for persistence,
+    // but the town smith may never repair equipment the hero has not recovered.
+    const quote = ItemCondition.quoteAll(pl, stash);
+    const entries = (quote.entries || []).filter(entry => !String(entry.location || '').startsWith('corpses.'));
+    const owned = ItemCondition.owned(pl, stash).filter(record => !String(record.location || '').startsWith('corpses.'));
+    return {
+      ok: quote.ok !== false,
+      cost: entries.reduce((sum, entry) => sum + entry.cost, 0),
+      entries,
+      ownedById: new Map(owned.map(record => [record.id, record])),
+    };
+  },
+
+  smithRepairLocation(location) {
+    const slotName = value => {
+      const raw = String(value || '').replace(/([A-Z])/g, ' $1').replace(/^./, ch => ch.toUpperCase());
+      return raw === 'Offhand' ? 'Off-hand' : raw;
+    };
+    if (String(location).startsWith('equip.')) return `Hero · ${slotName(String(location).slice(6))}`;
+    if (String(location).startsWith('inv.')) return 'Hero inventory';
+    if (String(location).startsWith('mercenary.equipment.')) return `Mercenary · ${slotName(String(location).slice(20))}`;
+    if (String(location).startsWith('stash.')) return 'Shared stash';
+    return 'Owned gear';
+  },
+
+  smithRepairFailure(reason) {
+    const messages = {
+      'insufficient-gold': 'Not enough gold for that repair. Nothing was changed.',
+      'stale-ownership': 'That item moved before the repair. No gold was spent.',
+      'stale-condition': 'That item\'s condition changed. Review Korga\'s new quote; no gold was spent.',
+      'stale-quote': 'Korga\'s repair quote changed. Review the new price; no gold was spent.',
+      'invalid-plan': 'That repair could not be verified. Nothing was changed.',
+    };
+    this.announce(messages[reason] || 'The repair could not be completed. Nothing was changed.', '#ff6a5a', 3800);
+  },
+
+  refreshRepairDerived(pl) {
+    Ent.computeDerived(pl);
+    pl.hp = Math.min(pl.hp, pl.derived.maxHp);
+    pl.mp = Math.min(pl.mp, pl.derived.maxMp);
+    const state = pl.mercenary;
+    const live = state && G.monsters.find(monster => monster.mercenary && !monster.dead);
+    if (state && live) {
+      const derived = Ent.mercDerived(state);
+      live.maxHp = derived.maxHp;
+      live.hp = Math.min(live.hp, live.maxHp);
+      live.dmgLo = derived.dmgLo;
+      live.dmgHi = derived.dmgHi;
+      live.armor = derived.armor;
+      live.resist = derived.resist;
+    }
+  },
+
+  repairAtSmith(expectedEntries, repairAll = false) {
+    const pl = G.player;
+    const expected = expectedEntries.slice().sort((a, b) => a.id.localeCompare(b.id));
+    const fresh = this.smithRepairCatalog(pl);
+    const expectedIds = new Set(expected.map(entry => entry.id));
+    const selected = fresh.entries.filter(entry => expectedIds.has(entry.id)).sort((a, b) => a.id.localeCompare(b.id));
+    const sameEntry = (left, right) => left && right && left.id === right.id && left.cost === right.cost &&
+      left.durability === right.durability && left.maxDurability === right.maxDurability;
+    const stale = !fresh.ok || selected.length !== expected.length || expected.some((entry, index) => !sameEntry(entry, selected[index])) ||
+      (repairAll && fresh.entries.length !== expected.length);
+    if (stale) {
+      this.smithRepairFailure('stale-quote');
+      this.renderVendor();
+      return;
+    }
+
+    // Recompute from the freshly filtered entries; this is the exact atomic
+    // plan passed into the condition core.
+    const plan = { ok: true, entries: selected, cost: selected.reduce((sum, entry) => sum + entry.cost, 0) };
+    const names = selected.map(entry => {
+      const record = fresh.ownedById.get(entry.id);
+      return record && record.item ? Items.displayName(record.item) : 'item';
+    });
+    const result = ItemCondition.commit(pl, plan, Array.isArray(G.stash) ? G.stash : []);
+    if (!result.ok) {
+      this.smithRepairFailure(result.reason);
+      this.renderVendor();
+      return;
+    }
+
+    this.refreshRepairDerived(pl);
+    Save.saveChar(pl);
+    Save.saveStash();
+    sfx('gold');
+    this.announce(result.repaired.length === 1
+      ? `Repaired ${names[0]} for ${U.fmt(result.cost)} gold.`
+      : `Repaired ${result.repaired.length} items for ${U.fmt(result.cost)} gold.`, '#ffd77a');
+    this.renderVendor();
+  },
+
+  renderSmithRepairs(p, pl) {
+    const section = document.createElement('section');
+    section.className = 'smith-repairs';
+    section.dataset.testid = 'smith-repairs';
+    section.setAttribute('aria-labelledby', 'smith-repairs-title');
+    section.innerHTML = '<h2 id="smith-repairs-title" class="smith-repair-heading">REPAIRS</h2>' +
+      '<div class="smith-repair-note">Only identified, damaged, repairable equipment appears here. Full-condition and non-durable items need no service. Ethereal items can wear and break, but cannot be repaired.</div>';
+    p.appendChild(section);
+    if (typeof ItemCondition === 'undefined') {
+      section.insertAdjacentHTML('beforeend', '<div class="smith-repair-empty" role="status">Korga\'s repair bench is unavailable.</div>');
+      return;
+    }
+
+    const catalog = this.smithRepairCatalog(pl);
+    if (!catalog.entries.length) {
+      section.insertAdjacentHTML('beforeend', '<div class="smith-repair-empty" role="status">No repairable equipment is damaged.</div>');
+      return;
+    }
+
+    const controls = document.createElement('div');
+    controls.className = 'smith-repair-controls';
+    const all = document.createElement('button');
+    all.type = 'button';
+    all.className = 'smith-repair-all';
+    all.dataset.testid = 'repair-all';
+    all.dataset.repairCost = String(catalog.cost);
+    all.textContent = `Repair All · ${U.fmt(catalog.cost)} gold`;
+    all.setAttribute('aria-label', `Repair all ${catalog.entries.length} damaged items for ${U.fmt(catalog.cost)} gold`);
+    all.disabled = pl.gold < catalog.cost;
+    if (all.disabled) all.title = `Need ${U.fmt(catalog.cost - pl.gold)} more gold`;
+    all.addEventListener('click', () => this.repairAtSmith(catalog.entries, true));
+    controls.appendChild(all);
+    if (all.disabled) {
+      const shortfall = document.createElement('span');
+      shortfall.className = 'smith-repair-shortfall';
+      shortfall.dataset.testid = 'repair-all-shortfall';
+      shortfall.setAttribute('role', 'status');
+      shortfall.textContent = `Need ${U.fmt(catalog.cost - pl.gold)} more gold for Repair All. Unaffordable repairs are disabled.`;
+      controls.appendChild(shortfall);
+    }
+    section.appendChild(controls);
+
+    const list = document.createElement('div');
+    list.className = 'smith-repair-list';
+    for (const entry of catalog.entries) {
+      const record = catalog.ownedById.get(entry.id);
+      if (!record || !record.item) continue;
+      const item = record.item;
+      const visibleName = Items.displayName(item);
+      const row = document.createElement('div');
+      row.className = 'smith-repair-row';
+      row.dataset.itemId = entry.id;
+      row.dataset.testid = `repair-row-${entry.id}`;
+      row.appendChild(Sprites.itemIcon(item, 38));
+      const detail = document.createElement('div');
+      detail.className = 'smith-repair-detail';
+      detail.innerHTML = `<b class="smith-repair-name">${U.esc(visibleName)}</b><span class="smith-repair-location">${U.esc(this.smithRepairLocation(entry.location))}</span>` +
+        `<span class="smith-repair-condition">Condition ${entry.durability} / ${entry.maxDurability}</span>`;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'smith-repair-one';
+      button.dataset.testid = `repair-item-${entry.id}`;
+      button.dataset.repairCost = String(entry.cost);
+      button.textContent = `Repair · ${U.fmt(entry.cost)} gold`;
+      button.setAttribute('aria-label', `Repair ${visibleName}, condition ${entry.durability} of ${entry.maxDurability}, for ${U.fmt(entry.cost)} gold`);
+      button.disabled = pl.gold < entry.cost;
+      if (button.disabled) button.title = `Need ${U.fmt(entry.cost - pl.gold)} more gold`;
+      button.addEventListener('click', () => this.repairAtSmith([entry]));
+      row.append(detail, button);
+      list.appendChild(row);
+    }
+    section.appendChild(list);
+  },
+
   renderVendor() {
     const p = this.panel('vendor'), pl = G.player;
     this.head(p, 'KORGA\'S FORGE');
     if (Factions.isHostile(pl.reputation, 'ironsong')) { p.insertAdjacentHTML('beforeend', '<div class="npc-line">“The Compact does not trade with its enemies.”</div>'); return; }
     p.insertAdjacentHTML('beforeend', `<div class="npc-line">“${U.esc(U.pick(U.rand, NPCS.find(n => n.id === 'smith').lines))}”</div>
-      <div class="gold-row">⛁ ${U.fmt(pl.gold)} gold</div>
-      <h2 style="font-size:14px;margin-top:8px">FOR SALE</h2>`);
+      <div class="gold-row">⛁ ${U.fmt(pl.gold)} gold</div>`);
+    this.renderSmithRepairs(p, pl);
+    p.insertAdjacentHTML('beforeend', '<h2 style="font-size:14px;margin-top:8px">FOR SALE</h2>');
     const list = document.createElement('div');
     list.className = 'shop-list';
     G.shopStock.forEach((it, i) => {
@@ -815,6 +1364,7 @@ const UI = {
       const cell = document.createElement('div');
       cell.className = 'inv-cell';
       cell.style.width = '54px'; cell.style.height = '54px';
+      cell.dataset.testid = `vendor-stock-item-${it.id}`;
       cell.appendChild(Sprites.itemIcon(it, 50));
       cell.style.borderColor = Items.rarityColor(it.rarity);
       const buyPrice = Factions.price(it.price, pl.reputation, 'ironsong');
@@ -825,6 +1375,7 @@ const UI = {
           controller.ensureGrid(pl);
           if (controller.findSpace(it, pl.inv)) {
             pl.gold -= buyPrice; Game.giveItem(it); G.shopStock[i] = null;
+            Ent.refreshDerived(pl); Save.saveChar(pl);
             sfx('gold'); this.renderVendor();
           } else { this.announce('Inventory full!', '#ff6a5a'); sfx('nope'); }
         } else sfx('nope');
@@ -837,17 +1388,44 @@ const UI = {
     inv.className = 'shop-list';
     const controller = this.inventoryGrid;
     controller.ensureGrid(pl);
+    Ent.refreshDerived(pl);
     for (const it of controller.uniqueItems(pl.inv)) {
       const cell = document.createElement('div');
       cell.className = 'inv-cell';
+      const visibleName = Items.displayName(it);
+      const unidentified = Items.needsIdentification(it);
+      const broken = this.itemBroken(it);
+      const charm = Items.isCharmRecord(it);
+      const charmState = this.charmCarriedState(it, pl);
+      cell.classList.toggle('item-unidentified', unidentified);
+      cell.classList.toggle('item-charm', charm);
+      cell.classList.toggle('charm-active', charm && charmState.active);
+      cell.classList.toggle('charm-inactive', charm && !charmState.active);
+      cell.classList.toggle('item-broken', broken);
+      cell.classList.toggle('item-low', this.itemLow(it));
+      cell.dataset.testid = `vendor-pack-item-${it.id}`;
+      cell.tabIndex = 0;
+      cell.setAttribute('role', 'button');
+      cell.setAttribute('aria-disabled', String(unidentified));
+      cell.setAttribute('aria-label', unidentified ? `${visibleName}. Identify before selling`
+        : `Sell ${visibleName}${this.itemConditionLabel(it)}${charm ? `. ${charmState.label}` : ''}`);
       cell.appendChild(Sprites.itemIcon(it, 44));
       cell.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
-      this.hookTip(cell, () => Items.tooltip(it, pl) + `<div class="q-gold">Sell for ${U.fmt(Items.sellPrice(it))} gold</div>`);
+      this.hookTip(cell, () => Items.tooltip(it, pl) + (unidentified
+        ? '<div class="tt-unidentified-action">Identify before selling.</div>'
+        : `<div class="q-gold">Sell for ${U.fmt(Items.sellPrice(it))} gold</div>`));
       cell.addEventListener('click', () => {
+        if (Items.needsIdentification(it)) { this.announce('Identify this item before selling it.', '#d8b9ff'); sfx('nope'); return; }
         pl.gold += Items.sellPrice(it);
         controller.removeItem(it, pl.inv);
+        Ent.refreshDerived(pl);
+        Save.saveChar(pl);
         sfx('gold');
         this.renderVendor();
+      });
+      cell.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault(); cell.click();
       });
       inv.appendChild(cell);
     }
@@ -873,9 +1451,10 @@ const UI = {
         if (type === 'weapon') ftype = U.pick(U.rand, WEAPON_TYPES).id;
         const rarity = U.weighted(U.rand, [['unique', 4], ['set', 5], ['rare', 34], ['magic', 57]]);
         const it = Items.generate(pl.lvl + U.ri(U.rand, 0, 4), { forceRarity: rarity, forceType: ftype, classId: pl.cls });
-        Game.giveItem(it);
+        if (!Game.giveItem(it)) G.groundItems.push({ x: pl.x, y: pl.y, item: it });
+        Save.saveChar(pl);
         sfx(rarity === 'unique' || rarity === 'set' ? 'unique' : rarity === 'rare' ? 'rare' : 'gold');
-        this.announce(`Gambled: ${it.name}`, Items.rarityColor(it.rarity));
+        this.announce(`Gambled: ${Items.displayName(it)}`, Items.rarityColor(it.rarity));
         this.renderGamble();
       });
       opts.appendChild(b);
@@ -885,17 +1464,8 @@ const UI = {
 
   // Migrate stash to grid format (same 10x6 grid).
   _migrateStash() {
-    if (G._stashMigrated) return;
     const controller = this.inventoryGrid;
-    const items = G.stash.filter(it => it != null);
-    const placed = [];
-    for (const item of items) {
-      if (item._gx != null && item._gy != null) { placed.push(item); continue; }
-      const pos = controller.findSpace(item, placed);
-      if (pos) { item._gx = pos.col; item._gy = pos.row; }
-      placed.push(item);
-    }
-    G.stash = placed;
+    G.stash = controller.migrateInv(G.stash);
     G._stashMigrated = true;
   },
 
@@ -905,11 +1475,15 @@ const UI = {
     p.insertAdjacentHTML('beforeend', '<div class="npc-line">Items placed here are shared between all your heroes.</div>');
     const controller = this.inventoryGrid;
     controller.ensureGrid(pl);
+    Ent.refreshDerived(pl);
     this._migrateStash();
 
     // --- Stash grid (10x6, same as inventory) ---
-    const CELL = 44, GAP = 2;
+    const GAP = 2;
     const COLS = controller.COLS, ROWS = controller.ROWS;
+    const panelStyle = getComputedStyle(p);
+    const usableWidth = p.clientWidth - parseFloat(panelStyle.paddingLeft) - parseFloat(panelStyle.paddingRight);
+    const CELL = Math.min(44, Math.max(30, Math.floor((usableWidth - GAP * (COLS - 1)) / COLS)));
     const grid = document.createElement('div');
     grid.className = 'inv-grid inv-grid-var';
     grid.style.display = 'grid';
@@ -936,6 +1510,18 @@ const UI = {
       const [w, h] = Items.sizeOf(it);
       const itemEl = document.createElement('div');
       itemEl.className = 'inv-item-var';
+      const visibleName = Items.displayName(it);
+      const unidentified = Items.needsIdentification(it);
+      const broken = this.itemBroken(it);
+      const charm = Items.isCharmRecord(it);
+      itemEl.classList.toggle('item-unidentified', unidentified);
+      itemEl.classList.toggle('item-charm', charm);
+      itemEl.classList.toggle('charm-inactive', charm);
+      itemEl.classList.toggle('item-broken', broken);
+      itemEl.classList.toggle('item-low', this.itemLow(it));
+      itemEl.dataset.testid = `stash-item-${it.id}`;
+      itemEl.tabIndex = 0; itemEl.setAttribute('role', 'button');
+      itemEl.setAttribute('aria-label', `Take ${visibleName}${this.itemConditionLabel(it)} from shared stash${charm ? '. inactive in shared stash' : ''}`);
       itemEl.style.gridColumn = `${it._gx + 1} / span ${w}`;
       itemEl.style.gridRow = `${it._gy + 1} / span ${h}`;
       itemEl.style.borderColor = U.rgba(Items.rarityColor(it.rarity), 0.7);
@@ -946,13 +1532,22 @@ const UI = {
       icon.style.height = iconH + 'px';
       icon.style.objectFit = 'contain';
       itemEl.appendChild(icon);
-      this.hookTip(itemEl, () => Items.tooltip(it, pl) + '<div style="color:#847252;font-size:11px">Click: take</div>');
-      itemEl.addEventListener('click', () => {
-        if (Game.giveItem(it)) {
-          const idx = G.stash.indexOf(it);
-          if (idx >= 0) G.stash.splice(idx, 1);
-          Save.saveStash(); this.renderStash();
+      this.hookTip(itemEl, () => Items.tooltip(it, pl) + (charm ? '<div class="tt-charm-state inactive">INACTIVE IN STASH</div>' : '') + '<div style="color:#847252;font-size:11px">Click: take</div>');
+      const take = () => {
+        const outcome = Game.takeStashItem(it.id);
+        if (!outcome.ok) {
+          const message = outcome.reason === 'inventory-full' ? 'Inventory full!'
+            : outcome.reason === 'storage-failure' ? 'Storage write failed; the item remains safely in the shared stash.'
+              : 'That stash item could not be moved.';
+          this.announce(message, '#ff6a5a'); sfx('nope'); this.renderStash(); return;
         }
+        if (outcome.warning) this.announce('Item taken safely. A stale stash copy will be repaired on the next successful save.', '#e8d089', 3600);
+        this.renderStash();
+      };
+      itemEl.addEventListener('click', take);
+      itemEl.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault(); take();
       });
       grid.appendChild(itemEl);
     }
@@ -965,21 +1560,74 @@ const UI = {
     for (const it of controller.uniqueItems(pl.inv)) {
       const cell = document.createElement('div');
       cell.className = 'inv-cell';
+      const visibleName = Items.displayName(it);
+      const unidentified = Items.needsIdentification(it);
+      const broken = this.itemBroken(it);
+      const charm = Items.isCharmRecord(it);
+      const charmState = this.charmCarriedState(it, pl);
+      cell.classList.toggle('item-unidentified', unidentified);
+      cell.classList.toggle('item-charm', charm);
+      cell.classList.toggle('charm-active', charm && charmState.active);
+      cell.classList.toggle('charm-inactive', charm && !charmState.active);
+      cell.classList.toggle('item-broken', broken);
+      cell.classList.toggle('item-low', this.itemLow(it));
+      cell.dataset.testid = `stash-pack-item-${it.id}`;
+      cell.tabIndex = 0; cell.setAttribute('role', 'button');
+      cell.setAttribute('aria-label', `Deposit ${visibleName}${this.itemConditionLabel(it)} in shared stash${charm ? `. ${charmState.label}` : ''}`);
       cell.appendChild(Sprites.itemIcon(it, 44));
       this.hookTip(cell, () => Items.tooltip(it, pl));
-      cell.addEventListener('click', () => {
-        const stashController = this.inventoryGrid;
-        const pos = stashController.findSpace(it, G.stash);
-        if (pos) {
-          it._gx = pos.col; it._gy = pos.row;
-          G.stash.push(it);
-          stashController.removeItem(it, pl.inv);
-        } else { this.announce('Stash full!', '#ff6a5a'); }
-        Save.saveStash(); this.renderStash();
+      const deposit = () => {
+        const outcome = Game.depositStashItem(it.id);
+        if (!outcome.ok) {
+          const message = outcome.reason === 'stash-full' ? 'Stash full!'
+            : outcome.reason === 'storage-failure' ? 'Storage write failed; the item remains safely in your pack.'
+              : 'That pack item could not be moved.';
+          this.announce(message, '#ff6a5a'); sfx('nope'); this.renderStash(); return;
+        }
+        this.renderStash();
+      };
+      cell.addEventListener('click', deposit);
+      cell.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault(); deposit();
       });
       inv.appendChild(cell);
     }
     p.appendChild(inv);
+  },
+
+  renderIdentificationService(p, pl, refresh) {
+    const section = document.createElement('section');
+    section.className = 'identification-service';
+    section.dataset.testid = 'identification-service';
+    section.setAttribute('aria-labelledby', 'identification-service-title');
+    const quote = typeof ItemIdentification !== 'undefined' ? ItemIdentification.quoteAll(pl) : { ok: false, count: 0, targetIds: [] };
+    section.innerHTML = '<h2 id="identification-service-title" class="identification-heading">IDENTIFICATION · FREE</h2>' +
+      '<div class="identification-note">Old Maras reveals every veiled item in your carried inventory. Equipped, stashed, mercenary, and corpse gear remain untouched.</div>';
+    if (!quote.ok) {
+      section.insertAdjacentHTML('beforeend', '<div class="identification-empty" role="status">Your carried items could not be inspected safely.</div>');
+      p.appendChild(section); return;
+    }
+    const targets = quote.targetIds.map(id => pl.inv.find(item => item && item.id === id)).filter(Boolean);
+    if (targets.length) {
+      const list = document.createElement('div'); list.className = 'identification-list';
+      for (const item of targets) {
+        const row = document.createElement('div'); row.className = 'identification-row item-unidentified';
+        row.innerHTML = `<span class="identification-sigil" aria-hidden="true">?</span><span>${U.esc(Items.displayName(item))}</span><b>UNIDENTIFIED</b>`;
+        list.appendChild(row);
+      }
+      section.appendChild(list);
+    } else section.insertAdjacentHTML('beforeend', '<div class="identification-empty" role="status">You carry nothing veiled.</div>');
+    const all = document.createElement('button');
+    all.type = 'button'; all.className = 'identify-all'; all.dataset.testid = 'identify-all';
+    all.textContent = targets.length ? `Identify All · ${targets.length} item${targets.length === 1 ? '' : 's'}` : 'Identify All · Nothing veiled';
+    all.setAttribute('aria-label', targets.length ? `Identify all ${targets.length} carried unidentified items for free` : 'No carried unidentified items');
+    all.disabled = !targets.length;
+    all.addEventListener('click', () => {
+      const result = Game.identifyAllCarried();
+      if (result && result.ok && typeof refresh === 'function') refresh();
+    });
+    section.appendChild(all); p.appendChild(section);
   },
 
   npcDialog(npc, nodeId) {
@@ -1006,6 +1654,7 @@ const UI = {
     }
     const line = node ? node.text : U.pick(U.rand, npc.def.lines);
     p.insertAdjacentHTML('beforeend', `<div class="npc-line">“${U.esc(line)}”</div>`);
+    if (npc.id === 'elder') this.renderIdentificationService(p, pl, () => this.npcDialog(npc, nodeId));
     const opts = document.createElement('div');
     opts.className = 'npc-opts';
     const add = (label, fn) => {
@@ -1053,14 +1702,17 @@ const UI = {
   // ---------------- waypoint ----------------
   renderWaypoint() {
     const p = this.panel('waypoint'), pl = G.player;
-    this.head(p, 'WAYPOINT');
-    p.insertAdjacentHTML('beforeend', '<div class="npc-line">The old stones hum. They remember every road.</div>');
+    const difficulty = difficultyByIdx(pl.difficultyIdx);
+    this.head(p, `WAYPOINT · ${difficulty.name.toUpperCase()}`);
+    const tierRules = difficulty.resPenalty ? `Monster levels +${difficulty.mlvlAdd} · Hero resistances −${difficulty.resPenalty} percentage points` :
+      'Baseline monster levels · No hero resistance penalty';
+    p.insertAdjacentHTML('beforeend', `<div class="npc-line">The old stones hum. They remember every road.<br><small>${tierRules}</small></div>`);
     const opts = document.createElement('div');
     opts.className = 'npc-opts';
     ACTS.forEach((act, i) => {
       const b = document.createElement('button');
       const locked = i > pl.progress.actUnlocked;
-      b.innerHTML = `Act ${U.roman(i + 1)} — ${act.name} ${locked ? '🔒' : ''}<div style="font-size:11px;color:#8a7444">Monster level ${act.mlvl}+ ${pl.progress.bossKilled[i] ? '· boss slain ✓' : ''}</div>`;
+      b.innerHTML = `Act ${U.roman(i + 1)} — ${act.name} ${locked ? '🔒' : ''}<div style="font-size:11px;color:#8a7444">Monster level ${act.mlvl + difficulty.mlvlAdd}+ ${pl.progress.bossKilled[i] ? '· boss slain ✓' : ''}</div>`;
       if (locked) { b.style.opacity = 0.4; }
       else b.addEventListener('click', () => { this.closeAll(); Game.enterDungeon(i, 1); });
       opts.appendChild(b);
@@ -1068,7 +1720,7 @@ const UI = {
     if (pl.progress.actUnlocked > 4 || pl.progress.bossKilled[4]) {
       const next = (pl.progress.abyssBest || 0) + 1;
       const b = document.createElement('button');
-      b.innerHTML = `⚫ THE ENDLESS ABYSS — descend to floor ${next}<div style="font-size:11px;color:#8a7444">Monster level ${ABYSS.mlvl0 + (next - 1) * 2} · ladder ranking</div>`;
+      b.innerHTML = `⚫ THE ENDLESS ABYSS — descend to floor ${next}<div style="font-size:11px;color:#8a7444">Monster level ${ABYSS.mlvl0 + (next - 1) * 2 + difficulty.mlvlAdd} · ladder ranking</div>`;
       b.style.borderColor = '#7a1408';
       b.addEventListener('click', () => { this.closeAll(); Game.enterDungeon('abyss', 1, next); });
       opts.appendChild(b);
@@ -1154,7 +1806,8 @@ const UI = {
     const p = this.panel('death');
     this.openPanel = 'death';
     p.classList.remove('hidden');
-    p.innerHTML = `<h2>YOU HAVE DIED</h2>`;
+    p.setAttribute('role', 'dialog'); p.setAttribute('aria-modal', 'true'); p.setAttribute('aria-labelledby', 'death-title');
+    p.innerHTML = `<h2 id="death-title">YOU HAVE DIED</h2>`;
     if (hardcore) {
       p.insertAdjacentHTML('beforeend', `<div class="npc-line">Hardcore death is forever. ${U.esc(G.player.name)} joins the long silence.<br>Level ${G.player.lvl} · ${U.fmt(G.stats.kills)} monsters slain</div>`);
       const b = document.createElement('button');
@@ -1162,13 +1815,19 @@ const UI = {
       b.textContent = 'ASHES TO ASHES';
       b.addEventListener('click', () => location.reload()); // the fallen hero stays on the ladder, marked ☠
       p.appendChild(b);
+      requestAnimationFrame(() => b.focus());
     } else {
-      p.insertAdjacentHTML('beforeend', `<div class="npc-line">Death takes its tithe: 10% of your gold.<br>The town shrine rekindles your flame.</div>`);
+      const corpse = (G.player.corpses || []).find(entry => entry.id === G.lastDeathCorpseId);
+      const gear = corpse ? corpse.gear.length : 0;
+      p.insertAdjacentHTML('beforeend', `<div class="npc-line">Death takes its tithe: 10% of your gold.<br>${gear
+        ? `Your corpse guards ${gear} equipped item${gear === 1 ? '' : 's'}. Rise in town, take the blood-red portal, and recover it.`
+        : 'You carried no equipped gear. The town shrine rekindles your flame.'}<br><span class="death-safety">If the route closes or you leave the game, unresolved gear returns safely to the town recovery shrine.</span></div>`);
       const b = document.createElement('button');
       b.className = 'big-btn';
       b.textContent = 'RISE AGAIN';
       b.addEventListener('click', () => { this.closeAll(); Game.respawn(); });
       p.appendChild(b);
+      requestAnimationFrame(() => b.focus());
     }
   },
 
@@ -1193,6 +1852,86 @@ const UI = {
 
   // ---------------- main menu (character select) ----------------
   selClass: null,
+  difficultySummary(campaign) {
+    const progress = campaign.progress;
+    const act = Math.min(4, progress.actUnlocked || 0);
+    const complete = progress.bossKilled[4];
+    return `${complete ? 'Campaign complete' : 'Act ' + U.roman(act + 1)}` +
+      (progress.abyssBest ? ` · Abyss ${progress.abyssBest}` : '');
+  },
+
+  showMenuRoot(returnDifficultyFocus = false) {
+    document.getElementById('create-panel').classList.add('hidden');
+    document.getElementById('difficulty-panel').classList.add('hidden');
+    document.getElementById('menu-buttons').classList.remove('hidden');
+    document.getElementById('char-list').classList.remove('hidden');
+    if (returnDifficultyFocus) {
+      const origin = this.difficultyOrigin;
+      const scrollTop = this.difficultyOriginScroll;
+      this.difficultyOrigin = null;
+      this.difficultyOriginScroll = null;
+      if (Number.isFinite(scrollTop)) document.getElementById('menu-screen').scrollTop = scrollTop;
+      if (origin && origin.isConnected && !origin.disabled) origin.focus({ preventScroll: true });
+    }
+  },
+
+  showDifficultyPicker(character, origin) {
+    const state = DifficultyState.migrate(character.difficulty, character);
+    const cls = CLASSES.find(entry => entry.id === character.cls);
+    this.difficultyOrigin = origin && origin.isConnected ? origin : null;
+    this.difficultyOriginScroll = document.getElementById('menu-screen').scrollTop;
+    document.getElementById('char-list').classList.add('hidden');
+    document.getElementById('menu-buttons').classList.add('hidden');
+    document.getElementById('create-panel').classList.add('hidden');
+    document.getElementById('difficulty-panel').classList.remove('hidden');
+    const heroSummary = document.getElementById('difficulty-hero');
+    heroSummary.innerHTML = `<span class="dh-copy"><strong>${U.esc(character.name)}</strong>
+      <span>Level ${character.lvl} ${U.esc(cls.name)} · gear, levels, and inventory carry across every tier</span></span>`;
+    const portrait = document.createElement('canvas');
+    portrait.width = 52; portrait.height = 52;
+    portrait.setAttribute('aria-hidden', 'true');
+    const portraitSheet = Sprites.getActor(character.cls);
+    portrait.getContext('2d').drawImage(portraitSheet.canvas, 0, 6 * portraitSheet.cell,
+      portraitSheet.cell, portraitSheet.cell, -6, -4, 64, 64);
+    heroSummary.prepend(portrait);
+
+    const options = document.getElementById('difficulty-options');
+    options.innerHTML = '';
+    const flavor = [
+      'Face the five Acts and awaken the Endless Abyss.',
+      'Empowered foes test a battle-hardened hero.',
+      'The final pilgrimage. Mercy has left this world.',
+    ];
+    DIFFICULTIES.forEach((difficulty, index) => {
+      const locked = !DifficultyState.canSelect(state, index);
+      const previous = index ? DIFFICULTIES[index - 1].name : '';
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = `difficulty-card difficulty-${index}` + (state.selected === index ? ' selected' : '') +
+        (locked ? ' locked' : '');
+      card.dataset.difficulty = index;
+      if (locked) card.setAttribute('aria-disabled', 'true');
+      if (state.selected === index) card.setAttribute('aria-current', 'true');
+      const levelModifier = difficulty.mlvlAdd ? `Monster levels +${difficulty.mlvlAdd}` : 'Baseline monster levels';
+      const heroResistance = difficulty.resPenalty ? `Hero resistances −${difficulty.resPenalty} percentage points` : 'No hero resistance penalty';
+      const enemyResistance = difficulty.monsterResAdd ? `Enemy resistances +${Math.round(difficulty.monsterResAdd * 100)} percentage points` : 'No enemy resistance bonus';
+      card.innerHTML = `<span class="dc-top"><span class="dc-sigil">${['Ⅰ', 'Ⅱ', 'Ⅲ'][index]}</span><span class="dc-state">${locked ? '◇ SEALED' : state.selected === index ? '◆ CURRENT' : 'AVAILABLE'}</span></span>
+        <span class="dc-name">${difficulty.name.toUpperCase()}</span>
+        <span class="dc-flavor">${flavor[index]}</span>
+        <span class="dc-mods">${levelModifier}<br>Enemy life ×${difficulty.hpMult} · Enemy damage ×${difficulty.dmgMult}<br>${heroResistance}<br>${enemyResistance}</span>
+        <span class="dc-progress">${locked ? `Defeat Act V on ${previous} to unlock` : this.difficultySummary(state.campaigns[index])}</span>
+        <span class="dc-action">${locked ? 'COMPLETE THE PRIOR TIER' : 'ENTER CAMPAIGN →'}</span>`;
+      card.addEventListener('click', () => {
+        if (locked) { sfx('nope'); return; }
+        sfx('ui'); Game.loadGame(character.name, index);
+      });
+      options.appendChild(card);
+    });
+    const preferred = options.querySelector(`[data-difficulty="${state.selected}"]:not(.locked)`) ||
+      options.querySelector('.difficulty-card:not(.locked)');
+    if (preferred) preferred.focus({ preventScroll: true });
+  },
+
   initMenu() {
     const s = SEASON.current();
     document.getElementById('season-banner').textContent =
@@ -1200,15 +1939,13 @@ const UI = {
     this.refreshCharList();
     document.getElementById('btn-new').addEventListener('click', () => {
       document.getElementById('create-panel').classList.remove('hidden');
+      document.getElementById('difficulty-panel').classList.add('hidden');
       document.getElementById('menu-buttons').classList.add('hidden');
       document.getElementById('char-list').classList.add('hidden');
       this.buildClassCards();
     });
-    document.getElementById('btn-back').addEventListener('click', () => {
-      document.getElementById('create-panel').classList.add('hidden');
-      document.getElementById('menu-buttons').classList.remove('hidden');
-      document.getElementById('char-list').classList.remove('hidden');
-    });
+    document.getElementById('btn-back').addEventListener('click', () => this.showMenuRoot());
+    document.getElementById('btn-difficulty-back').addEventListener('click', () => this.showMenuRoot(true));
     document.getElementById('btn-ladder-menu').addEventListener('click', () => {
       document.getElementById('menu-screen').style.zIndex = 20;
       this.open('ladder');
@@ -1234,23 +1971,39 @@ const UI = {
     const chars = Save.listChars();
     for (const c of chars) {
       const cls = CLASSES.find(x => x.id === c.cls);
-      const div = document.createElement('div');
-      div.className = 'char-slot' + (c.dead ? ' dead' : '');
+      const difficulty = DifficultyState.migrate(c.difficulty, c);
+      const campaign = difficulty.campaigns[difficulty.selected];
+      const row = document.createElement('div');
+      row.className = 'char-slot-row';
+      const hero = document.createElement('button');
+      hero.type = 'button';
+      hero.className = 'char-slot' + (c.dead ? ' dead' : '');
+      hero.disabled = !!c.dead;
+      hero.setAttribute('aria-label', c.dead ? `${c.name}, fallen hero` : `Choose difficulty for ${c.name}`);
       const face = document.createElement('canvas');
       face.width = 48; face.height = 48;
       const sheet = Sprites.getActor(c.cls);
       face.getContext('2d').drawImage(sheet.canvas, 0, 6 * sheet.cell, sheet.cell, sheet.cell, -6, -4, 60, 60);
-      div.appendChild(face);
-      div.insertAdjacentHTML('beforeend', `<div><div class="cs-name">${U.esc(c.name)} ${c.hardcore ? '<span class="hc-tag">HARDCORE</span>' : ''} ${c.dead ? '☠' : ''}</div>
-        <div class="cs-sub">Level ${c.lvl} ${cls.name} · Act ${U.roman((c.progress.actUnlocked || 0) + 1)}${c.progress.abyssBest ? ' · Abyss ' + c.progress.abyssBest : ''}</div></div>
-        <div class="cs-del" title="Delete hero">✕</div>`);
-      div.querySelector('.cs-del').addEventListener('click', e => {
-        e.stopPropagation();
-        if (div.dataset.confirm) { Save.deleteChar(c.name, false); this.refreshCharList(); }
-        else { div.dataset.confirm = '1'; div.querySelector('.cs-del').textContent = 'sure?'; }
+      hero.appendChild(face);
+      hero.insertAdjacentHTML('beforeend', `<span class="cs-copy"><span class="cs-name">${U.esc(c.name)} ${c.hardcore ? '<span class="hc-tag">HARDCORE</span>' : ''} ${c.dead ? '☠' : ''}</span>
+        <span class="cs-sub">Level ${c.lvl} ${cls.name} · <span class="cs-difficulty">${DIFFICULTIES[difficulty.selected].name}</span> · ${this.difficultySummary(campaign)}</span></span>`);
+      if (!c.dead) hero.addEventListener('click', () => this.showDifficultyPicker(c, hero));
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'cs-del';
+      remove.textContent = '✕';
+      remove.setAttribute('aria-label', `Delete ${c.name}`);
+      remove.addEventListener('click', () => {
+        if (remove.dataset.confirm) { Save.deleteChar(c.name, false); this.refreshCharList(); }
+        else {
+          remove.dataset.confirm = '1';
+          remove.textContent = 'SURE?';
+          remove.setAttribute('aria-label', `Confirm delete ${c.name}`);
+        }
       });
-      if (!c.dead) div.addEventListener('click', () => Game.loadGame(c.name));
-      wrap.appendChild(div);
+      row.append(hero, remove);
+      wrap.appendChild(row);
     }
   },
 

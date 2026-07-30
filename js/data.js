@@ -790,7 +790,7 @@ const CUBE_RECIPES = [
   { id: 'add_sockets', name: 'Socket a normal item', desc: 'Ral + Tal + Ort + a normal, unsocketed weapon or armor -> the item gains sockets.' },
   { id: 'upgrade_tier', name: 'Upgrade base tier', desc: 'A rare item + 1400 gold -> the base item tier is upgraded by one (Horadric transmutation).' },
   { id: 'reroll_magic', name: 'Reroll magic item', desc: 'A magic item + 3 perfect gems (any) -> a fresh magic item of the same base at the same ilvl.' },
-  { id: 'remove_gems', name: 'Remove socketed items', desc: 'A Hel Rune + an item with socketed gems/runes + gold -> the item is destroyed, the sockets are returned empty and gems are lost, runes are recovered.' },
+  { id: 'remove_gems', name: 'Clear sockets', desc: 'A Hel Rune + a socketed item + 500 gold -> preserve the base item, destroy all socketed components, and return every socket empty.' },
   { id: 'upgrade_rare', name: 'Upgrade to Rare', desc: 'A magic item + 1 chipped gem (any) + 1 perfect skull -> a rare item of the same base at the same ilvl.' },
 ];
 

@@ -5,8 +5,8 @@ async function openVideo(page) {
   await page.waitForFunction(() => typeof WUI !== 'undefined' && WUI.set && R3.ready);
   await page.evaluate(() => {
     WUI.settingsTab = WUI.SETTINGS_TABS.indexOf('VIDEO');
-    WUI.renderSettings();
-    document.getElementById('panel-settings').classList.remove('hidden');
+    document.getElementById('menu-screen').classList.add('hidden');
+    UI.open('settings');
   });
 }
 
@@ -68,9 +68,10 @@ test('model and advanced-effects controls do not reconstruct resources before co
       Props3.build = function (...args) { calls.build++; return build.apply(this, args); };
       FX3.init = function (...args) { calls.init++; return init.apply(this, args); };
     });
-    await page.locator(`[data-setting="${setting}"] .ws-toggle`).click();
+    const toggle = page.locator(`#panel-settings .ws-row[data-setting="${setting}"] > .ws-toggle`);
+    await toggle.click();
     expect(await page.evaluate(() => calls)).toEqual({ build: 0, init: 0 });
     await page.getByRole('button', { name: 'Cancel' }).click();
-    await expect(page.locator(`[data-setting="${setting}"] .ws-toggle`)).toHaveAttribute('aria-checked', 'true');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
   }
 });

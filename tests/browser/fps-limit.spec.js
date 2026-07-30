@@ -4,10 +4,9 @@ test('60 FPS limit gates rendered frames without slowing game time', async ({ pa
   await page.goto('/index.html');
   await page.waitForFunction(() => typeof WUI !== 'undefined' && WUI.set && typeof Game !== 'undefined');
 
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(() => {
     WUI.set.fpsLimit = 60;
     WUI.saveSet();
-    Game._last = 0;
 
     let frames = 0;
     let gameSeconds = 0;
@@ -15,23 +14,29 @@ test('60 FPS limit gates rendered frames without slowing game time', async ({ pa
     Render.frame = () => { frames++; };
     G.state = 'game';
 
-    const started = performance.now();
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    const wallSeconds = (performance.now() - started) / 1000;
+    // Drive the gate with deterministic 120 Hz RAF timestamps. Headless
+    // browsers can deliver only ~48 callbacks per second while the full suite
+    // is busy, which cannot distinguish a broken 60 FPS cap from host load.
+    const durationMs = 3000;
+    const sourceFps = 120;
+    const startedAt = 1000;
+    Game._last = startedAt;
+    const realRaf = window.requestAnimationFrame;
+    window.requestAnimationFrame = () => 0;
+    for (let i = 0; i <= durationMs / (1000 / sourceFps); i++)
+      Game.loop(startedAt + i * (1000 / sourceFps));
+    window.requestAnimationFrame = realRaf;
+
     G.state = 'menu';
     return {
       frames,
       gameSeconds,
-      wallSeconds,
+      durationSeconds: durationMs / 1000,
       saved: JSON.parse(localStorage.getItem(WUI.SETK)).fpsLimit,
     };
   });
 
-  const measuredFps = result.frames / result.wallSeconds;
-  // A real browser may miss frames under load, but the limiter must neither
-  // substantially undershoot in this quiet probe nor exceed its target.
-  expect(measuredFps).toBeGreaterThan(52);
-  expect(measuredFps).toBeLessThanOrEqual(62);
-  expect(Math.abs(result.gameSeconds - result.wallSeconds)).toBeLessThan(0.12);
+  expect(result.frames / result.durationSeconds).toBe(60);
+  expect(result.gameSeconds).toBeCloseTo(result.durationSeconds, 8);
   expect(result.saved).toBe(60);
 });

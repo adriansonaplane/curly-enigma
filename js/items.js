@@ -4,6 +4,67 @@
 const Items = {
   _seq: 1,
 
+  canonicalizeCondition(item) {
+    if (typeof ItemCondition !== 'undefined' && ItemCondition && typeof ItemCondition.normalize === 'function')
+      ItemCondition.normalize(item);
+    return item;
+  },
+
+  canonicalizeIdentification(item) {
+    if (typeof ItemIdentification !== 'undefined' && ItemIdentification && typeof ItemIdentification.normalize === 'function')
+      ItemIdentification.normalize(item);
+    return item;
+  },
+
+  finalize(item, opts = {}) {
+    this.canonicalizeCondition(item);
+    this.canonicalizeIdentification(item);
+    if (opts.unidentified && typeof ItemIdentification !== 'undefined' &&
+        ItemIdentification && typeof ItemIdentification.prepareDrop === 'function')
+      ItemIdentification.prepareDrop(item);
+    return item;
+  },
+
+  needsIdentification(item) {
+    return !!(item && typeof ItemIdentification !== 'undefined' && ItemIdentification &&
+      typeof ItemIdentification.needsIdentification === 'function' && ItemIdentification.needsIdentification(item));
+  },
+
+  isIdentifyScroll(item) {
+    return !!(item && typeof ItemIdentification !== 'undefined' && ItemIdentification &&
+      typeof ItemIdentification.isScroll === 'function' && ItemIdentification.isScroll(item));
+  },
+
+  isCharmRecord(item) {
+    return !!(item && typeof InventoryCharms !== 'undefined' && InventoryCharms &&
+      typeof InventoryCharms.isCharmRecord === 'function' && InventoryCharms.isCharmRecord(item));
+  },
+
+  isCharm(item) {
+    return !!(item && typeof InventoryCharms !== 'undefined' && InventoryCharms &&
+      typeof InventoryCharms.isCharm === 'function' && InventoryCharms.isCharm(item));
+  },
+
+  displayName(item) {
+    if (!item) return '';
+    return typeof ItemIdentification !== 'undefined' && ItemIdentification &&
+      typeof ItemIdentification.displayName === 'function'
+      ? ItemIdentification.displayName(item)
+      : String(item.name || item.baseName || item.type || 'Item');
+  },
+
+  makeIdentifyScroll() {
+    if (typeof ItemIdentification === 'undefined' || !ItemIdentification) return null;
+    const make = ItemIdentification.makeScroll || ItemIdentification.createScroll;
+    return typeof make === 'function' ? make(`identify-scroll-${Date.now().toString(36)}-${this._seq++}`) : null;
+  },
+
+  makeCharm(ilvl, opts = {}) {
+    if (typeof InventoryCharms === 'undefined' || !InventoryCharms || typeof InventoryCharms.generate !== 'function') return null;
+    const id = opts.id || `charm-${Date.now().toString(36)}-${this._seq++}`;
+    return InventoryCharms.generate({ id, ilvl: Math.max(1, Math.min(99, Math.round(Number(ilvl) || 1))), form: opts.form }, opts.rng || U.rand);
+  },
+
   rarityColor(r) {
     return { common: '#d8d8d8', magic: '#7b7bff', rare: '#ffff77', set: '#2bd45e', unique: '#c7924b' }[r] || '#d8d8d8';
   },
@@ -45,6 +106,7 @@ const Items = {
     helm: [2, 2], chest: [2, 3], shield: [2, 3], orb: [1, 2],
     gloves: [2, 2], boots: [2, 2], belt: [2, 1],
     ring: [1, 1], amulet: [1, 1],
+    charm_small: [1, 1], charm_large: [1, 2], charm_grand: [1, 3],
   },
 
   sizeOf(item) {
@@ -62,22 +124,35 @@ const Items = {
   // Build a stat comparison tooltip section: hovered item vs currently equipped.
   compareTooltip(item, player) {
     if (!item || !player || item.potion) return '';
+    if (this.isCharmRecord(item)) return '';
+    if (this.needsIdentification(item))
+      return '<div class="tt-compare-label" style="margin-top:7px;border-top:1px solid #342710;padding-top:5px">COMPARISON LOCKED</div>' +
+        '<div class="tt-unidentified-note">Identify this item to reveal and compare its properties.</div>';
     const slot = this.equipSlotFor(item);
     if (!slot) return '';
 
+    const broken = value => !!(value && typeof ItemCondition !== 'undefined' && ItemCondition.isBroken(value));
     const equipped = player.equip[slot];
+    if (this.needsIdentification(equipped))
+      return '<div class="tt-compare-label" style="margin-top:7px;border-top:1px solid #342710;padding-top:5px">COMPARISON LOCKED</div>' +
+        '<div class="tt-unidentified-note">The equipped item must be identified before comparison.</div>';
     if (!equipped) {
       return '<div class="tt-compare-label" style="margin-top:7px;border-top:1px solid #342710;padding-top:5px">COMPARED TO EQUIPPED</div>' +
-        '<div style="color:#847252;font-size:11px">Empty slot — direct upgrade</div>';
+        (broken(item)
+          ? '<div class="stat-down">Broken — repair it before its bonuses apply</div>'
+          : '<div style="color:#847252;font-size:11px">Empty slot — direct upgrade</div>');
     }
 
     let h = '<div class="tt-compare-label" style="margin-top:7px;border-top:1px solid #342710;padding-top:5px">COMPARED TO EQUIPPED</div>';
     let anyDiff = false;
+    const itemActive = !broken(item), equippedActive = !broken(equipped);
+    const itemStats = itemActive ? (item.stats || {}) : {};
+    const equippedStats = equippedActive ? (equipped.stats || {}) : {};
 
     // Damage range comparison
     if (item.dmg || equipped.dmg) {
-      const iLo = item.dmg ? item.dmg[0] : 0, iHi = item.dmg ? item.dmg[1] : 0;
-      const eLo = equipped.dmg ? equipped.dmg[0] : 0, eHi = equipped.dmg ? equipped.dmg[1] : 0;
+      const iLo = itemActive && item.dmg ? item.dmg[0] : 0, iHi = itemActive && item.dmg ? item.dmg[1] : 0;
+      const eLo = equippedActive && equipped.dmg ? equipped.dmg[0] : 0, eHi = equippedActive && equipped.dmg ? equipped.dmg[1] : 0;
       const avgDiff = ((iLo + iHi) / 2) - ((eLo + eHi) / 2);
       if (Math.abs(avgDiff) >= 0.5) {
         const sign = avgDiff > 0 ? '+' : '';
@@ -89,7 +164,7 @@ const Items = {
 
     // Armor comparison
     if (item.armor != null || equipped.armor != null) {
-      const diff = (item.armor || 0) - (equipped.armor || 0);
+      const diff = (itemActive ? item.armor || 0 : 0) - (equippedActive ? equipped.armor || 0 : 0);
       if (diff !== 0) {
         const sign = diff > 0 ? '+' : '';
         const cls = diff > 0 ? 'stat-up' : 'stat-down';
@@ -99,10 +174,10 @@ const Items = {
     }
 
     // Gather all stat keys from both items
-    const allKeys = new Set([...Object.keys(item.stats || {}), ...Object.keys(equipped.stats || {})]);
+    const allKeys = new Set([...Object.keys(itemStats), ...Object.keys(equippedStats)]);
     for (const k of allKeys) {
-      const iv = (item.stats && item.stats[k]) || 0;
-      const ev = (equipped.stats && equipped.stats[k]) || 0;
+      const iv = itemStats[k] || 0;
+      const ev = equippedStats[k] || 0;
       const diff = Math.round((iv - ev) * 10) / 10;
       if (diff === 0) continue;
       const sign = diff > 0 ? '+' : '';
@@ -116,7 +191,7 @@ const Items = {
     const specials = ['spellPct', 'critBonus'];
     const specialLabels = { spellPct: '% Spell Damage', critBonus: '% Critical Chance' };
     for (const s of specials) {
-      const diff = (item[s] || 0) - (equipped[s] || 0);
+      const diff = (itemActive ? item[s] || 0 : 0) - (equippedActive ? equipped[s] || 0 : 0);
       if (diff === 0) continue;
       const sign = diff > 0 ? '+' : '';
       const cls = diff > 0 ? 'stat-up' : 'stat-down';
@@ -225,7 +300,7 @@ const Items = {
 
     if (rarity === 'unique') {
       const pool = UNIQUES.filter(u => TIER_LVLS[u.tier] <= ilvl + 4);
-      if (pool.length) return this.makeUnique(rng, U.pick(rng, pool));
+      if (pool.length) return this.finalize(this.makeUnique(rng, U.pick(rng, pool)), opts);
       rarity = 'rare';
     }
     if (rarity === 'set') {
@@ -233,7 +308,7 @@ const Items = {
       for (const s of SETS) for (const p of s.pieces) if (TIER_LVLS[p.tier] <= ilvl + 4) pieces.push({ set: s, piece: p });
       const clsPieces = pieces.filter(p => p.set.cls === opts.classId);
       if (clsPieces.length && U.chance(rng, 0.7)) pieces = clsPieces;
-      if (pieces.length) { const pk = U.pick(rng, pieces); return this.makeSetPiece(rng, pk.set, pk.piece); }
+      if (pieces.length) { const pk = U.pick(rng, pieces); return this.finalize(this.makeSetPiece(rng, pk.set, pk.piece), opts); }
       rarity = 'rare';
     }
 
@@ -260,7 +335,7 @@ const Items = {
       item.reqLvl = Math.min(MAX_LVL, item.reqLvl + 2);
     }
     item.price = this.price(item);
-    return item;
+    return this.finalize(item, opts);
   },
 
   // Quality roll: superior (+enhanced dmg/defense) / normal / inferior
@@ -330,7 +405,7 @@ const Items = {
     item.gems = new Array(nSockets).fill(null);
 
     item.price = this.price(item);
-    return item;
+    return this.finalize(item, opts);
   },
 
   makeUnique(rng, u) {
@@ -341,7 +416,7 @@ const Items = {
     if (item.dmg) { item.dmg[0] = Math.round(item.dmg[0] * 1.25); item.dmg[1] = Math.round(item.dmg[1] * 1.25); }
     if (item.armor) item.armor = Math.round(item.armor * 1.3);
     item.price = this.price(item);
-    return item;
+    return this.finalize(item);
   },
 
   makeSetPiece(rng, set, piece) {
@@ -350,19 +425,63 @@ const Items = {
     item.rarity = 'set'; item.name = piece.name; item.setId = set.id; item.setName = set.name;
     item.stats = Object.assign({}, piece.stats);
     item.price = this.price(item);
-    return item;
+    return this.finalize(item);
   },
 
   // ---------- Sockets: gems, runes, rune words ----------
+  componentRecord(source) {
+    if (!source || (source.kind !== 'gem' && source.kind !== 'rune')) return null;
+    if (source.kind === 'rune') {
+      const r = RUNE_BY_NAME[source.name];
+      if (!r || (source.ord !== undefined && Number(source.ord) !== r.ord)) return null;
+      const value = 35 + r.ord * 15;
+      const armorPct = Math.round(r.alonePct * 0.6 * 10) / 10;
+      const effect = r.alonePct ? `Weapons: ${this.statLine('dmgPct', r.alonePct)}; Armor: ${this.statLine('armorPct', armorPct)}` : 'No individual socket bonus';
+      return { kind: 'rune', component: true, name: r.name, baseName: `${r.name} Rune`, description: `Rune ${r.ord}. ${effect}`,
+        ord: r.ord, reqLvl: r.lvl, rarity: 'rare', color: '#ffff77', value, price: value,
+        width: 1, height: 1 };
+    }
+    const type = source.gemType, quality = source.quality, t = GEM_TYPES[type];
+    if (!t || !GEM_QUALITIES.includes(quality)) return null;
+    const name = quality[0].toUpperCase() + quality.slice(1) + ' ' + t.name;
+    const rank = GEM_QUALITIES.indexOf(quality);
+    const amount = Math.round(GEM_BASE_VAL * (GEM_QUALITY_MULT[quality] || 1) * 10) / 10;
+    return { kind: 'gem', component: true, gemType: type, quality, name, baseName: name,
+      weaponEffect: { stat: t.weapon.stat, value: amount }, armorEffect: { stat: t.armor.stat, value: amount },
+      description: `Weapons: ${this.statLine(t.weapon.stat, amount)}; Armor: ${this.statLine(t.armor.stat, amount)}`,
+      rarity: 'magic', color: '#7b7bff',
+      value: 18 * (rank + 1) * (rank + 1), price: 18 * (rank + 1) * (rank + 1), reqLvl: 1,
+      width: 1, height: 1 };
+  },
+  normalizeComponent(item) {
+    const record = this.componentRecord(item);
+    if (!record) return null;
+    Object.assign(item, record);
+    return item;
+  },
   makeGem(type, quality) {
-    const t = GEM_TYPES[type];
-    if (!t) return null;
-    return { kind: 'gem', gemType: type, quality, name: quality[0].toUpperCase() + quality.slice(1) + ' ' + t.name, id: 'gem_' + type + '_' + quality + '_' + (this._seq++) };
+    const record = this.componentRecord({ kind: 'gem', gemType: type, quality });
+    return record ? { ...record, id: 'gem_' + type + '_' + quality + '_' + (this._seq++) } : null;
   },
   makeRune(name) {
-    const r = RUNE_BY_NAME[name];
-    if (!r) return null;
-    return { kind: 'rune', name: r.name, ord: r.ord, id: r.id + '_' + (this._seq++) };
+    const record = this.componentRecord({ kind: 'rune', name });
+    const rune = RUNE_BY_NAME[name];
+    return record ? { ...record, id: rune.id + '_' + (this._seq++) } : null;
+  },
+
+  // Deterministic component drops. Difficulty widens the eligible rune
+  // window, while ilvl remains the hard progression gate.
+  rollComponent(ilvl, difficulty = 0, rng = Math.random) {
+    ilvl = Math.max(1, Math.floor(Number(ilvl) || 1));
+    const diff = typeof difficulty === 'object' ? Number(difficulty.idx || difficulty.tier || 0) : Number(difficulty || 0);
+    if (rng() < Math.min(0.22 + Math.max(0, diff) * 0.08, 0.48)) {
+      const eligible = RUNES.filter(r => r.lvl <= ilvl + Math.max(0, diff) * 6);
+      if (eligible.length) return this.makeRune(eligible[Math.min(eligible.length - 1, Math.floor(rng() * eligible.length))].name);
+    }
+    const maxQuality = ilvl >= 55 ? 4 : ilvl >= 38 ? 3 : ilvl >= 22 ? 2 : ilvl >= 10 ? 1 : 0;
+    const types = Object.keys(GEM_TYPES);
+    return this.makeGem(types[Math.min(types.length - 1, Math.floor(rng() * types.length))],
+      GEM_QUALITIES[Math.min(maxQuality, Math.floor(rng() * (maxQuality + 1)))]);
   },
 
   // What a single socketed gem/rune contributes "alone" (i.e. when it isn't
@@ -388,34 +507,65 @@ const Items = {
     return null;
   },
 
-  // Insert a gem/rune object into the item's first empty socket. Returns
-  // false if there's no empty socket. Re-checks the rune word recipe after.
-  socketGem(item, obj) {
-    if (!item.gems) return false;
+  insertSocket(item, obj, playerLevel = Infinity) {
+    if (!item || !obj || (obj.kind !== 'gem' && obj.kind !== 'rune')) return false;
+    if (this.needsIdentification(item)) return false;
+    const sockets = Number(item.sockets);
+    if (!Number.isInteger(sockets) || sockets < 1 || !Array.isArray(item.gems) || item.gems.length !== sockets) return false;
+    if (obj.kind === 'gem' && (!GEM_TYPES[obj.gemType] || !GEM_QUALITIES.includes(obj.quality))) return false;
+    const rune = obj.kind === 'rune' ? RUNE_BY_NAME[obj.name] : null;
+    if (obj.kind === 'rune' && (!rune || Number(playerLevel) < rune.lvl)) return false;
     const idx = item.gems.indexOf(null);
-    if (idx === -1) return false;
+    if (idx < 0) return false;
     item.gems[idx] = obj;
     this.applyRuneword(item);
     return true;
   },
+
+  // Historical callers did not pass player level; keep that API permissive.
+  socketGem(item, obj) { return this.insertSocket(item, obj, Infinity); },
 
   // A rune word activates only when EVERY socket is filled, all fillers are
   // runes (not gems), and the rune names match an eligible recipe for this
   // item's base type in the exact order — faithful to real D2. Idempotent:
   // re-checking an already-applied word does not re-add its stats.
   applyRuneword(item) {
-    const wasId = item.runeword;
-    if (!item.gems || !item.gems.length || item.gems.some(g => g === null) || item.gems.some(g => g.kind !== 'rune')) {
+    if (!item || !item.stats) return null;
+    // Saves from the legacy implementation contain the word overlay folded
+    // into stats. Remove it once, then permanently mark the separated model.
+    if (item.runeword && item._socketStatsVersion !== 1) {
+      const legacy = RUNEWORDS.find(rw => rw.id === item.runeword);
+      if (legacy) for (const k in legacy.stats) {
+        const value = Number(item.stats[k] || 0) - legacy.stats[k];
+        if (Math.abs(value) < 1e-9) delete item.stats[k]; else item.stats[k] = value;
+      }
+    }
+    item._socketStatsVersion = 1;
+    let match = null;
+    const validBase = item.rarity === 'common' && Array.isArray(item.gems) && item.gems.length === Number(item.sockets) && item.gems.length > 0;
+    if (validBase && !item.gems.some(g => !g || g.kind !== 'rune')) {
+      const names = item.gems.map(g => g.name);
+      match = runewordForBase(item.type).find(rw => rw.sockets === item.sockets && rw.runes.every((n, i) => n === names[i])) || null;
+    }
+    if (!match) {
       delete item.runeword; delete item.runewordName;
       return null;
     }
-    const names = item.gems.map(g => g.name);
-    const match = runewordForBase(item.type).find(rw => rw.runes.length === names.length && rw.runes.every((n, i) => n === names[i]));
-    if (!match) { delete item.runeword; delete item.runewordName; return null; }
-    if (wasId === match.id) return match;
     item.runeword = match.id; item.runewordName = match.name;
-    for (const k in match.stats) item.stats[k] = (item.stats[k] || 0) + match.stats[k];
     return match;
+  },
+
+  socketStats(item) {
+    const stats = {};
+    if (!item || !Array.isArray(item.gems)) return stats;
+    const add = (k, v) => { stats[k] = (stats[k] || 0) + v; };
+    for (const component of item.gems) {
+      const effect = this.gemAloneStat(component, item.slot === 'weapon');
+      if (effect) add(effect.key, effect.val);
+    }
+    const word = this.applyRuneword(item);
+    if (word) for (const k in word.stats) add(k, word.stats[k]);
+    return stats;
   },
 
   // ---------- Gambling (see GAMBLE_CFG in data.js) ----------
@@ -425,6 +575,12 @@ const Items = {
   gambleRarity(rng) { return U.weighted(rng, GAMBLE_CFG.rarityWeights); },
 
   price(item) {
+    if (this.isCharmRecord(item) && typeof InventoryCharms !== 'undefined')
+      return InventoryCharms.priceOf(item);
+    if (this.isIdentifyScroll(item))
+      return Math.max(1, Math.round(Number(item.value || item.price) || 1));
+    if (item && (item.kind === 'gem' || item.kind === 'rune'))
+      return Math.max(1, Math.round(Number(item.value || item.price) || 1));
     const rmul = { common: 1, magic: 3.2, rare: 8, set: 14, unique: 20 }[item.rarity] || 1;
     let p = (8 + item.ilvl * 6 + (item.tier || 0) * 30) * rmul;
     if (item.quality === 'superior') p *= 1.15;
@@ -435,37 +591,95 @@ const Items = {
     return Math.round(p);
   },
 
-  sellPrice(item) { return Math.max(1, Math.floor(this.price(item) * 0.25)); },
+  sellPrice(item) {
+    // Never turn the merchant into an oracle for concealed rolls or value.
+    if (this.needsIdentification(item)) return 0;
+    return Math.max(1, Math.floor(this.price(item) * 0.25));
+  },
 
   // ---------- tooltips ----------
   tooltip(item, player) {
     const rc = 'q-' + item.rarity;
-    let h = `<div class="tt-name ${rc}">${U.esc(item.name)}</div>`;
+    let h = `<div class="tt-name ${rc}">${U.esc(this.displayName(item))}</div>`;
+    if (this.isIdentifyScroll(item)) {
+      h += '<div class="tt-type">Field Utility — 1×1</div>';
+      h += '<div class="tt-identify-scroll">Reveals one unidentified item in your inventory.</div>';
+      h += '<div class="tt-unidentified-note">Enter/click the scroll, then choose a glowing unidentified target.</div>';
+      h += `<div class="q-gold" style="font-size:11px">Value: ${U.fmt(item.value || item.price || 0)} gold</div>`;
+      return h;
+    }
+    if (item.kind === 'gem' || item.kind === 'rune') {
+      h += `<div class="tt-type">Socket Component — 1×1</div>`;
+      h += `<div class="tt-stat">${U.esc(item.description || '')}</div>`;
+      h += `<div style="color:#847252">Requires Level ${item.reqLvl || 1}</div>`;
+      h += `<div class="q-gold" style="font-size:11px">Value: ${U.fmt(item.value || item.price || 0)} gold</div>`;
+      return h;
+    }
     if (item.potion) {
       h += `<div class="tt-type">Potion — restores ${item.potion === 'hp' ? 'life' : 'mana'}</div>`;
       h += `<div style="color:#847252;font-size:11px">Click to add to your belt (${item.potion === 'hp' ? 'Q' : 'E'} to drink)</div>`;
       return h;
     }
+    if (this.isCharmRecord(item)) {
+      const [width, height] = this.sizeOf(item);
+      h += `<div class="tt-type">Carried Charm — ${width}×${height}</div>`;
+      if (this.needsIdentification(item)) {
+        h += '<div class="tt-unidentified">UNIDENTIFIED</div>';
+        h += '<div class="tt-unidentified-note">Its name, magic, requirement, and value remain concealed.</div>';
+        h += '<div class="tt-unidentified-action">Use a Scroll of Identification, or ask Old Maras in town.</div>';
+        return h;
+      }
+      const stats = typeof InventoryCharms !== 'undefined' ? InventoryCharms.statsOf(item) : {};
+      for (const key of Object.keys(stats)) h += `<div class="tt-stat">${this.statLine(key, stats[key])}</div>`;
+      const carried = !!(player && Array.isArray(player.inv) && player.inv.includes(item));
+      const aggregate = carried && typeof InventoryCharms !== 'undefined'
+        ? InventoryCharms.aggregate(player, this.sizeOf.bind(this)) : null;
+      const active = !!(aggregate && aggregate.ok && aggregate.activeIds.includes(item.id));
+      let state = 'INACTIVE — CARRY IN INVENTORY';
+      if (active) state = 'ACTIVE IN CARRIED INVENTORY';
+      else if (carried && aggregate && !aggregate.ok) state = 'INACTIVE — INVALID INVENTORY GRID';
+      else if (carried && player && player.lvl < item.reqLvl) state = `INACTIVE — REQUIRES LEVEL ${item.reqLvl}`;
+      h += `<div class="tt-charm-state ${active ? 'active' : 'inactive'}">${state}</div>`;
+      const meets = !player || player.lvl >= item.reqLvl;
+      h += `<div style="margin-top:5px;color:${meets ? '#847252' : '#ff5a3c'}">Requires Level ${item.reqLvl}</div>`;
+      h += `<div class="q-gold" style="font-size:11px">Value: ${U.fmt(InventoryCharms.priceOf(item))} gold</div>`;
+      return h;
+    }
     const kind = item.slot === 'weapon' ? (item.ranged ? 'Ranged Weapon' : 'Weapon')
       : item.slot === 'offhand' ? 'Off-hand' : item.slot[0].toUpperCase() + item.slot.slice(1);
     h += `<div class="tt-type">${U.esc(item.baseName)} — ${kind}</div>`;
+    if (this.needsIdentification(item)) {
+      h += '<div class="tt-unidentified">UNIDENTIFIED</div>';
+      h += '<div class="tt-unidentified-note">Its name, rolls, sockets, requirements, condition, and value remain concealed.</div>';
+      h += '<div class="tt-unidentified-action">Use a Scroll of Identification, or ask Old Maras in town.</div>';
+      return h;
+    }
     if (item.dmg) h += `<div>Damage: <b>${item.dmg[0]}–${item.dmg[1]}</b> &nbsp;<span style="color:#847252">(${item.spd.toFixed(2)} speed)</span></div>`;
     if (item.armor) h += `<div>Armor: <b>${item.armor}</b></div>`;
     if (item.spellPct) h += `<div class="tt-stat">+${item.spellPct}% Spell Damage</div>`;
     if (item.critBonus) h += `<div class="tt-stat">+${item.critBonus}% Critical Chance</div>`;
     if (item.baseBlockPct) h += `<div class="tt-stat">Chance to Block: ${item.baseBlockPct}%</div>`;
+    const condition = typeof ItemCondition !== 'undefined' && ItemCondition ? ItemCondition.condition(item) : null;
+    if (condition && condition.maxDurability) {
+      const broken = condition.durability === 0;
+      h += `<div style="color:${broken ? '#ff5a4e' : '#a99a7a'}">Durability: ${condition.durability} of ${condition.maxDurability}</div>`;
+      if (broken) h += '<div style="color:#ff5a4e;font-weight:bold">BROKEN — grants no bonuses while equipped.</div>';
+    }
     if (item.ethereal) h += `<div style="color:#c0a0ff">Ethereal (cannot be repaired)</div>`;
     if (item.quality === 'superior') h += `<div style="color:#8fd8ff">Superior Quality</div>`;
     if (item.quality === 'inferior') h += `<div style="color:#a08060">Low Quality</div>`;
     for (const k in item.stats) h += `<div class="tt-stat">${this.statLine(k, item.stats[k])}</div>`;
     if (item.runewordName) h += `<div class="q-set" style="color:#ffae57">Rune Word: ${U.esc(item.runewordName)}</div>`;
+    const socketBonus = this.socketStats(item);
+    for (const k in socketBonus) h += `<div class="tt-stat">Socket Bonus: ${this.statLine(k, socketBonus[k])}</div>`;
     if (item.sockets) {
       const filled = item.gems.filter(Boolean);
       h += `<div>Sockets (${filled.length}/${item.sockets})${filled.length ? ': ' + filled.map(g => U.esc(g.name)).join(', ') : ''}</div>`;
     }
     if (item.setId) {
       const set = SETS.find(s => s.id === item.setId);
-      const owned = player ? Object.values(player.equip).filter(e => e && e.setId === item.setId).length : 0;
+      const owned = player ? Object.values(player.equip).filter(e => e && e.setId === item.setId &&
+        !this.needsIdentification(e) && !(typeof ItemCondition !== 'undefined' && ItemCondition.isBroken(e))).length : 0;
       h += `<div style="margin-top:5px" class="q-set">${U.esc(item.setName)} (${owned}/${set.pieces.length})</div>`;
       for (const nStr in set.bonuses) {
         const n = +nStr;

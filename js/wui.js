@@ -373,7 +373,7 @@ const WUI = {
     panel.style.opacity=String(U.clamp(Number(this.set.mapOpacity)||82,25,100)/100);
     const zone=document.getElementById('map-overlay-zone'); if (zone) zone.textContent=G.map ? (G.map.name || G.map.zone || '') : '';
     const legend=document.getElementById('map-overlay-legend');
-    if (legend) { legend.classList.toggle('hidden', !this.set.mapLegend); legend.innerHTML=[['#fff7cf','Hero'],['#c0392b','Enemies'],['#6be26b','Allies'],['#ffe9a8','NPCs'],['#4f8fff','Travel'],['#ffd94f','Objective']].map(x=>`<span class="map-legend-item"><i class="map-legend-dot" style="background:${x[0]}"></i>${x[1]}</span>`).join(''); }
+    if (legend) { legend.classList.toggle('hidden', !this.set.mapLegend); legend.innerHTML=[['#fff7cf','Hero',''],['#c0392b','Enemies',''],['#6be26b','Allies',''],['#ffe9a8','NPCs',''],['#4f8fff','Travel',''],['#e24834','Corpse',' map-legend-corpse'],['#ffd94f','Objective','']].map(x=>`<span class="map-legend-item"><i class="map-legend-dot${x[2]}" style="background:${x[0]}" aria-hidden="true"></i>${x[1]}</span>`).join(''); }
   },
 
   // ---------------- frame manager ----------------
@@ -629,7 +629,10 @@ const WUI = {
     if (!pl.bars.slots2) pl.bars.slots2 = new Array(10).fill(null);       // action bar 2
     if (!pl.bars.slotsShift) pl.bars.slotsShift = new Array(10).fill(null); // bar 1, Shift page
     if (!pl.macros) pl.macros = [];
-    pl.quests = QuestState.migrate(pl.quests);
+    // DifficultyState keeps this object aliased to the selected campaign. Avoid
+    // replacing that live alias on every frame once the state is current.
+    if (!pl.quests || pl.quests.version !== QuestState.VERSION)
+      pl.quests = QuestState.migrate(pl.quests);
     this.syncHotbar(pl);
   },
 
@@ -1356,6 +1359,11 @@ const WUI = {
     const toggle = row.querySelector('.ws-toggle');
     toggle.tabIndex = 0; toggle.setAttribute('role', 'checkbox'); toggle.setAttribute('aria-checked', String(!!this.set[key]));
     const activate = async () => {
+      // Drawer children become inert while their master is off. Keep this
+      // explicit guard in addition to HTML `inert`: synthetic activation and
+      // browsers with incomplete inert support must not open a confirmation or
+      // mutate a preference that is presented as disabled.
+      if (toggle.getAttribute('aria-disabled') === 'true') return;
       const next = !this.set[key];
       if (disruptive) {
         const accepted = await this.requestDisruptiveChange({ key, value: next, control: toggle,
@@ -1542,8 +1550,18 @@ const WUI = {
     const state = drawer.querySelector('.ws-drawer-state');
     const content = drawer.querySelector('.ws-drawer-body');
     const refresh = () => {
-      state.textContent = this.set.advancedEffects ? 'On' : 'Off';
-      content.classList.toggle('disabled', !this.set.advancedEffects);
+      const disabled = !this.set.advancedEffects;
+      state.textContent = disabled ? 'Off' : 'On';
+      content.classList.toggle('disabled', disabled);
+      for (const row of content.querySelectorAll('.ws-row:not([data-setting="advancedEffects"])')) {
+        const toggle = row.querySelector('.ws-toggle');
+        row.inert = disabled;
+        row.setAttribute('aria-disabled', String(disabled));
+        if (toggle) {
+          toggle.setAttribute('aria-disabled', String(disabled));
+          toggle.tabIndex = disabled ? -1 : 0;
+        }
+      }
     };
     this.wsToggle(content, 'Enable advanced effects', 'Master switch; disabling releases all custom effect resources',
       'advancedEffects', v => {
@@ -1866,7 +1884,7 @@ const WUI = {
       for (let i = before; i < G.groundItems.length; i++) {
         const gi = G.groundItems[i];
         if (gi.item && ['rare', 'set', 'unique'].includes(gi.item.rarity))
-          self.chat('loot', `Dropped: <span style="color:${Items.rarityColor(gi.item.rarity)}">[${U.esc(gi.item.name)}]</span>`);
+          self.chat('loot', `Dropped: <span style="color:${Items.rarityColor(gi.item.rarity)}">[${U.esc(Items.displayName(gi.item))}]</span>`);
       }
     };
 
@@ -1875,8 +1893,9 @@ const WUI = {
     Game.giveItem = function (it) {
       const ok = _gi(it);
       if (ok) {
-        self.chat('loot', `You receive <span style="color:${Items.rarityColor(it.rarity)}">[${U.esc(it.name)}]</span>.`);
-        self.clLine('loot', `You receive [<span style="color:${Items.rarityColor(it.rarity)}">${U.esc(it.name)}</span>]`, '#e8dcc0');
+        const visibleName = Items.displayName(it);
+        self.chat('loot', `You receive <span style="color:${Items.rarityColor(it.rarity)}">[${U.esc(visibleName)}]</span>.`);
+        self.clLine('loot', `You receive [<span style="color:${Items.rarityColor(it.rarity)}">${U.esc(visibleName)}</span>]`, '#e8dcc0');
       }
       return ok;
     };
@@ -1941,7 +1960,12 @@ const WUI = {
   handleKey(k, e) {
     if (this.listening) { this.captureBind(k); return true; }
     if (this.chatOpen) return false; // input element handles its own keys
-    if (UI.openPanel === 'death') return true; // no hotkeys through the death screen
+    // Panels own keyboard input while open. In particular, Tab must retain
+    // native focus traversal instead of firing the gameplay target-next bind;
+    // Enter/Space must reach focused buttons. The death screen likewise blocks
+    // gameplay without swallowing its own controls' keyboard events.
+    if (UI.openPanel === 'death') return false;
+    if (UI.openPanel && k !== 'escape') return false;
     if (k === 'escape') {
       if (this.mapOpen) { this.toggleMap(false); return true; }
       if (this.pickup) { this.clearPickup(); return true; }
