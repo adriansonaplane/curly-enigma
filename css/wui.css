@@ -506,7 +506,7 @@ body.wui-edit .wui-ct { background: rgba(60, 45, 12, 0.3); }
 }
 .inv-toolbar .inv-filter-chip.active { border-color: var(--wui-border-hi); color: var(--wui-text-hi); background: rgba(255,217,79,0.12); }
 .inv-grid { position: relative; }
-.inv-cell.filtered-out { opacity: 0.16; pointer-events: none; }
+.inv-cell.filtered-out, .inv-item-var.filtered-out { opacity: 0.16; pointer-events: none; }
 .world-drop { margin: 9px auto 0; padding: 7px; max-width: 300px; border: 1px dashed var(--wui-border); color: var(--wui-text-dim); text-align: center; font-size: 11px; }
 .world-drop.ready { border-color: #b44; color: #ff8a7a; background: rgba(150, 20, 10, .16); }
 .stash-tabs { display: flex; gap: 4px; justify-content: center; margin-bottom: 6px; }

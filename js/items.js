@@ -34,6 +34,100 @@ const Items = {
     return t.replace('#', (Math.round(v * 10) / 10));
   },
 
+  // Grid sizes [w, h] for D2-style variable-size inventory.
+  // Weapon sizes: swords/axes 1x3, daggers 1x2, staves 1x4, bows 2x3
+  // Armor sizes: chest/shields 2x3, helms 2x2, boots/gloves 2x2, belts 2x1
+  // Jewelry: rings/amulets 1x1
+  ITEM_SIZES: {
+    sword: [1, 3], axe: [1, 3], mace: [1, 3], spear: [1, 3], claw: [1, 2],
+    dagger: [1, 2], wand: [1, 2],
+    staff: [1, 4], bow: [2, 3], crossbow: [2, 3],
+    helm: [2, 2], chest: [2, 3], shield: [2, 3], orb: [1, 2],
+    gloves: [2, 2], boots: [2, 2], belt: [2, 1],
+    ring: [1, 1], amulet: [1, 1],
+  },
+
+  sizeOf(item) {
+    if (!item) return [1, 1];
+    return this.ITEM_SIZES[item.type] || [1, 1];
+  },
+
+  // Determine the equipment slot an item would fill.
+  equipSlotFor(item) {
+    if (!item) return null;
+    if (item.slot === 'ring') return 'ring1'; // compare against first ring slot
+    return item.slot;
+  },
+
+  // Build a stat comparison tooltip section: hovered item vs currently equipped.
+  compareTooltip(item, player) {
+    if (!item || !player || item.potion) return '';
+    const slot = this.equipSlotFor(item);
+    if (!slot) return '';
+
+    const equipped = player.equip[slot];
+    if (!equipped) {
+      return '<div class="tt-compare-label" style="margin-top:7px;border-top:1px solid #342710;padding-top:5px">COMPARED TO EQUIPPED</div>' +
+        '<div style="color:#847252;font-size:11px">Empty slot — direct upgrade</div>';
+    }
+
+    let h = '<div class="tt-compare-label" style="margin-top:7px;border-top:1px solid #342710;padding-top:5px">COMPARED TO EQUIPPED</div>';
+    let anyDiff = false;
+
+    // Damage range comparison
+    if (item.dmg || equipped.dmg) {
+      const iLo = item.dmg ? item.dmg[0] : 0, iHi = item.dmg ? item.dmg[1] : 0;
+      const eLo = equipped.dmg ? equipped.dmg[0] : 0, eHi = equipped.dmg ? equipped.dmg[1] : 0;
+      const avgDiff = ((iLo + iHi) / 2) - ((eLo + eHi) / 2);
+      if (Math.abs(avgDiff) >= 0.5) {
+        const sign = avgDiff > 0 ? '+' : '';
+        const cls = avgDiff > 0 ? 'stat-up' : 'stat-down';
+        h += `<div class="${cls}">${sign}${Math.round(avgDiff * 10) / 10} avg damage</div>`;
+        anyDiff = true;
+      }
+    }
+
+    // Armor comparison
+    if (item.armor != null || equipped.armor != null) {
+      const diff = (item.armor || 0) - (equipped.armor || 0);
+      if (diff !== 0) {
+        const sign = diff > 0 ? '+' : '';
+        const cls = diff > 0 ? 'stat-up' : 'stat-down';
+        h += `<div class="${cls}">${sign}${diff} Armor</div>`;
+        anyDiff = true;
+      }
+    }
+
+    // Gather all stat keys from both items
+    const allKeys = new Set([...Object.keys(item.stats || {}), ...Object.keys(equipped.stats || {})]);
+    for (const k of allKeys) {
+      const iv = (item.stats && item.stats[k]) || 0;
+      const ev = (equipped.stats && equipped.stats[k]) || 0;
+      const diff = Math.round((iv - ev) * 10) / 10;
+      if (diff === 0) continue;
+      const sign = diff > 0 ? '+' : '';
+      const cls = diff > 0 ? 'stat-up' : 'stat-down';
+      const label = this.STAT_LABELS[k] ? this.STAT_LABELS[k].replace('+# ', '').replace('#% ', '').replace('# ', '').replace('+#', '').replace('#', '') : k;
+      h += `<div class="${cls}">${sign}${diff} ${label}</div>`;
+      anyDiff = true;
+    }
+
+    // Special stats: spellPct, critBonus
+    const specials = ['spellPct', 'critBonus'];
+    const specialLabels = { spellPct: '% Spell Damage', critBonus: '% Critical Chance' };
+    for (const s of specials) {
+      const diff = (item[s] || 0) - (equipped[s] || 0);
+      if (diff === 0) continue;
+      const sign = diff > 0 ? '+' : '';
+      const cls = diff > 0 ? 'stat-up' : 'stat-down';
+      h += `<div class="${cls}">${sign}${diff}${specialLabels[s]}</div>`;
+      anyDiff = true;
+    }
+
+    if (!anyDiff) h += '<div style="color:#847252;font-size:11px">No stat difference</div>';
+    return h;
+  },
+
   allBases() { return WEAPON_TYPES.concat(ARMOR_TYPES, JEWELRY_TYPES); },
   baseById(id) { return this.allBases().find(b => b.id === id); },
 
