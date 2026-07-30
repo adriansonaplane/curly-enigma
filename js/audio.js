@@ -18,7 +18,75 @@ const AUDIO = {
   toggleMute() {
     this.muted = !this.muted;
     if (this.master) this.master.gain.value = this.muted ? 0 : this.vol;
+    if (this._ambGain) this._ambGain.gain.value = this.muted ? 0 : this._ambVol;
     return this.muted;
+  },
+  _ambNodes: null, _ambGain: null, _ambVol: 0, _ambIntervals: [],
+
+  startAmbient(theme) {
+    this.stopAmbient();
+    if (this.muted || !this.ensure()) return;
+    const ctx = this.ctx, nodes = [], intervals = [];
+    const g = ctx.createGain();
+    g.connect(this.master);
+
+    const noiseDur = 4;
+    const buf = ctx.createBuffer(1, ctx.sampleRate * noiseDur | 0, ctx.sampleRate);
+    const nd = buf.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+
+    const self = this;
+    const drip = () => { if (self.muted) return; self.tone(2200 + Math.random() * 1800, 0.04, 'sine', 0.008, -(800 + Math.random() * 600)); };
+    const creak = () => { if (self.muted) return; self.tone(55 + Math.random() * 35, 0.3, 'sawtooth', 0.006, -18); };
+    const rumble = () => { if (self.muted) return; self.tone(28 + Math.random() * 18, 0.5, 'sine', 0.008); };
+    const hiss = () => { if (self.muted) return; self.noise(0.12, 0.008, 1400 + Math.random() * 800); };
+
+    switch (theme) {
+      case 'crypt':
+        lp.frequency.value = 160; g.gain.value = 0.035;
+        intervals.push(setInterval(drip, 2800));
+        intervals.push(setInterval(creak, 9000));
+        break;
+      case 'catacomb':
+        lp.frequency.value = 220; g.gain.value = 0.04;
+        intervals.push(setInterval(drip, 3500));
+        intervals.push(setInterval(creak, 7000));
+        break;
+      case 'cavern':
+        lp.frequency.value = 100; g.gain.value = 0.055;
+        intervals.push(setInterval(rumble, 6000));
+        intervals.push(setInterval(drip, 5000));
+        break;
+      case 'fane':
+        lp.frequency.value = 280; g.gain.value = 0.03;
+        intervals.push(setInterval(drip, 1800));
+        intervals.push(setInterval(hiss, 4000));
+        break;
+      case 'hell':
+        lp.frequency.value = 320; g.gain.value = 0.065;
+        intervals.push(setInterval(hiss, 1200));
+        intervals.push(setInterval(rumble, 8000));
+        break;
+      default:
+        lp.frequency.value = 350; g.gain.value = 0.018;
+        intervals.push(setInterval(hiss, 6000));
+        break;
+    }
+    src.connect(lp); lp.connect(g); src.start();
+    nodes.push(src);
+    this._ambNodes = nodes; this._ambGain = g; this._ambVol = g.gain.value; this._ambIntervals = intervals;
+  },
+
+  stopAmbient() {
+    if (this._ambNodes) {
+      for (const n of this._ambNodes) { try { n.stop(); } catch (_) {} }
+      try { this._ambGain.disconnect(); } catch (_) {}
+      this._ambNodes = null; this._ambGain = null;
+    }
+    for (const id of this._ambIntervals) clearInterval(id);
+    this._ambIntervals = [];
   },
   tone(freq, dur, type = 'square', vol = 0.2, slide = 0) {
     if (this.muted || !this.ensure()) return;

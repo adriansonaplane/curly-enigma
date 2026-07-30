@@ -324,6 +324,7 @@ const Render = {
     // ---------- 3D pass ----------
     this.activeLights = World3.updateLights(t, pl.x, pl.y);
     World3.updateShafts(t, step < 4 && this.fx.shafts !== false);
+    World3.updateGroundFog(t, pl.x, pl.y);
     Actors3.sync(G.monsters, t);
     Actors3.syncCrowd(t, G.npcs, typeof Social !== 'undefined' ? Social.townSims : null);
     Hero3.sync(pl, t);

@@ -73,7 +73,7 @@ const World3 = {
     const mk = (hex, rough) => new THREE.MeshStandardMaterial({
       color: new THREE.Color(hex), roughness: rough === undefined ? 0.92 : rough, metalness: 0.02,
     });
-    return {
+    const M = {
       floor: mk(th.floor), floorAlt: mk(th.floorAlt),
       wall: mk(th.wall), wallTop: mk(th.wallTop, 0.85),
       door: mk('#4a3420', 0.8),
@@ -87,6 +87,32 @@ const World3 = {
       }),
       haz: mk('#3a2a18', 0.95),
     };
+
+    const useTex = typeof GraphicsConfig !== 'undefined' && GraphicsConfig.current.textures !== false;
+    const tex = useTex && typeof DungeonTextures !== 'undefined' ? DungeonTextures.get(theme) : null;
+    if (tex) {
+      M.floor.color.set(0xffffff);
+      M.floor.map = tex.floor;
+      M.floor.normalMap = tex.floorN;
+      M.floor.normalScale = new THREE.Vector2(0.6, 0.6);
+      const fs = tex.floorScale.toFixed(6);
+      M.floor.onBeforeCompile = s => {
+        s.vertexShader = s.vertexShader.replace('#include <uv_vertex>',
+          '#include <uv_vertex>\n#ifdef USE_INSTANCING\nvUv=(modelMatrix*instanceMatrix*vec4(position,1.)).xz*' + fs + ';\n#else\nvUv=(modelMatrix*vec4(position,1.)).xz*' + fs + ';\n#endif');
+      };
+
+      M.wall.color.set(0xffffff);
+      M.wall.map = tex.wall;
+      M.wall.normalMap = tex.wallN;
+      M.wall.normalScale = new THREE.Vector2(0.5, 0.5);
+      const ws = tex.wallScale.toFixed(6);
+      M.wall.onBeforeCompile = s => {
+        s.vertexShader = s.vertexShader.replace('#include <uv_vertex>',
+          '#include <uv_vertex>\n#ifdef USE_INSTANCING\nvec3 _wP=(modelMatrix*instanceMatrix*vec4(position,1.)).xyz;\n#else\nvec3 _wP=(modelMatrix*vec4(position,1.)).xyz;\n#endif\nif(abs(normal.y)>0.5)vUv=_wP.xz*' + ws + ';else vUv=vec2(_wP.x+_wP.z,_wP.y)*' + ws + ';');
+      };
+      M._hasTex = true;
+    }
+    return M;
   },
 
   // ---- build ----
@@ -128,6 +154,7 @@ const World3 = {
     };
     const m4 = new THREE.Matrix4(), col = new THREE.Color();
 
+    const hasTex = !!M._hasTex;
     for (let ty = 0; ty < h; ty++) {
       for (let tx = 0; tx < w; tx++) {
         const i = ty * w + tx;
@@ -135,9 +162,13 @@ const World3 = {
         const x = tx + 0.5, z = ty + 0.5;
         if (t === TILE.WALL) {
           m4.makeTranslation(x, 0.95, z);
-          // vary the wall tone a little so a long corridor is not one flat slab
-          const v = 0.86 + (map.variant[i] % 6) * 0.045;
-          col.set(THEMES[map.theme].wall).multiplyScalar(v);
+          if (hasTex) {
+            const v = 0.82 + (map.variant[i] % 6) * 0.04;
+            col.setRGB(v, v, v);
+          } else {
+            const v = 0.86 + (map.variant[i] % 6) * 0.045;
+            col.set(THEMES[map.theme].wall).multiplyScalar(v);
+          }
           put(tx, ty, 'wall', m4, col);
           continue;
         }
@@ -147,14 +178,18 @@ const World3 = {
         else if (hz === HAZ.WATER) put(tx, ty, 'water', m4);
         else if (hz) put(tx, ty, 'haz', m4);
         else if (t !== TILE.DOOR) {
-          const v = 0.9 + (map.variant[i] % 6) * 0.035;
-          col.set(map.variant[i] & 1 ? THEMES[map.theme].floorAlt : THEMES[map.theme].floor).multiplyScalar(v);
+          if (hasTex) {
+            const v = 0.86 + (map.variant[i] % 8) * 0.028;
+            const warm = (map.variant[i] & 1) ? 1.03 : 0.97;
+            col.setRGB(v * warm, v, v / warm);
+          } else {
+            const v = 0.9 + (map.variant[i] % 6) * 0.035;
+            col.set(map.variant[i] & 1 ? THEMES[map.theme].floorAlt : THEMES[map.theme].floor).multiplyScalar(v);
+          }
           put(tx, ty, 'floor', m4, col);
         } else {
-          // A door still needs floor under it. Supply a colour as well: once
-          // any sibling instance has a colour attribute, unset entries are
-          // black rather than inheriting the material colour.
-          col.set(THEMES[map.theme].floor);
+          if (hasTex) col.setRGB(0.92, 0.92, 0.92);
+          else col.set(THEMES[map.theme].floor);
           put(tx, ty, 'floor', m4, col);
         }
       }
@@ -171,6 +206,7 @@ const World3 = {
 
     this.buildLights(map);
     this.buildShafts(map);
+    this.buildGroundFog(map);
     this.built = true;
     return { floors: totals.floor, walls: totals.wall, doors: totals.door, lava: totals.lava,
       water: totals.water, haz: totals.haz, batches: this.batches.length, lights: this.lights.length };
@@ -182,15 +218,11 @@ const World3 = {
   configureAtmosphere(map) {
     const th = THEMES[map.theme] || THEMES.crypt;
     R3.grade = th.grade || null;
-    // Town keeps its long sight lines; dungeons use exponential fog so rooms
-    // disappear gently without moving the camera's far plane.
-    // The multiplier turns a theme's 0-1 fog weight into an exponential density.
-    // At 0.022 it read as haze in every room rather than depth at distance, so
-    // it is the one number to change if dungeons look too thick or too clear —
-    // the per-theme weights stay as authored.
-    const density = map.theme === 'town' ? 0.00035 : (th.fog ? th.fog[1] * this.FOG_MUL : 0.0015);
+    const density = map.theme === 'town' ? 0.00035 : (th.fog ? th.fog[1] * this.FOG_MUL * 0.65 : 0.0012);
     this.fog = th.fog ? new THREE.FogExp2(new THREE.Color(th.fog[0]), density) : null;
     this.updateAtmosphere(this.options.fog);
+    const useAmb = typeof GraphicsConfig !== 'undefined' && GraphicsConfig.current.ambientAudio !== false;
+    if (useAmb && typeof AUDIO !== 'undefined' && AUDIO.startAmbient) AUDIO.startAmbient(map.theme);
   },
 
   updateAtmosphere(enabled) {
@@ -198,9 +230,61 @@ const World3 = {
     R3.scene.fog = enabled === false ? null : this.fog;
   },
 
+  buildGroundFog(map) {
+    this.fogPlane = null;
+    const th = THEMES[map.theme];
+    if (!th.fog || !this.options.fog || map.theme === 'town') return;
+    const size = 80;
+    const geo = new THREE.PlaneGeometry(size, size);
+    geo.rotateX(-Math.PI / 2);
+    const fogCol = new THREE.Color(th.fog[0]);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: {
+        time: { value: 0 },
+        fogColor: { value: fogCol },
+        fogAlpha: { value: Math.min(0.14, th.fog[1] * 0.13) },
+      },
+      vertexShader: [
+        'varying vec2 vWP;',
+        'void main(){',
+        '  vec4 wp=modelMatrix*vec4(position,1.0);',
+        '  vWP=wp.xz;',
+        '  gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);',
+        '}',
+      ].join('\n'),
+      fragmentShader: [
+        'uniform float time;uniform vec3 fogColor;uniform float fogAlpha;',
+        'varying vec2 vWP;',
+        'float hash2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
+        'float noise2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);',
+        '  return mix(mix(hash2(i),hash2(i+vec2(1,0)),f.x),mix(hash2(i+vec2(0,1)),hash2(i+vec2(1,1)),f.x),f.y);}',
+        'float fbm2(vec2 p){float v=0.0,a=0.5;for(int i=0;i<4;i++){v+=noise2(p)*a;p*=2.0;a*=0.5;}return v;}',
+        'void main(){',
+        '  vec2 uv=vWP*0.06+time*vec2(0.012,0.007);',
+        '  float n=fbm2(uv)*fbm2(uv*0.7+3.5);',
+        '  gl_FragColor=vec4(fogColor,n*fogAlpha);',
+        '}',
+      ].join('\n'),
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.y = 0.18;
+    mesh.renderOrder = 2;
+    this.group.add(mesh);
+    this.fogPlane = { mesh, mat };
+  },
+
+  updateGroundFog(t, px, pz) {
+    if (!this.fogPlane) return;
+    this.fogPlane.mesh.position.x = px;
+    this.fogPlane.mesh.position.z = pz;
+    this.fogPlane.mat.uniforms.time.value = t;
+  },
+
   buildShafts(map) {
     const th = THEMES[map.theme];
     this.shafts = [];
+    this.dustMotes = null;
     if (!this.options.shafts || !th.shaft) return;
     const geo = new THREE.ConeGeometry(1, 7, 12, 1, true);
     for (const src of map.shafts || []) {
@@ -216,6 +300,28 @@ const World3 = {
       this.group.add(mesh);
       this.shafts.push({ mesh, src });
     }
+    if (map.shafts && map.shafts.length) {
+      const pos = [], motes = [];
+      for (const src of map.shafts) {
+        for (let i = 0; i < 8; i++) {
+          const a = Math.random() * Math.PI * 2, r = Math.random() * src.w * 0.35;
+          const bx = src.x + Math.cos(a) * r, bz = src.y + Math.sin(a) * r;
+          const by = 0.5 + Math.random() * 5.5;
+          pos.push(bx, by, bz);
+          motes.push({ bx, by, bz, phase: Math.random() * Math.PI * 2, spd: 0.15 + Math.random() * 0.25 });
+        }
+      }
+      const dGeo = new THREE.BufferGeometry();
+      dGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const dMat = new THREE.PointsMaterial({
+        color: new THREE.Color(th.shaft), size: 0.07,
+        transparent: true, opacity: 0.35,
+        depthWrite: false, blending: THREE.AdditiveBlending,
+      });
+      const pts = new THREE.Points(dGeo, dMat);
+      this.group.add(pts);
+      this.dustMotes = { pts, motes, attr: dGeo.getAttribute('position') };
+    }
   },
 
   updateShafts(t, enabled) {
@@ -223,7 +329,20 @@ const World3 = {
     for (const e of this.shafts) {
       const dx = e.src.x - fx.x, dz = e.src.y - fx.z;
       e.mesh.visible = this.options.shafts && !!enabled && dx * dx + dz * dz < 34 * 34;
-      if (e.mesh.visible) e.mesh.material.opacity = 0.06 + Math.sin(t * 0.7 + e.src.phase) * 0.018;
+      if (e.mesh.visible) e.mesh.material.opacity = 0.06 + Math.sin(t * 0.7 + e.src.phase) * 0.02;
+    }
+    if (this.dustMotes) {
+      this.dustMotes.pts.visible = this.options.shafts && !!enabled;
+      if (this.dustMotes.pts.visible) {
+        const { motes, attr } = this.dustMotes;
+        for (let i = 0; i < motes.length; i++) {
+          const m = motes[i];
+          attr.setX(i, m.bx + Math.sin(t * 0.3 + m.phase) * 0.3);
+          attr.setY(i, m.by + Math.sin(t * m.spd + m.phase) * 0.6);
+          attr.setZ(i, m.bz + Math.cos(t * 0.25 + m.phase * 1.3) * 0.3);
+        }
+        attr.needsUpdate = true;
+      }
     }
   },
 
@@ -390,7 +509,10 @@ const World3 = {
         }
       });
     }
-    this.group = null; this.batches = []; this.lights = []; this._lightSelection = null; this.shafts = []; this.hero = null; this.fog = null; this.built = false;
+    this.group = null; this.batches = []; this.lights = []; this._lightSelection = null;
+    this.shafts = []; this.dustMotes = null; this.fogPlane = null;
+    this.hero = null; this.fog = null; this.built = false;
     if (R3.scene) R3.scene.fog = null;
+    if (typeof AUDIO !== 'undefined' && AUDIO.stopAmbient) AUDIO.stopAmbient();
   },
 };
