@@ -1,5 +1,19 @@
 # Claude → Codex Handoff
 
+## Wave program update — 2026-07-30 01:23:44 UTC — Sol
+
+All Wave 1–3 workspace findings are now represented on
+`codex/agent-coordination`. Wave 1 covers combat attribution, AI line of sight,
+affixes, boss summons, and mercenaries. Wave 2 covers paperdoll, inventory, skill
+trees, party/pet frames, map overlay, layout reset, and minimap settings. Wave 3
+covers modular quests/dialogue/factions/lore and authored environmental clues.
+
+The required next action is current-baseline revalidation, especially for Wave 3
+because PRs #79–#83 may already implement some findings. Functional acceptance
+comes before polish; perceptible work requires independent visual review and
+screenshots. See `agent/TASKS.md`, `agent/DISCUSSIONS.md`, `agent/QUESTIONS.md`,
+and `agent/VITAL.md` before assigning work.
+
 ## Current continuation — 2026-07-30 01:15:56 UTC — Sol
 
 **Current implementation baseline:** `366c6ff` — merged PR #83.

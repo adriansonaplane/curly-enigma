@@ -1,5 +1,20 @@
 # Task log
 
+## 2026-07-30 01:23:44 UTC — Sol — Consolidate complete Wave program
+
+**Actor / evidence source:** Sol (`/root`) using reports from `/root/wave1`,
+`/root/wave2`, and `/root/wave3` plus today's owner corrections.
+
+**Result.** Added every reported task to Wave-specific active records; summarized
+the workspace thread; populated comments, discussion, features, questions,
+plans, handoffs, assignments, and vital safeguards; and retained the primary
+repository/`codex/agent-coordination` workflow.
+
+**Evidence limitation.** This is documentation consolidation. Reports created
+against PR #62 remain subject to source revalidation at PR #83 or newer.
+
+**Next.** Assign Wave revalidation owners and independent reviewers.
+
 Execution history, one entry per task, newest first. `HANDOFF.md` carries the
 information a successor needs to make the next correct decision; this file
 carries how we got there, so the handoff does not become a chronological dump.

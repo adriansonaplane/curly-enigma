@@ -1,5 +1,22 @@
 # Agent coordination handoff
 
+## 2026-07-30 01:23:44 UTC — Sol — Complete Wave 1–3 coordination handoff
+
+- Every reported Wave item is now listed in `TASKS.md` under tasks 02–04.
+- `FEATURES.md` provides the three-Wave program index.
+- `DISCUSSIONS.md` records baseline drift and required review gates.
+- `QUESTIONS.md` records unresolved mechanics, UI, narrative, and test-baseline
+  decisions; these do not block static revalidation.
+- `COMMENTS.md` summarizes today's corrections and workspace thread.
+- `VITAL.md` prohibits the discarded local `agent` branch/nested-worktree flow.
+- `PLANS.md` defines revalidate → implement → verify → independently review →
+  polish, with evidence required at every closure.
+
+### Mini log
+
+- 2026-07-30 01:23:44 UTC — Sol (`/root`) — ready — All requested root and
+  `agent/` coordination surfaces updated on `codex/agent-coordination`.
+
 ## 2026-07-30 01:15:56 UTC — Sol — Create shared branch and restore Wave handoffs
 
 - `codex/agent-coordination` now exists from `main` baseline `366c6ff` (PR #83).

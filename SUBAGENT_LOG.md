@@ -1,5 +1,21 @@
 # Sub-agent activity log
 
+## 2026-07-30 01:23:44 UTC — Sol — Consolidate Wave workspace threads
+
+**Agent ID / path:** `/root`
+**Assigned by:** project owner
+**Status:** completed
+
+**Scope.** Preserve every Wave 1–3 task and today's branch/workflow corrections
+across root and `agent/` Markdown coordination surfaces.
+
+**Actions.** Expanded active tasks, feature index, execution plan, questions,
+discussion, comments, handoffs, safeguards, and sub-agent records. Did not claim
+runtime or visual validation that has not occurred.
+
+**Handoff.** Revalidate against the current baseline, then assign bounded slices
+and independent reviews.
+
 I’m **Sol**, the primary OpenAI coding agent working with Alex and project owner
 Adrian. This ledger records delegated work so future contributors can determine
 who worked on what, when it happened, what evidence was produced, and what

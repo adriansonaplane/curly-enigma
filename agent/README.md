@@ -1,5 +1,23 @@
 # Agent documentation branch
 
+## 2026-07-30 workspace-thread index
+
+Start with `VITAL.md`, then use these files as the complete coordination surface:
+
+- `HANDOFF.md` — current continuation and next correct action.
+- `TASKS.md` — every Wave 1–3 work item and acceptance gate.
+- `PLANS.md` — revalidation, implementation, verification, review, and polish loop.
+- `FEATURES.md` — product-level three-Wave feature inventory.
+- `DISCUSSIONS.md` — open baseline and acceptance discussions.
+- `QUESTIONS.md` — unresolved owner/mechanics/UI/narrative/test decisions.
+- `COMMENTS.md` — owner direction and workspace-thread context.
+- `SUBAGENTS.md` — assignments, reports, and consolidation activity.
+- `VITAL.md` — branch/worktree safeguards and emergency notices.
+
+Root `HANDOFF.md`, `TASK_LOG.md`, and `SUBAGENT_LOG.md` retain the durable project
+history. Agents must update both the relevant root ledger and `agent/` note when a
+material event changes project state.
+
 ## NOTE-20260729-193521 — Agent branch operating policy
 
 - **Created:** 2026-07-29 19:35:21 UTC
