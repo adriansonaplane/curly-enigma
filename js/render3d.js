@@ -221,7 +221,9 @@ const R3 = {
         uniform float amount; uniform float vignette; varying vec2 vUv;
         void main(){ vec4 c=texture2D(map,vUv); vec3 tint=mix(bottom,top,vUv.y);
           c.rgb=mix(c.rgb,c.rgb*tint*1.45,amount);
-          float edge=smoothstep(0.82,0.25,length(vUv-0.5));
+          float luma=dot(c.rgb,vec3(0.299,0.587,0.114));
+          c.rgb=mix(vec3(luma),c.rgb,0.78);
+          float edge=smoothstep(0.82,0.20,length(vUv-0.5));
           c.rgb*=mix(1.0,edge,vignette); gl_FragColor=c; }`,
       depthTest: false, depthWrite: false,
     }) : null;
@@ -492,7 +494,7 @@ const R3 = {
     if (gradeActive) {
       const u = this._postMat.uniforms;
       u.top.value.set(this.grade[0]); u.bottom.value.set(this.grade[1]);
-      u.amount.value = this.grade[2]; u.vignette.value = Math.min(0.22, this.grade[2] * 1.15);
+      u.amount.value = this.grade[2]; u.vignette.value = Math.min(0.45, this.grade[2] * 1.8);
       this.renderer.setRenderTarget(this._target);
       this.renderer.render(this.scene, this.cam);
     } else {

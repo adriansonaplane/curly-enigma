@@ -21,72 +21,145 @@ const AUDIO = {
     if (this._ambGain) this._ambGain.gain.value = this.muted ? 0 : this._ambVol;
     return this.muted;
   },
-  _ambNodes: null, _ambGain: null, _ambVol: 0, _ambIntervals: [],
+  _ambNodes: null, _ambGain: null, _ambVol: 0, _ambIntervals: [], _ambTheme: null,
 
   startAmbient(theme) {
-    this.stopAmbient();
-    if (this.muted || !this.ensure()) return;
-    const ctx = this.ctx, nodes = [], intervals = [];
+    if (!this.ensure()) return;
+    if (this._ambTheme === theme) return;
+
+    // Crossfade: fade out old over 1.5s before starting new
+    if (this._ambGain) {
+      const oldGain = this._ambGain;
+      const oldNodes = this._ambNodes;
+      const oldIntervals = this._ambIntervals;
+      const t = this.ctx.currentTime;
+      oldGain.gain.setValueAtTime(oldGain.gain.value, t);
+      oldGain.gain.linearRampToValueAtTime(0, t + 1.5);
+      setTimeout(() => {
+        for (const n of oldNodes || []) { try { n.stop(); } catch (_) {} }
+        for (const id of oldIntervals) clearTimeout(id);
+        try { oldGain.disconnect(); } catch (_) {}
+      }, 1600);
+      this._ambNodes = null; this._ambGain = null; this._ambIntervals = [];
+    } else {
+      this.stopAmbient();
+    }
+
+    this._ambTheme = theme;
+    const ctx = this.ctx, nodes = [], timeouts = [];
     const g = ctx.createGain();
+    g.gain.value = 0;
     g.connect(this.master);
 
-    const noiseDur = 4;
+    // Longer buffer with fade taper at loop boundary
+    const noiseDur = 8;
     const buf = ctx.createBuffer(1, ctx.sampleRate * noiseDur | 0, ctx.sampleRate);
     const nd = buf.getChannelData(0);
+    const fadeLen = Math.floor(ctx.sampleRate * 0.1);
     for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    for (let i = 0; i < fadeLen; i++) {
+      const f = i / fadeLen;
+      nd[i] *= f;
+      nd[nd.length - 1 - i] *= f;
+    }
     const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
     const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
 
     const self = this;
-    const drip = () => { if (self.muted) return; self.tone(2200 + Math.random() * 1800, 0.04, 'sine', 0.008, -(800 + Math.random() * 600)); };
-    const creak = () => { if (self.muted) return; self.tone(55 + Math.random() * 35, 0.3, 'sawtooth', 0.006, -18); };
-    const rumble = () => { if (self.muted) return; self.tone(28 + Math.random() * 18, 0.5, 'sine', 0.008); };
-    const hiss = () => { if (self.muted) return; self.noise(0.12, 0.008, 1400 + Math.random() * 800); };
+    const drip = () => {
+      if (!self.muted) {
+        self.tone(1800 + Math.random() * 1400, 0.05, 'sine', 0.03, -(600 + Math.random() * 500));
+        if (Math.random() < 0.3) setTimeout(() => self.tone(1400 + Math.random() * 800, 0.03, 'sine', 0.015, -400), 80 + Math.random() * 120);
+      }
+      timeouts.push(setTimeout(drip, 2500 + Math.random() * 4000));
+    };
+    const creak = () => {
+      if (!self.muted) {
+        self.tone(180 + Math.random() * 120, 0.35, 'sawtooth', 0.025, -(40 + Math.random() * 30));
+        self.noise(0.15, 0.012, 600 + Math.random() * 400);
+      }
+      timeouts.push(setTimeout(creak, 7000 + Math.random() * 12000));
+    };
+    const rumble = () => {
+      if (!self.muted) {
+        self.tone(40 + Math.random() * 25, 0.6, 'sine', 0.04);
+        self.noise(0.3, 0.02, 120 + Math.random() * 80);
+      }
+      timeouts.push(setTimeout(rumble, 5000 + Math.random() * 10000));
+    };
+    const hiss = () => {
+      if (!self.muted) self.noise(0.18, 0.03, 1200 + Math.random() * 1000);
+      timeouts.push(setTimeout(hiss, 3000 + Math.random() * 6000));
+    };
+    const chains = () => {
+      if (!self.muted) {
+        for (let i = 0; i < 3; i++) setTimeout(() => self.tone(3000 + Math.random() * 2000, 0.02, 'square', 0.015, -(1000 + Math.random() * 800)), i * 40);
+      }
+      timeouts.push(setTimeout(chains, 10000 + Math.random() * 15000));
+    };
+    const moan = () => {
+      if (!self.muted) {
+        const f = 150 + Math.random() * 100;
+        self.tone(f, 0.8, 'sawtooth', 0.018, Math.random() > 0.5 ? 30 : -30);
+        self.tone(f * 1.5, 0.6, 'sine', 0.008, -20);
+      }
+      timeouts.push(setTimeout(moan, 15000 + Math.random() * 20000));
+    };
 
+    let targetGain;
     switch (theme) {
       case 'crypt':
-        lp.frequency.value = 160; g.gain.value = 0.035;
-        intervals.push(setInterval(drip, 2800));
-        intervals.push(setInterval(creak, 9000));
+        lp.frequency.value = 160; targetGain = 0.04;
+        timeouts.push(setTimeout(drip, 1500 + Math.random() * 2000));
+        timeouts.push(setTimeout(creak, 4000 + Math.random() * 5000));
+        timeouts.push(setTimeout(chains, 8000 + Math.random() * 6000));
         break;
       case 'catacomb':
-        lp.frequency.value = 220; g.gain.value = 0.04;
-        intervals.push(setInterval(drip, 3500));
-        intervals.push(setInterval(creak, 7000));
+        lp.frequency.value = 200; targetGain = 0.045;
+        timeouts.push(setTimeout(drip, 2000 + Math.random() * 3000));
+        timeouts.push(setTimeout(moan, 6000 + Math.random() * 8000));
+        timeouts.push(setTimeout(creak, 5000 + Math.random() * 4000));
         break;
       case 'cavern':
-        lp.frequency.value = 100; g.gain.value = 0.055;
-        intervals.push(setInterval(rumble, 6000));
-        intervals.push(setInterval(drip, 5000));
+        lp.frequency.value = 120; targetGain = 0.06;
+        timeouts.push(setTimeout(rumble, 2000 + Math.random() * 3000));
+        timeouts.push(setTimeout(drip, 3000 + Math.random() * 4000));
+        timeouts.push(setTimeout(hiss, 4000 + Math.random() * 3000));
         break;
       case 'fane':
-        lp.frequency.value = 280; g.gain.value = 0.03;
-        intervals.push(setInterval(drip, 1800));
-        intervals.push(setInterval(hiss, 4000));
+        lp.frequency.value = 260; targetGain = 0.035;
+        timeouts.push(setTimeout(drip, 3000 + Math.random() * 4000));
+        timeouts.push(setTimeout(hiss, 5000 + Math.random() * 5000));
+        timeouts.push(setTimeout(chains, 10000 + Math.random() * 8000));
         break;
       case 'hell':
-        lp.frequency.value = 320; g.gain.value = 0.065;
-        intervals.push(setInterval(hiss, 1200));
-        intervals.push(setInterval(rumble, 8000));
+        lp.frequency.value = 300; targetGain = 0.07;
+        timeouts.push(setTimeout(hiss, 1000 + Math.random() * 2000));
+        timeouts.push(setTimeout(rumble, 3000 + Math.random() * 4000));
+        timeouts.push(setTimeout(moan, 5000 + Math.random() * 8000));
         break;
       default:
-        lp.frequency.value = 350; g.gain.value = 0.018;
-        intervals.push(setInterval(hiss, 6000));
+        lp.frequency.value = 350; targetGain = 0.022;
+        timeouts.push(setTimeout(hiss, 4000 + Math.random() * 5000));
         break;
     }
     src.connect(lp); lp.connect(g); src.start();
-    nodes.push(src);
-    this._ambNodes = nodes; this._ambGain = g; this._ambVol = g.gain.value; this._ambIntervals = intervals;
+    nodes.push(src); nodes.push(lp);
+    const t = ctx.currentTime;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(this.muted ? 0 : targetGain, t + 1.5);
+    this._ambNodes = nodes; this._ambGain = g; this._ambVol = targetGain; this._ambIntervals = timeouts;
   },
 
   stopAmbient() {
     if (this._ambNodes) {
-      for (const n of this._ambNodes) { try { n.stop(); } catch (_) {} }
+      for (const n of this._ambNodes) { try { n.stop(); } catch (_) {} try { n.disconnect(); } catch (_) {} }
       try { this._ambGain.disconnect(); } catch (_) {}
       this._ambNodes = null; this._ambGain = null;
     }
-    for (const id of this._ambIntervals) clearInterval(id);
+    for (const id of this._ambIntervals) clearTimeout(id);
     this._ambIntervals = [];
+    this._ambTheme = null;
   },
   tone(freq, dur, type = 'square', vol = 0.2, slide = 0) {
     if (this.muted || !this.ensure()) return;
@@ -98,6 +171,7 @@ const AUDIO = {
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g); g.connect(this.master);
     o.start(t); o.stop(t + dur + 0.02);
+    o.onended = () => { o.disconnect(); g.disconnect(); };
   },
   noise(dur, vol = 0.2, freq = 800) {
     if (this.muted || !this.ensure()) return;
@@ -111,6 +185,7 @@ const AUDIO = {
     const g = this.ctx.createGain(); g.gain.value = vol;
     src.connect(f); f.connect(g); g.connect(this.master);
     src.start(t);
+    src.onended = () => { src.disconnect(); f.disconnect(); g.disconnect(); };
   },
 };
 
@@ -138,8 +213,6 @@ function sfx(name) {
     case 'portal':   AUDIO.tone(300, 0.5, 'sine', 0.13, 500); break;
     case 'shrine':   [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => AUDIO.tone(f, 0.2, 'sine', 0.12), i * 60)); break;
     case 'explode':  AUDIO.noise(0.4, 0.3, 350); break;
-    // a torch catching, and the same torch going out: a rising whoomph
-    // against a falling hiss, so the toggle is audible without looking
     case 'torchup':  AUDIO.noise(0.2, 0.15, 620); AUDIO.tone(170, 0.28, 'sawtooth', 0.09, 240); break;
     case 'torchdn':  AUDIO.noise(0.24, 0.11, 1700); AUDIO.tone(260, 0.2, 'sine', 0.07, -190); break;
     case 'nope':     AUDIO.tone(160, 0.14, 'square', 0.1, -40); break;

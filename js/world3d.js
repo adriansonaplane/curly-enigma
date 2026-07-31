@@ -94,22 +94,24 @@ const World3 = {
       M.floor.color.set(0xffffff);
       M.floor.map = tex.floor;
       M.floor.normalMap = tex.floorN;
-      M.floor.normalScale = new THREE.Vector2(0.6, 0.6);
+      M.floor.normalScale = new THREE.Vector2(1.2, 1.2);
       const fs = tex.floorScale.toFixed(6);
       M.floor.onBeforeCompile = s => {
         s.vertexShader = s.vertexShader.replace('#include <uv_vertex>',
           '#include <uv_vertex>\n#ifdef USE_INSTANCING\nvUv=(modelMatrix*instanceMatrix*vec4(position,1.)).xz*' + fs + ';\n#else\nvUv=(modelMatrix*vec4(position,1.)).xz*' + fs + ';\n#endif');
       };
+      M.floor.customProgramCacheKey = 'floor_' + fs;
 
       M.wall.color.set(0xffffff);
       M.wall.map = tex.wall;
       M.wall.normalMap = tex.wallN;
-      M.wall.normalScale = new THREE.Vector2(0.5, 0.5);
+      M.wall.normalScale = new THREE.Vector2(1.0, 1.0);
       const ws = tex.wallScale.toFixed(6);
       M.wall.onBeforeCompile = s => {
         s.vertexShader = s.vertexShader.replace('#include <uv_vertex>',
           '#include <uv_vertex>\n#ifdef USE_INSTANCING\nvec3 _wP=(modelMatrix*instanceMatrix*vec4(position,1.)).xyz;\n#else\nvec3 _wP=(modelMatrix*vec4(position,1.)).xyz;\n#endif\nif(abs(normal.y)>0.5)vUv=_wP.xz*' + ws + ';else vUv=vec2(_wP.x+_wP.z,_wP.y)*' + ws + ';');
       };
+      M.wall.customProgramCacheKey = 'wall_' + ws;
       M._hasTex = true;
     }
     return M;
@@ -130,15 +132,17 @@ const World3 = {
     const M = this._mat(map.theme);
     const { w, h } = map;
 
-    const plane = new THREE.BoxGeometry(1, 0.12, 1);
+    const plane = new THREE.PlaneGeometry(1, 1);
+    plane.rotateX(-Math.PI / 2); plane.translate(0, 0.06, 0);
     const wallGeo = new THREE.BoxGeometry(1, 1.9, 1);
-    const doorGeo = new THREE.BoxGeometry(1, 0.12, 1);
+    const doorGeo = new THREE.PlaneGeometry(1, 1);
+    doorGeo.rotateX(-Math.PI / 2); doorGeo.translate(0, 0.06, 0);
 
     const mk = (geo, mat, entries, cast, receive, category, chunk) => {
       if (!entries.length) return null;
       const im = new THREE.InstancedMesh(geo.clone(), mat, entries.length);
       im.castShadow = !!cast; im.receiveShadow = receive !== false;
-      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
       g.add(im);
       entries.forEach((e, i) => { im.setMatrixAt(i, e.matrix); if (e.color) im.setColorAt(i, e.color); });
       this._finishBatch(im, entries.map(e => e.matrix), category, chunk);
@@ -155,6 +159,14 @@ const World3 = {
     const m4 = new THREE.Matrix4(), col = new THREE.Color();
 
     const hasTex = !!M._hasTex;
+    const _adjWalls = (tx, ty) => {
+      let c = 0;
+      if (tx > 0 && map.t[ty * w + tx - 1] === TILE.WALL) c++;
+      if (tx < w - 1 && map.t[ty * w + tx + 1] === TILE.WALL) c++;
+      if (ty > 0 && map.t[(ty - 1) * w + tx] === TILE.WALL) c++;
+      if (ty < h - 1 && map.t[(ty + 1) * w + tx] === TILE.WALL) c++;
+      return c;
+    };
     for (let ty = 0; ty < h; ty++) {
       for (let tx = 0; tx < w; tx++) {
         const i = ty * w + tx;
@@ -163,10 +175,10 @@ const World3 = {
         if (t === TILE.WALL) {
           m4.makeTranslation(x, 0.95, z);
           if (hasTex) {
-            const v = 0.82 + (map.variant[i] % 6) * 0.04;
+            const v = 0.68 + (map.variant[i] % 8) * 0.05;
             col.setRGB(v, v, v);
           } else {
-            const v = 0.86 + (map.variant[i] % 6) * 0.045;
+            const v = 0.80 + (map.variant[i] % 8) * 0.04;
             col.set(THEMES[map.theme].wall).multiplyScalar(v);
           }
           put(tx, ty, 'wall', m4, col);
@@ -178,18 +190,22 @@ const World3 = {
         else if (hz === HAZ.WATER) put(tx, ty, 'water', m4);
         else if (hz) put(tx, ty, 'haz', m4);
         else if (t !== TILE.DOOR) {
+          const aw = _adjWalls(tx, ty);
+          const aoDim = 1 - aw * 0.12;
           if (hasTex) {
-            const v = 0.86 + (map.variant[i] % 8) * 0.028;
-            const warm = (map.variant[i] & 1) ? 1.03 : 0.97;
+            const v = (0.78 + (map.variant[i] % 10) * 0.032) * aoDim;
+            const warm = (map.variant[i] & 1) ? 1.04 : 0.96;
             col.setRGB(v * warm, v, v / warm);
           } else {
-            const v = 0.9 + (map.variant[i] % 6) * 0.035;
+            const v = (0.85 + (map.variant[i] % 8) * 0.035) * aoDim;
             col.set(map.variant[i] & 1 ? THEMES[map.theme].floorAlt : THEMES[map.theme].floor).multiplyScalar(v);
           }
           put(tx, ty, 'floor', m4, col);
         } else {
-          if (hasTex) col.setRGB(0.92, 0.92, 0.92);
-          else col.set(THEMES[map.theme].floor);
+          const aw = _adjWalls(tx, ty);
+          const aoDim = 1 - aw * 0.10;
+          if (hasTex) col.setRGB(0.88 * aoDim, 0.88 * aoDim, 0.88 * aoDim);
+          else col.set(THEMES[map.theme].floor).multiplyScalar(aoDim);
           put(tx, ty, 'floor', m4, col);
         }
       }
@@ -218,7 +234,7 @@ const World3 = {
   configureAtmosphere(map) {
     const th = THEMES[map.theme] || THEMES.crypt;
     R3.grade = th.grade || null;
-    const density = map.theme === 'town' ? 0.00035 : (th.fog ? th.fog[1] * this.FOG_MUL * 0.65 : 0.0012);
+    const density = map.theme === 'town' ? 0.00035 : (th.fog ? th.fog[1] * this.FOG_MUL * 1.6 : 0.0012);
     this.fog = th.fog ? new THREE.FogExp2(new THREE.Color(th.fog[0]), density) : null;
     this.updateAtmosphere(this.options.fog);
     const useAmb = typeof GraphicsConfig !== 'undefined' && GraphicsConfig.current.ambientAudio !== false;
@@ -231,54 +247,70 @@ const World3 = {
   },
 
   buildGroundFog(map) {
-    this.fogPlane = null;
+    this.fogPlanes = [];
     const th = THEMES[map.theme];
     if (!th.fog || !this.options.fog || map.theme === 'town') return;
     const size = 80;
-    const geo = new THREE.PlaneGeometry(size, size);
-    geo.rotateX(-Math.PI / 2);
     const fogCol = new THREE.Color(th.fog[0]);
-    const mat = new THREE.ShaderMaterial({
-      uniforms: {
-        time: { value: 0 },
-        fogColor: { value: fogCol },
-        fogAlpha: { value: Math.min(0.14, th.fog[1] * 0.13) },
-      },
-      vertexShader: [
-        'varying vec2 vWP;',
-        'void main(){',
-        '  vec4 wp=modelMatrix*vec4(position,1.0);',
-        '  vWP=wp.xz;',
-        '  gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);',
-        '}',
-      ].join('\n'),
-      fragmentShader: [
-        'uniform float time;uniform vec3 fogColor;uniform float fogAlpha;',
-        'varying vec2 vWP;',
-        'float hash2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
-        'float noise2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);',
-        '  return mix(mix(hash2(i),hash2(i+vec2(1,0)),f.x),mix(hash2(i+vec2(0,1)),hash2(i+vec2(1,1)),f.x),f.y);}',
-        'float fbm2(vec2 p){float v=0.0,a=0.5;for(int i=0;i<4;i++){v+=noise2(p)*a;p*=2.0;a*=0.5;}return v;}',
-        'void main(){',
-        '  vec2 uv=vWP*0.06+time*vec2(0.012,0.007);',
-        '  float n=fbm2(uv)*fbm2(uv*0.7+3.5);',
-        '  gl_FragColor=vec4(fogColor,n*fogAlpha);',
-        '}',
-      ].join('\n'),
-      transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.y = 0.18;
-    mesh.renderOrder = 2;
-    this.group.add(mesh);
-    this.fogPlane = { mesh, mat };
+    const baseAlpha = Math.min(0.38, th.fog[1] * 2.8);
+
+    const layers = [
+      { y: 0.12, alpha: baseAlpha, speed: [0.012, 0.007], scale: 0.06 },
+      { y: 0.30, alpha: baseAlpha * 0.6, speed: [0.008, 0.013], scale: 0.045 },
+      { y: 0.55, alpha: baseAlpha * 0.3, speed: [0.015, 0.005], scale: 0.035 },
+    ];
+
+    const fragSrc = [
+      'uniform float time;uniform vec3 fogColor;uniform float fogAlpha;uniform float uScale;uniform vec2 uSpeed;',
+      'varying vec2 vWP;',
+      'float hash2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}',
+      'float noise2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);',
+      '  return mix(mix(hash2(i),hash2(i+vec2(1,0)),f.x),mix(hash2(i+vec2(0,1)),hash2(i+vec2(1,1)),f.x),f.y);}',
+      'float fbm2(vec2 p){float v=0.0,a=0.5;for(int i=0;i<5;i++){v+=noise2(p)*a;p*=2.0;a*=0.5;}return v;}',
+      'void main(){',
+      '  vec2 uv=vWP*uScale+time*uSpeed;',
+      '  float n=fbm2(uv)*0.6+fbm2(uv*0.7+3.5)*0.4;',
+      '  n=smoothstep(0.25,0.7,n);',
+      '  float edge=1.0-smoothstep(28.0,40.0,length(vWP));',
+      '  gl_FragColor=vec4(fogColor,n*fogAlpha*edge);',
+      '}',
+    ].join('\n');
+    const vtxSrc = [
+      'varying vec2 vWP;',
+      'void main(){',
+      '  vec4 wp=modelMatrix*vec4(position,1.0);',
+      '  vWP=wp.xz;',
+      '  gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);',
+      '}',
+    ].join('\n');
+
+    for (const lay of layers) {
+      const geo = new THREE.PlaneGeometry(size, size);
+      geo.rotateX(-Math.PI / 2);
+      const mat = new THREE.ShaderMaterial({
+        uniforms: {
+          time: { value: 0 }, fogColor: { value: fogCol },
+          fogAlpha: { value: lay.alpha },
+          uScale: { value: lay.scale },
+          uSpeed: { value: new THREE.Vector2(lay.speed[0], lay.speed[1]) },
+        },
+        vertexShader: vtxSrc, fragmentShader: fragSrc,
+        transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.y = lay.y; mesh.renderOrder = 2;
+      this.group.add(mesh);
+      this.fogPlanes.push({ mesh, mat });
+    }
+    this.fogPlane = this.fogPlanes[0] || null;
   },
 
   updateGroundFog(t, px, pz) {
-    if (!this.fogPlane) return;
-    this.fogPlane.mesh.position.x = px;
-    this.fogPlane.mesh.position.z = pz;
-    this.fogPlane.mat.uniforms.time.value = t;
+    for (const fp of this.fogPlanes || []) {
+      fp.mesh.position.x = px;
+      fp.mesh.position.z = pz;
+      fp.mat.uniforms.time.value = t;
+    }
   },
 
   buildShafts(map) {
@@ -286,10 +318,10 @@ const World3 = {
     this.shafts = [];
     this.dustMotes = null;
     if (!this.options.shafts || !th.shaft) return;
-    const geo = new THREE.ConeGeometry(1, 7, 12, 1, true);
+    const geo = new THREE.ConeGeometry(1.6, 7, 24, 1, true);
     for (const src of map.shafts || []) {
       const mat = new THREE.MeshBasicMaterial({
-        color: th.shaft, transparent: true, opacity: 0.075,
+        color: th.shaft, transparent: true, opacity: 0.20,
         blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
         side: THREE.DoubleSide,
       });
@@ -301,22 +333,28 @@ const World3 = {
       this.shafts.push({ mesh, src });
     }
     if (map.shafts && map.shafts.length) {
-      const pos = [], motes = [];
+      const pos = [], sizes = [], motes = [];
       for (const src of map.shafts) {
-        for (let i = 0; i < 8; i++) {
-          const a = Math.random() * Math.PI * 2, r = Math.random() * src.w * 0.35;
+        for (let i = 0; i < 35; i++) {
+          const a = Math.random() * Math.PI * 2, r = Math.random() * src.w * 0.45;
           const bx = src.x + Math.cos(a) * r, bz = src.y + Math.sin(a) * r;
-          const by = 0.5 + Math.random() * 5.5;
+          const by = 0.3 + Math.random() * 6.0;
           pos.push(bx, by, bz);
-          motes.push({ bx, by, bz, phase: Math.random() * Math.PI * 2, spd: 0.15 + Math.random() * 0.25 });
+          sizes.push(0.08 + Math.random() * 0.16);
+          motes.push({
+            bx, by, bz, phase: Math.random() * Math.PI * 2,
+            spd: 0.08 + Math.random() * 0.18,
+            drift: 0.02 + Math.random() * 0.04,
+          });
         }
       }
       const dGeo = new THREE.BufferGeometry();
       dGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       const dMat = new THREE.PointsMaterial({
-        color: new THREE.Color(th.shaft), size: 0.07,
-        transparent: true, opacity: 0.35,
+        color: new THREE.Color(th.shaft), size: 0.18,
+        transparent: true, opacity: 0.45,
         depthWrite: false, blending: THREE.AdditiveBlending,
+        sizeAttenuation: true,
       });
       const pts = new THREE.Points(dGeo, dMat);
       this.group.add(pts);
@@ -329,17 +367,19 @@ const World3 = {
     for (const e of this.shafts) {
       const dx = e.src.x - fx.x, dz = e.src.y - fx.z;
       e.mesh.visible = this.options.shafts && !!enabled && dx * dx + dz * dz < 34 * 34;
-      if (e.mesh.visible) e.mesh.material.opacity = 0.06 + Math.sin(t * 0.7 + e.src.phase) * 0.02;
+      if (e.mesh.visible) e.mesh.material.opacity = 0.16 + Math.sin(t * 0.5 + e.src.phase) * 0.06;
     }
     if (this.dustMotes) {
       this.dustMotes.pts.visible = this.options.shafts && !!enabled;
       if (this.dustMotes.pts.visible) {
         const { motes, attr } = this.dustMotes;
+        const arr = attr.array;
         for (let i = 0; i < motes.length; i++) {
-          const m = motes[i];
-          attr.setX(i, m.bx + Math.sin(t * 0.3 + m.phase) * 0.3);
-          attr.setY(i, m.by + Math.sin(t * m.spd + m.phase) * 0.6);
-          attr.setZ(i, m.bz + Math.cos(t * 0.25 + m.phase * 1.3) * 0.3);
+          const m = motes[i], j = i * 3;
+          arr[j]     = m.bx + Math.sin(t * 0.2 + m.phase) * 0.4 + Math.sin(t * 0.7 + m.phase * 2.3) * 0.12;
+          arr[j + 1] = m.by + Math.sin(t * m.spd + m.phase) * 0.5 + t * m.drift;
+          arr[j + 2] = m.bz + Math.cos(t * 0.18 + m.phase * 1.3) * 0.4 + Math.cos(t * 0.55 + m.phase * 3.1) * 0.1;
+          if (arr[j + 1] > m.by + 3.0) arr[j + 1] = m.by - 0.5;
         }
         attr.needsUpdate = true;
       }
@@ -362,11 +402,10 @@ const World3 = {
   // light per fragment, and a 40-torch crypt would tank the frame otherwise.
   buildLights(map) {
     const th = THEMES[map.theme];
-    this.ambient = new THREE.AmbientLight(new THREE.Color(th.wallTop), 0.18);
+    this.ambient = new THREE.AmbientLight(new THREE.Color(th.wallTop), 0.07);
     this.group.add(this.ambient);
 
-    // a very dim directional fill so silhouettes read even in full dark
-    const key = new THREE.DirectionalLight(new THREE.Color(th.wallTop), 0.08);
+    const key = new THREE.DirectionalLight(new THREE.Color(th.wallTop), 0.035);
     key.position.set(0.4, 1, 0.25);
     this.group.add(key);
     this.keyLight = key;
@@ -460,8 +499,8 @@ const World3 = {
   updateLights(t, px, pz) {
     if (!this.built) return 0;
     const spooky = R3.mood === 'spooky';
-    if (this.ambient) this.ambient.intensity = spooky ? 0.055 : 0.18;
-    if (this.keyLight) this.keyLight.intensity = spooky ? 0.03 : 0.08;
+    if (this.ambient) this.ambient.intensity = spooky ? 0.025 : 0.07;
+    if (this.keyLight) this.keyLight.intensity = spooky ? 0.012 : 0.035;
 
     // The hero lamp is itself a visible point light and therefore consumes a
     // shader slot. Budget sconces from what remains so Three never generates a
@@ -474,7 +513,10 @@ const World3 = {
       if (!selected.has(e)) continue;
       const s = e.src;
       let k = 1;
-      if (s.flick) k = 0.82 + Math.sin(t * 11 + s.x * 7 + s.y * 13) * 0.18;
+      if (s.flick) {
+        k = 0.75 + Math.sin(t * 3.2 + s.x * 7) * 0.15 + Math.sin(t * 7.1 + s.y * 13) * 0.08;
+        if (Math.sin(t * 1.1 + s.x * 3) > 0.85) k -= 0.25;
+      }
       if (s.vent !== undefined) {
         // vents only shine while the jet is out, same cycle the damage uses
         k *= ventJetting(s.vent, t)
@@ -510,9 +552,10 @@ const World3 = {
       });
     }
     this.group = null; this.batches = []; this.lights = []; this._lightSelection = null;
-    this.shafts = []; this.dustMotes = null; this.fogPlane = null;
+    this.shafts = []; this.dustMotes = null; this.fogPlane = null; this.fogPlanes = [];
     this.hero = null; this.fog = null; this.built = false;
     if (R3.scene) R3.scene.fog = null;
+    if (typeof DungeonTextures !== 'undefined' && DungeonTextures.dispose) DungeonTextures.dispose();
     if (typeof AUDIO !== 'undefined' && AUDIO.stopAmbient) AUDIO.stopAmbient();
   },
 };
