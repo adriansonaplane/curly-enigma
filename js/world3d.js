@@ -223,6 +223,8 @@ const World3 = {
     this.buildLights(map);
     this.buildShafts(map);
     this.buildGroundFog(map);
+    this.buildDecals(map);
+    this.buildSmoke(map);
     this.built = true;
     return { floors: totals.floor, walls: totals.wall, doors: totals.door, lava: totals.lava,
       water: totals.water, haz: totals.haz, batches: this.batches.length, lights: this.lights.length };
@@ -311,6 +313,116 @@ const World3 = {
       fp.mesh.position.z = pz;
       fp.mat.uniforms.time.value = t;
     }
+  },
+
+  buildDecals(map) {
+    this.decalMeshes = [];
+    if (map.theme === 'town') return;
+    if (typeof DungeonTextures === 'undefined' || !DungeonTextures.getDecals) return;
+    const textures = DungeonTextures.getDecals(map.theme);
+    if (!textures || !textures.length) return;
+
+    const { w, h } = map;
+    const floors = [];
+    for (let ty = 0; ty < h; ty++) {
+      for (let tx = 0; tx < w; tx++) {
+        const i = ty * w + tx;
+        if (map.t[i] === TILE.WALL || map.t[i] === TILE.DOOR) continue;
+        if (map.haz[i]) continue;
+        floors.push({ x: tx, y: ty });
+      }
+    }
+    if (floors.length < 10) return;
+
+    const rng = ((s) => { let v = s ^ 0xbeef1234; return () => { v = (Math.imul(v, 1664525) + 1013904223) | 0; return (v >>> 0) / 4294967296; }; })(floors.length);
+    const decalGeo = new THREE.PlaneGeometry(0.9, 0.9);
+    decalGeo.rotateX(-Math.PI / 2);
+
+    const perType = 7 + Math.floor(rng() * 5);
+    const m4 = new THREE.Matrix4();
+    for (let ti = 0; ti < textures.length; ti++) {
+      const entries = [];
+      for (let i = 0; i < perType; i++) {
+        const fi = Math.floor(rng() * floors.length);
+        const f = floors[fi];
+        const scale = 0.55 + rng() * 0.5;
+        const rot = rng() * Math.PI * 2;
+        m4.makeRotationY(rot);
+        m4.scale(new THREE.Vector3(scale, 1, scale));
+        m4.setPosition(f.x + 0.5 + (rng() - 0.5) * 0.3, 0.08, f.y + 0.5 + (rng() - 0.5) * 0.3);
+        entries.push(m4.clone());
+      }
+      if (!entries.length) continue;
+      const mat = new THREE.MeshBasicMaterial({
+        map: textures[ti], transparent: true, depthWrite: false,
+        side: THREE.DoubleSide, blending: THREE.NormalBlending,
+      });
+      const im = new THREE.InstancedMesh(decalGeo.clone(), mat, entries.length);
+      im.receiveShadow = true;
+      im.renderOrder = 1;
+      entries.forEach((mx, i) => im.setMatrixAt(i, mx));
+      im.instanceMatrix.needsUpdate = true;
+      im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      this.group.add(im);
+      this.decalMeshes.push(im);
+    }
+    decalGeo.dispose();
+  },
+
+  buildSmoke(map) {
+    this.smokeParticles = null;
+    if (map.theme === 'town') return;
+    const sources = [];
+    for (const src of map.lights) {
+      if (src.flick) sources.push(src);
+    }
+    if (!sources.length) return;
+
+    const pos = [], smokes = [];
+    const pps = 6;
+    for (const src of sources) {
+      for (let i = 0; i < pps; i++) {
+        const a = Math.random() * Math.PI * 2, r = Math.random() * 0.12;
+        const bx = src.x + Math.cos(a) * r, bz = src.y + Math.sin(a) * r;
+        const by = 1.25 + Math.random() * 0.2;
+        pos.push(bx, by, bz);
+        smokes.push({
+          bx, by, bz, phase: Math.random() * Math.PI * 2,
+          spd: 0.12 + Math.random() * 0.18,
+          wobble: 0.06 + Math.random() * 0.10,
+        });
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const mat = new THREE.PointsMaterial({
+      color: 0x9a9088, size: 0.10, transparent: true, opacity: 0.14,
+      depthWrite: false, blending: THREE.NormalBlending, sizeAttenuation: true,
+    });
+    const pts = new THREE.Points(geo, mat);
+    pts.renderOrder = 3;
+    this.group.add(pts);
+    this.smokeParticles = { pts, smokes, attr: geo.getAttribute('position') };
+  },
+
+  updateSmoke(t) {
+    if (!this.smokeParticles) return;
+    const { smokes, attr, pts } = this.smokeParticles;
+    const fx = R3.focus;
+    const arr = attr.array;
+    let anyVisible = false;
+    for (let i = 0; i < smokes.length; i++) {
+      const s = smokes[i], j = i * 3;
+      const dx = s.bx - fx.x, dz = s.bz - fx.z;
+      if (dx * dx + dz * dz > 30 * 30) continue;
+      anyVisible = true;
+      const cycle = ((t * s.spd + s.phase) % 2.5) / 2.5;
+      arr[j]     = s.bx + Math.sin(t * 0.7 + s.phase) * s.wobble * (1 + cycle);
+      arr[j + 1] = s.by + cycle * 1.4;
+      arr[j + 2] = s.bz + Math.cos(t * 0.5 + s.phase * 1.7) * s.wobble * (1 + cycle);
+    }
+    pts.visible = anyVisible;
+    if (anyVisible) attr.needsUpdate = true;
   },
 
   buildShafts(map) {
@@ -553,6 +665,7 @@ const World3 = {
     }
     this.group = null; this.batches = []; this.lights = []; this._lightSelection = null;
     this.shafts = []; this.dustMotes = null; this.fogPlane = null; this.fogPlanes = [];
+    this.decalMeshes = []; this.smokeParticles = null;
     this.hero = null; this.fog = null; this.built = false;
     if (R3.scene) R3.scene.fog = null;
     if (typeof DungeonTextures !== 'undefined' && DungeonTextures.dispose) DungeonTextures.dispose();
