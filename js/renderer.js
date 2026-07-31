@@ -325,7 +325,11 @@ const Render = {
     this.activeLights = World3.updateLights(t, pl.x, pl.y);
     World3.updateShafts(t, step < 4 && this.fx.shafts !== false);
     World3.updateSmoke(t);
-    World3.updateGroundFog(t, pl.x, pl.y);
+    if (step < 3 && this.fx.fog !== false) {
+      World3.updateGroundFog(t, pl.x, pl.y);
+    } else if (World3.fogPlanes) {
+      for (const fp of World3.fogPlanes) fp.mesh.visible = false;
+    }
     Actors3.sync(G.monsters, t);
     Actors3.syncCrowd(t, G.npcs, typeof Social !== 'undefined' ? Social.townSims : null);
     Hero3.sync(pl, t);

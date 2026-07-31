@@ -510,19 +510,19 @@ const DungeonTextures = {
       const ox = (rng() - 0.5) * S * 0.12, oy = (rng() - 0.5) * S * 0.12;
       const r = S * (0.16 + rng() * 0.14);
       const grad = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, r);
-      grad.addColorStop(0, 'rgba(58,52,48,0.35)');
-      grad.addColorStop(0.5, 'rgba(52,48,44,0.22)');
-      grad.addColorStop(0.8, 'rgba(46,44,40,0.08)');
-      grad.addColorStop(1, 'rgba(40,38,35,0)');
+      grad.addColorStop(0, 'rgba(20,25,35,0.45)');
+      grad.addColorStop(0.5, 'rgba(18,22,32,0.30)');
+      grad.addColorStop(0.8, 'rgba(16,20,28,0.10)');
+      grad.addColorStop(1, 'rgba(14,18,24,0)');
       ctx.fillStyle = grad;
       ctx.save(); ctx.translate(cx + ox, cy + oy); ctx.scale(1, 0.55 + rng() * 0.4);
       ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     }
-    const hr = S * 0.12;
+    const hr = S * 0.06;
     const hg = ctx.createRadialGradient(cx, cy - hr * 0.5, 0, cx, cy - hr * 0.5, hr);
-    hg.addColorStop(0, 'rgba(140,130,115,0.35)');
-    hg.addColorStop(0.5, 'rgba(120,115,100,0.15)');
-    hg.addColorStop(1, 'rgba(110,105,95,0)');
+    hg.addColorStop(0, 'rgba(180,200,220,0.25)');
+    hg.addColorStop(0.5, 'rgba(150,170,190,0.10)');
+    hg.addColorStop(1, 'rgba(130,150,170,0)');
     ctx.fillStyle = hg;
     ctx.beginPath(); ctx.arc(cx, cy - hr * 0.5, hr, 0, Math.PI * 2); ctx.fill();
   },

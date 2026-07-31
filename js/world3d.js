@@ -12,6 +12,10 @@
 //   - the punch-out darkness pass, replaced by actual point lights
 // Both were workarounds for not having a GPU do the work.
 
+const _scratchMatrix = new THREE.Matrix4();
+const _scratchFrustum = new THREE.Frustum();
+const _scratchSphere = new THREE.Sphere();
+
 const World3 = {
   options: { fog: true, shafts: true },
   configure(config) { this.options = { fog: config.fog !== false, shafts: config.shafts !== false }; },
@@ -366,6 +370,8 @@ const World3 = {
       entries.forEach((mx, i) => im.setMatrixAt(i, mx));
       im.instanceMatrix.needsUpdate = true;
       im.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+      im.computeBoundingBox();
+      im.computeBoundingSphere();
       this.group.add(im);
       this.decalMeshes.push(im);
     }
@@ -383,24 +389,25 @@ const World3 = {
 
     const pos = [], smokes = [];
     const pps = 12;
+    const rng = ((s) => { let v = s ^ 0xbeef1234; return () => { v = (Math.imul(v, 1664525) + 1013904223) | 0; return (v >>> 0) / 4294967296; }; })(sources.length * 7 + 31);
     for (const src of sources) {
       for (let i = 0; i < pps; i++) {
-        const a = Math.random() * Math.PI * 2, r = Math.random() * 0.15;
+        const a = rng() * Math.PI * 2, r = rng() * 0.15;
         const bx = src.x + Math.cos(a) * r, bz = src.y + Math.sin(a) * r;
-        const by = 0.95 + Math.random() * 0.2;
+        const by = 0.95 + rng() * 0.2;
         pos.push(bx, by, bz);
         smokes.push({
-          bx, by, bz, phase: Math.random() * Math.PI * 2,
-          spd: 0.10 + Math.random() * 0.16,
-          wobble: 0.08 + Math.random() * 0.14,
+          bx, by, bz, phase: rng() * Math.PI * 2,
+          spd: 0.10 + rng() * 0.16,
+          wobble: 0.08 + rng() * 0.14,
         });
       }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
-      color: 0x5a554e, size: 0.20, transparent: true, opacity: 0.24,
-      depthWrite: false, blending: THREE.NormalBlending, sizeAttenuation: true,
+      color: 0x8a8478, size: 0.38, transparent: true, opacity: 0.32,
+      depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
     });
     const pts = new THREE.Points(geo, mat);
     pts.renderOrder = 3;
@@ -556,16 +563,19 @@ const World3 = {
     // updateLights runs after lookAt but before render(), so refresh the rig
     // here before deriving the visibility volume.
     R3.updateCamera();
-    const state = this.lights.map(e => e.src.lit === false ? '0' : '1').join('');
+    let state = 0;
+    for (let i = 0; i < this.lights.length; i++) {
+      if (this.lights[i].src.lit !== false) state |= (1 << (i & 31));
+    }
     const old = this._lightSelection;
     const cameraStamp = [R3.mode, R3.yaw.toFixed(2), R3.pitch.toFixed(2), R3.zoom.toFixed(2)].join(':');
     const moved = !old || (px - old.x) ** 2 + (pz - old.z) ** 2 >= this.LIGHT_RESELECT_D2;
     if (old && !moved && old.budget === budget && old.state === state && old.camera === cameraStamp) return old.selected;
 
     cam.updateMatrixWorld(true);
-    const matrix = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-    const frustum = new THREE.Frustum().setFromProjectionMatrix(matrix);
-    const sphere = new THREE.Sphere();
+    _scratchMatrix.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    _scratchFrustum.setFromProjectionMatrix(_scratchMatrix);
+    const sphere = _scratchSphere;
     const candidates = [];
     // Frustum/sphere intersection alone admits lights deep inside the camera
     // pyramid even when their influence cannot reach the patch of ground the
@@ -597,7 +607,7 @@ const World3 = {
       sphere.radius = radius;
       // A sphere test is deliberately conservative: off-screen sources remain
       // eligible when their illumination can still reach visible geometry.
-      if (!frustum.intersectsSphere(sphere)) continue;
+      if (!_scratchFrustum.intersectsSphere(sphere)) continue;
       candidates.push(e);
     }
     candidates.sort((a, b) => a.d2 - b.d2);
@@ -614,8 +624,8 @@ const World3 = {
   updateLights(t, px, pz) {
     if (!this.built) return 0;
     const spooky = R3.mood === 'spooky';
-    if (this.ambient) this.ambient.intensity = spooky ? 0.025 : 0.07;
-    if (this.keyLight) this.keyLight.intensity = spooky ? 0.012 : 0.035;
+    if (this.ambient) this.ambient.intensity = spooky ? 0.045 : 0.11;
+    if (this.keyLight) this.keyLight.intensity = spooky ? 0.018 : 0.04;
 
     // The hero lamp is itself a visible point light and therefore consumes a
     // shader slot. Budget sconces from what remains so Three never generates a
@@ -631,6 +641,8 @@ const World3 = {
       if (s.flick) {
         k = 0.75 + Math.sin(t * 3.2 + s.x * 7) * 0.15 + Math.sin(t * 7.1 + s.y * 13) * 0.08;
         if (Math.sin(t * 1.1 + s.x * 3) > 0.85) k -= 0.25;
+        const hShift = Math.sin(t * 4.3 + s.x * 11) * 0.03;
+        e.light.color.setHSL(0.08 + hShift, 0.9, 0.55 + k * 0.08);
       }
       if (s.vent !== undefined) {
         // vents only shine while the jet is out, same cycle the damage uses
@@ -653,7 +665,10 @@ const World3 = {
       this.hero.intensity = spooky ? 0.9 : 1.7;
     }
     if (this._lavaMat) this._lavaMat.emissiveIntensity = 1.2 + Math.sin(t * 1.5) * 0.3;
-    if (this._waterMat) this._waterMat.opacity = 0.82 + Math.sin(t * 0.8) * 0.06;
+    if (this._waterMat) {
+      this._waterMat.opacity = 0.82 + Math.sin(t * 0.8) * 0.06;
+      this._waterMat.color.setHSL(0.58, 0.35, 0.28 + Math.sin(t * 0.8) * 0.04);
+    }
 
     return on;
   },
@@ -666,6 +681,10 @@ const World3 = {
         if (n.material) {
           if (Array.isArray(n.material)) n.material.forEach(m => m.dispose());
           else n.material.dispose();
+        }
+        if (n.isLight && n.shadow && n.shadow.map) {
+          n.shadow.map.dispose();
+          if (n.shadow.mapPass) n.shadow.mapPass.dispose();
         }
       });
     }
