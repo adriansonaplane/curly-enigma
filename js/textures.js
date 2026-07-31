@@ -422,11 +422,11 @@ const DungeonTextures = {
     for (let i = 0; i < 5; i++) {
       const ox = (rng() - 0.5) * S * 0.3, oy = (rng() - 0.5) * S * 0.3;
       const r = S * (0.12 + rng() * 0.18);
-      const rv = 35 + Math.floor(rng() * 30), gv = 6 + Math.floor(rng() * 10), bv = 6 + Math.floor(rng() * 8);
+      const rv = 75 + Math.floor(rng() * 30), gv = 8 + Math.floor(rng() * 8), bv = 8 + Math.floor(rng() * 6);
       const grad = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, r);
-      grad.addColorStop(0, 'rgba(' + rv + ',' + gv + ',' + bv + ',0.7)');
-      grad.addColorStop(0.6, 'rgba(' + (rv - 10) + ',' + gv + ',' + bv + ',0.35)');
-      grad.addColorStop(1, 'rgba(' + (rv - 15) + ',' + gv + ',' + bv + ',0)');
+      grad.addColorStop(0, 'rgba(' + rv + ',' + gv + ',' + bv + ',0.9)');
+      grad.addColorStop(0.5, 'rgba(' + (rv - 15) + ',' + gv + ',' + bv + ',0.6)');
+      grad.addColorStop(1, 'rgba(' + (rv - 25) + ',' + gv + ',' + bv + ',0)');
       ctx.fillStyle = grad;
       ctx.beginPath();
       const pts = 7 + Math.floor(rng() * 5);
@@ -439,7 +439,8 @@ const DungeonTextures = {
     }
     for (let i = 0; i < 14; i++) {
       const a = rng() * Math.PI * 2, dist = S * (0.15 + rng() * 0.3);
-      ctx.fillStyle = 'rgba(40,8,8,' + (0.25 + rng() * 0.35).toFixed(2) + ')';
+      const dr = 55 + Math.floor(rng() * 40);
+      ctx.fillStyle = 'rgba(' + dr + ',8,8,' + (0.35 + rng() * 0.45).toFixed(2) + ')';
       ctx.beginPath(); ctx.arc(cx + Math.cos(a) * dist, cy + Math.sin(a) * dist, 1 + rng() * 3.5, 0, Math.PI * 2); ctx.fill();
     }
   },
@@ -448,16 +449,17 @@ const DungeonTextures = {
     ctx.clearRect(0, 0, S, S);
     const cx = S / 2, cy = S / 2, r = S * (0.22 + rng() * 0.14);
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    grad.addColorStop(0, 'rgba(12,10,8,0.6)');
-    grad.addColorStop(0.35, 'rgba(22,18,12,0.4)');
-    grad.addColorStop(0.7, 'rgba(30,24,15,0.15)');
+    grad.addColorStop(0, 'rgba(10,8,6,0.75)');
+    grad.addColorStop(0.3, 'rgba(20,16,10,0.5)');
+    grad.addColorStop(0.6, 'rgba(45,30,12,0.2)');
+    grad.addColorStop(0.75, 'rgba(70,40,15,0.08)');
     grad.addColorStop(1, 'rgba(35,28,18,0)');
     ctx.fillStyle = grad;
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
     ctx.lineCap = 'round';
     for (let i = 0; i < 10; i++) {
       const a = rng() * Math.PI * 2, len = r * (0.7 + rng() * 0.6);
-      ctx.strokeStyle = 'rgba(18,14,10,' + (0.12 + rng() * 0.18).toFixed(2) + ')';
+      ctx.strokeStyle = 'rgba(18,14,10,' + (0.15 + rng() * 0.2).toFixed(2) + ')';
       ctx.lineWidth = 1 + rng() * 2.5;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(a) * r * 0.2, cy + Math.sin(a) * r * 0.2);
@@ -473,20 +475,21 @@ const DungeonTextures = {
       const ox = (rng() - 0.5) * S * 0.12, oy = (rng() - 0.5) * S * 0.12;
       const r = S * (0.16 + rng() * 0.14);
       const grad = ctx.createRadialGradient(cx + ox, cy + oy, 0, cx + ox, cy + oy, r);
-      grad.addColorStop(0, 'rgba(55,65,80,0.32)');
-      grad.addColorStop(0.5, 'rgba(50,60,75,0.2)');
-      grad.addColorStop(0.8, 'rgba(45,55,70,0.08)');
-      grad.addColorStop(1, 'rgba(40,50,65,0)');
+      grad.addColorStop(0, 'rgba(58,52,48,0.35)');
+      grad.addColorStop(0.5, 'rgba(52,48,44,0.22)');
+      grad.addColorStop(0.8, 'rgba(46,44,40,0.08)');
+      grad.addColorStop(1, 'rgba(40,38,35,0)');
       ctx.fillStyle = grad;
       ctx.save(); ctx.translate(cx + ox, cy + oy); ctx.scale(1, 0.55 + rng() * 0.4);
       ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     }
-    const hr = S * 0.05;
-    const hg = ctx.createRadialGradient(cx, cy - hr, 0, cx, cy - hr, hr);
-    hg.addColorStop(0, 'rgba(130,145,165,0.18)');
-    hg.addColorStop(1, 'rgba(130,145,165,0)');
+    const hr = S * 0.12;
+    const hg = ctx.createRadialGradient(cx, cy - hr * 0.5, 0, cx, cy - hr * 0.5, hr);
+    hg.addColorStop(0, 'rgba(140,130,115,0.35)');
+    hg.addColorStop(0.5, 'rgba(120,115,100,0.15)');
+    hg.addColorStop(1, 'rgba(110,105,95,0)');
     ctx.fillStyle = hg;
-    ctx.beginPath(); ctx.arc(cx, cy - hr, hr, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy - hr * 0.5, hr, 0, Math.PI * 2); ctx.fill();
   },
 
   dispose() {

@@ -338,24 +338,26 @@ const World3 = {
     const decalGeo = new THREE.PlaneGeometry(0.9, 0.9);
     decalGeo.rotateX(-Math.PI / 2);
 
-    const perType = 7 + Math.floor(rng() * 5);
+    const perType = 16 + Math.floor(rng() * 8);
     const m4 = new THREE.Matrix4();
+    const blendModes = [THREE.MultiplyBlending, THREE.MultiplyBlending, THREE.NormalBlending];
     for (let ti = 0; ti < textures.length; ti++) {
       const entries = [];
       for (let i = 0; i < perType; i++) {
         const fi = Math.floor(rng() * floors.length);
         const f = floors[fi];
-        const scale = 0.55 + rng() * 0.5;
+        const scale = 0.70 + rng() * 0.4;
         const rot = rng() * Math.PI * 2;
         m4.makeRotationY(rot);
         m4.scale(new THREE.Vector3(scale, 1, scale));
-        m4.setPosition(f.x + 0.5 + (rng() - 0.5) * 0.3, 0.08, f.y + 0.5 + (rng() - 0.5) * 0.3);
+        m4.setPosition(f.x + 0.5 + (rng() - 0.5) * 0.3, 0.065, f.y + 0.5 + (rng() - 0.5) * 0.3);
         entries.push(m4.clone());
       }
       if (!entries.length) continue;
       const mat = new THREE.MeshBasicMaterial({
         map: textures[ti], transparent: true, depthWrite: false,
-        side: THREE.DoubleSide, blending: THREE.NormalBlending,
+        side: THREE.DoubleSide, blending: blendModes[ti] || THREE.NormalBlending,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1,
       });
       const im = new THREE.InstancedMesh(decalGeo.clone(), mat, entries.length);
       im.receiveShadow = true;
@@ -379,30 +381,30 @@ const World3 = {
     if (!sources.length) return;
 
     const pos = [], smokes = [];
-    const pps = 6;
+    const pps = 12;
     for (const src of sources) {
       for (let i = 0; i < pps; i++) {
-        const a = Math.random() * Math.PI * 2, r = Math.random() * 0.12;
+        const a = Math.random() * Math.PI * 2, r = Math.random() * 0.15;
         const bx = src.x + Math.cos(a) * r, bz = src.y + Math.sin(a) * r;
-        const by = 1.25 + Math.random() * 0.2;
+        const by = 0.95 + Math.random() * 0.2;
         pos.push(bx, by, bz);
         smokes.push({
           bx, by, bz, phase: Math.random() * Math.PI * 2,
-          spd: 0.12 + Math.random() * 0.18,
-          wobble: 0.06 + Math.random() * 0.10,
+          spd: 0.10 + Math.random() * 0.16,
+          wobble: 0.08 + Math.random() * 0.14,
         });
       }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
-      color: 0x9a9088, size: 0.10, transparent: true, opacity: 0.14,
+      color: 0x5a554e, size: 0.20, transparent: true, opacity: 0.24,
       depthWrite: false, blending: THREE.NormalBlending, sizeAttenuation: true,
     });
     const pts = new THREE.Points(geo, mat);
     pts.renderOrder = 3;
     this.group.add(pts);
-    this.smokeParticles = { pts, smokes, attr: geo.getAttribute('position') };
+    this.smokeParticles = { pts, smokes, attr: geo.getAttribute('position'), dirty: false };
   },
 
   updateSmoke(t) {
@@ -410,19 +412,19 @@ const World3 = {
     const { smokes, attr, pts } = this.smokeParticles;
     const fx = R3.focus;
     const arr = attr.array;
-    let anyVisible = false;
+    let dirty = false;
     for (let i = 0; i < smokes.length; i++) {
       const s = smokes[i], j = i * 3;
       const dx = s.bx - fx.x, dz = s.bz - fx.z;
-      if (dx * dx + dz * dz > 30 * 30) continue;
-      anyVisible = true;
+      if (dx * dx + dz * dz > 25 * 25) continue;
+      dirty = true;
       const cycle = ((t * s.spd + s.phase) % 2.5) / 2.5;
       arr[j]     = s.bx + Math.sin(t * 0.7 + s.phase) * s.wobble * (1 + cycle);
-      arr[j + 1] = s.by + cycle * 1.4;
+      arr[j + 1] = s.by + cycle * 1.6;
       arr[j + 2] = s.bz + Math.cos(t * 0.5 + s.phase * 1.7) * s.wobble * (1 + cycle);
     }
-    pts.visible = anyVisible;
-    if (anyVisible) attr.needsUpdate = true;
+    pts.visible = dirty;
+    if (dirty) attr.needsUpdate = true;
   },
 
   buildShafts(map) {
