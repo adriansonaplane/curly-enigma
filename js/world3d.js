@@ -73,7 +73,7 @@ const World3 = {
 
   // ---- materials ----
   _mat(theme) {
-    const th = THEMES[theme];
+    const th = THEMES[theme] || THEMES.crypt;
     const mk = (hex, rough) => new THREE.MeshStandardMaterial({
       color: new THREE.Color(hex), roughness: rough === undefined ? 0.92 : rough, metalness: 0.02,
     });
@@ -440,8 +440,10 @@ const World3 = {
     this.shafts = [];
     this.dustMotes = null;
     if (!this.options.shafts || !th.shaft) return;
+    const shafts = map.shafts || [];
+    if (!shafts.length) return;
     const geo = new THREE.ConeGeometry(1.6, 7, 24, 1, true);
-    for (const src of map.shafts || []) {
+    for (const src of shafts) {
       const mat = new THREE.MeshBasicMaterial({
         color: th.shaft, transparent: true, opacity: 0.20,
         blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
@@ -454,19 +456,20 @@ const World3 = {
       this.group.add(mesh);
       this.shafts.push({ mesh, src });
     }
-    if (map.shafts && map.shafts.length) {
+    if (shafts.length) {
       const pos = [], sizes = [], motes = [];
-      for (const src of map.shafts) {
+      const mRng = ((s) => { let v = s ^ 0xbeef1234; return () => { v = (Math.imul(v, 1664525) + 1013904223) | 0; return (v >>> 0) / 4294967296; }; })(shafts.length * 13 + 47);
+      for (const src of shafts) {
         for (let i = 0; i < 35; i++) {
-          const a = Math.random() * Math.PI * 2, r = Math.random() * src.w * 0.45;
+          const a = mRng() * Math.PI * 2, r = mRng() * src.w * 0.45;
           const bx = src.x + Math.cos(a) * r, bz = src.y + Math.sin(a) * r;
-          const by = 0.3 + Math.random() * 6.0;
+          const by = 0.3 + mRng() * 6.0;
           pos.push(bx, by, bz);
-          sizes.push(0.08 + Math.random() * 0.16);
+          sizes.push(0.08 + mRng() * 0.16);
           motes.push({
-            bx, by, bz, phase: Math.random() * Math.PI * 2,
-            spd: 0.08 + Math.random() * 0.18,
-            drift: 0.02 + Math.random() * 0.04,
+            bx, by, bz, phase: mRng() * Math.PI * 2,
+            spd: 0.08 + mRng() * 0.18,
+            drift: 0.02 + mRng() * 0.04,
           });
         }
       }
@@ -489,7 +492,7 @@ const World3 = {
     for (const e of this.shafts) {
       const dx = e.src.x - fx.x, dz = e.src.y - fx.z;
       e.mesh.visible = this.options.shafts && !!enabled && dx * dx + dz * dz < 34 * 34;
-      if (e.mesh.visible) e.mesh.material.opacity = 0.16 + Math.sin(t * 0.5 + e.src.phase) * 0.06;
+      if (e.mesh.visible) e.mesh.material.opacity = 0.16 + Math.sin(t * 0.5 + (e.src.phase || 0)) * 0.06;
     }
     if (this.dustMotes) {
       this.dustMotes.pts.visible = this.options.shafts && !!enabled;
@@ -533,8 +536,8 @@ const World3 = {
     this.keyLight = key;
 
     this.lights = [];
-    for (const src of map.lights) {
-      const l = new THREE.PointLight(new THREE.Color(src.color || th.torch), 0, src.r * 1.6, 1.8);
+    for (const src of map.lights || []) {
+      const l = new THREE.PointLight(new THREE.Color(src.color || th.torch), 0, (src.r || 6) * 1.6, 1.8);
       l.position.set(src.x, 1.1, src.y);
       l.castShadow = false;          // per-light shadow maps are far too costly
       this.group.add(l);

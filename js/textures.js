@@ -36,10 +36,13 @@ const DungeonTextures = {
     const wallNcv = this._normalMap(wallCv);
 
     const mk = cv => {
-      const t = new THREE.CanvasTexture(cv);
+      const w = cv.width, h = cv.height;
+      const imgData = cv.getContext('2d').getImageData(0, 0, w, h);
+      const t = new THREE.DataTexture(imgData.data, w, h, THREE.RGBAFormat);
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       t.minFilter = THREE.LinearMipmapLinearFilter;
       t.generateMipmaps = true;
+      t.needsUpdate = true;
       cv.width = cv.height = 0;
       return t;
     };
@@ -404,7 +407,7 @@ const DungeonTextures = {
 
   // ---- utility ----
   _cv(S) { const c = document.createElement('canvas'); c.width = c.height = S; return c; },
-  _col(hex) { const n = parseInt(hex.slice(1), 16); return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff }; },
+  _col(hex) { if (!hex) return { r: 0, g: 0, b: 0 }; const n = parseInt(hex.slice(1), 16); return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff }; },
   _shade(c, f) { return { r: Math.min(255, c.r * f) | 0, g: Math.min(255, c.g * f) | 0, b: Math.min(255, c.b * f) | 0 }; },
   _hash(x, y) { let n = (x * 73856093) ^ (y * 19349669); n = ((n >> 13) ^ n) * 362437; return ((n >> 16) ^ n) & 0xff; },
   _noise2d(x, y, period) {
@@ -434,10 +437,13 @@ const DungeonTextures = {
     if (!th || typeof THREE === 'undefined') return null;
     const S = 128, seed = this._strHash(themeName + '_decals');
     const mk = cv => {
-      const t = new THREE.CanvasTexture(cv);
+      const w = cv.width, h = cv.height;
+      const imgData = cv.getContext('2d').getImageData(0, 0, w, h);
+      const t = new THREE.DataTexture(imgData.data, w, h, THREE.RGBAFormat);
       t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
       t.minFilter = THREE.LinearMipmapLinearFilter;
       t.generateMipmaps = true;
+      t.needsUpdate = true;
       cv.width = cv.height = 0;
       return t;
     };
