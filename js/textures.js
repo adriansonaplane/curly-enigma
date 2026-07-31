@@ -4,7 +4,7 @@
 const DungeonTextures = {
   cache: new Map(),
   SIZE: 256,
-  SCALES: { cobble: 0.50, slab: 0.25, brick: 0.50, rough: 0.35, cracked: 0.30 },
+  SCALES: { cobble: 0.50, slab: 0.25, brick: 0.50, rough: 0.35, cracked: 0.30, mosaic: 0.40 },
 
   get(themeName) {
     if (this.cache.has(themeName)) return this.cache.get(themeName);
@@ -61,6 +61,7 @@ const DungeonTextures = {
       case 'brick':   this._brick(d, S, base, alt, rng); break;
       case 'rough':   this._rough(d, S, base, alt, rng); break;
       case 'cracked': this._cracked(d, S, base, alt, rng); break;
+      case 'mosaic':  this._mosaic(d, S, base, alt, rng); break;
       default:        this._slab(d, S, base, alt, rng); break;
     }
     ctx.putImageData(img, 0, 0);
@@ -227,6 +228,38 @@ const DungeonTextures = {
           d[idx + 2] = Math.floor(d[idx + 2] * f);
           if (dist < 0.5) d[idx] = Math.min(255, d[idx] + 28);
         }
+      }
+    }
+  },
+
+  // ---- mosaic tiles (fane/temple) ----
+  _mosaic(d, S, base, alt, rng) {
+    const tileSize = 16, grout = 2;
+    const cols = Math.ceil(S / tileSize), rows = Math.ceil(S / tileSize);
+    const sh = [];
+    for (let i = 0; i < cols * rows; i++) sh.push({ v: 0.70 + rng() * 0.35, hue: (rng() - 0.5) * 10 });
+    for (let py = 0; py < S; py++) {
+      for (let px = 0; px < S; px++) {
+        const tx = ((px % tileSize) + tileSize) % tileSize;
+        const ty = ((py % tileSize) + tileSize) % tileSize;
+        const ci = Math.floor(px / tileSize) % cols;
+        const ri = Math.floor(py / tileSize) % rows;
+        const idx = (py * S + px) * 4;
+        if (tx < grout || ty < grout) {
+          const mNoise = this._noise2d(px * 0.12, py * 0.12, Math.round(S * 0.12)) * 0.06;
+          d[idx] = base.r * (0.18 + mNoise) + 5; d[idx + 1] = base.g * (0.18 + mNoise) + 4; d[idx + 2] = base.b * (0.18 + mNoise) + 3;
+        } else {
+          const si = ri * cols + ci;
+          const diamond = ((ci + ri) & 1) === 0;
+          const c = diamond ? this._lerpCol(base, alt, 0.7) : this._lerpCol(base, alt, 0.2);
+          const nv = this._noise2d(px * 0.08, py * 0.08, Math.round(S * 0.08)) * 0.14;
+          const v = sh[si % sh.length].v + nv;
+          const h = sh[si % sh.length].hue;
+          d[idx] = Math.min(255, Math.max(0, (c.r + h) * v));
+          d[idx + 1] = Math.min(255, Math.max(0, c.g * v));
+          d[idx + 2] = Math.min(255, Math.max(0, (c.b - h * 0.3) * v));
+        }
+        d[idx + 3] = 255;
       }
     }
   },
@@ -411,7 +444,9 @@ const DungeonTextures = {
     const blood = this._cv(S); this._bloodDecal(blood.getContext('2d'), S, this._lcg(seed));
     const scorch = this._cv(S); this._scorchDecal(scorch.getContext('2d'), S, this._lcg(seed + 1));
     const puddle = this._cv(S); this._puddleDecal(puddle.getContext('2d'), S, this._lcg(seed + 2));
-    const r = [mk(blood), mk(scorch), mk(puddle)];
+    const crack = this._cv(S); this._crackDecal(crack.getContext('2d'), S, this._lcg(seed + 3));
+    const dirt = this._cv(S); this._dirtDecal(dirt.getContext('2d'), S, this._lcg(seed + 4));
+    const r = [mk(blood), mk(scorch), mk(puddle), mk(crack), mk(dirt)];
     this.cache.set(key, r);
     return r;
   },
@@ -490,6 +525,65 @@ const DungeonTextures = {
     hg.addColorStop(1, 'rgba(110,105,95,0)');
     ctx.fillStyle = hg;
     ctx.beginPath(); ctx.arc(cx, cy - hr * 0.5, hr, 0, Math.PI * 2); ctx.fill();
+  },
+
+  _crackDecal(ctx, S, rng) {
+    ctx.clearRect(0, 0, S, S);
+    ctx.lineCap = 'round';
+    for (let c = 0; c < 3; c++) {
+      let x = S * (0.2 + rng() * 0.6), y = S * (0.2 + rng() * 0.6);
+      let dir = rng() * Math.PI * 2;
+      const w = 1.5 + rng() * 2;
+      ctx.lineWidth = w;
+      ctx.strokeStyle = 'rgba(10,8,6,' + (0.5 + rng() * 0.3).toFixed(2) + ')';
+      ctx.beginPath(); ctx.moveTo(x, y);
+      const steps = 16 + Math.floor(rng() * 20);
+      for (let i = 0; i < steps; i++) {
+        dir += (rng() - 0.5) * 0.8;
+        x += Math.cos(dir) * (2 + rng() * 3);
+        y += Math.sin(dir) * (2 + rng() * 3);
+        ctx.lineTo(Math.max(0, Math.min(S, x)), Math.max(0, Math.min(S, y)));
+        if (rng() < 0.18) {
+          ctx.stroke();
+          const bd = dir + (rng() > 0.5 ? 0.7 : -0.7);
+          let bx = x, by = y;
+          ctx.lineWidth = w * 0.5;
+          ctx.beginPath(); ctx.moveTo(bx, by);
+          for (let j = 0; j < 3 + Math.floor(rng() * 4); j++) {
+            bx += Math.cos(bd) * (1.5 + rng() * 2); by += Math.sin(bd) * (1.5 + rng() * 2);
+            ctx.lineTo(bx, by);
+          }
+          ctx.stroke();
+          ctx.lineWidth = w;
+          ctx.beginPath(); ctx.moveTo(x, y);
+        }
+      }
+      ctx.stroke();
+    }
+  },
+
+  _dirtDecal(ctx, S, rng) {
+    ctx.clearRect(0, 0, S, S);
+    const cx = S / 2, cy = S / 2;
+    for (let i = 0; i < 6; i++) {
+      const ox = (rng() - 0.5) * S * 0.5, oy = (rng() - 0.5) * S * 0.5;
+      const rx = S * (0.08 + rng() * 0.18), ry = S * (0.04 + rng() * 0.10);
+      const angle = rng() * Math.PI;
+      ctx.save();
+      ctx.translate(cx + ox, cy + oy); ctx.rotate(angle); ctx.scale(1, ry / rx);
+      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+      grad.addColorStop(0, 'rgba(30,25,18,0.35)');
+      grad.addColorStop(0.5, 'rgba(35,28,20,0.2)');
+      grad.addColorStop(1, 'rgba(38,30,22,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(0, 0, rx, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    for (let i = 0; i < 20; i++) {
+      const x = rng() * S, y = rng() * S;
+      ctx.fillStyle = 'rgba(25,20,14,' + (0.1 + rng() * 0.2).toFixed(2) + ')';
+      ctx.beginPath(); ctx.arc(x, y, 0.5 + rng() * 1.5, 0, Math.PI * 2); ctx.fill();
+    }
   },
 
   dispose() {

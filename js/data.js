@@ -572,7 +572,7 @@ const THEMES = {
               props: ['pillar', 'idol', 'urn', 'mushroom', 'statue', 'rubble', 'bookshelf', 'chandelier', 'fountain', 'pot', 'candles', 'banner', 'table', 'lantern', 'crate',
                        'marsh_grass', 'poison_vine', 'bog_skeleton', 'coral_pillar', 'giant_clam'],
               fixtures: ['fountain', 'lever', 'bookshelf'],
-              pattern: 'slab', fog: ['#6aa87a', 0.11], grade: ['#0a2818', '#040e06', 0.26], shaft: '#8ae8b0', amb: 'spore', water: '#1c4636', moss: '#3e7a4e' },
+              pattern: 'mosaic', fog: ['#6aa87a', 0.11], grade: ['#0a2818', '#040e06', 0.26], shaft: '#8ae8b0', amb: 'spore', water: '#1c4636', moss: '#3e7a4e' },
   hell:     { floor: '#3e221c', floorAlt: '#281210', wall: '#200c08', wallTop: '#5c3828', ambient: 0.87, torch: '#ff4f2f', hazards: ['lava', 'spikes', 'ember'],
               props: ['spike', 'bones', 'idol', 'skullpile', 'rubble', 'cauldron', 'anvil', 'weaponrack', 'banner', 'chandelier', 'pot', 'crate', 'orevein',
                        'demonic_sigil', 'fel_crystal', 'twisted_tree', 'charred_bones', 'corrupted_stone'],

@@ -79,7 +79,7 @@ const World3 = {
       door: mk('#4a3420', 0.8),
       lava: new THREE.MeshStandardMaterial({
         color: new THREE.Color('#ff5a1c'), emissive: new THREE.Color('#ff4a10'),
-        emissiveIntensity: 1.4, roughness: 0.6,
+        emissiveIntensity: 1.4, roughness: 0.6, metalness: 0.1,
       }),
       water: new THREE.MeshStandardMaterial({
         color: new THREE.Color(th.water || '#28455c'), roughness: 0.15, metalness: 0.35,
@@ -87,6 +87,7 @@ const World3 = {
       }),
       haz: mk('#3a2a18', 0.95),
     };
+    this._lavaMat = M.lava; this._waterMat = M.water;
 
     const useTex = typeof GraphicsConfig !== 'undefined' && GraphicsConfig.current.textures !== false;
     const tex = useTex && typeof DungeonTextures !== 'undefined' ? DungeonTextures.get(theme) : null;
@@ -340,7 +341,7 @@ const World3 = {
 
     const perType = 16 + Math.floor(rng() * 8);
     const m4 = new THREE.Matrix4();
-    const blendModes = [THREE.MultiplyBlending, THREE.MultiplyBlending, THREE.NormalBlending];
+    const blendModes = [THREE.MultiplyBlending, THREE.MultiplyBlending, THREE.NormalBlending, THREE.MultiplyBlending, THREE.MultiplyBlending];
     for (let ti = 0; ti < textures.length; ti++) {
       const entries = [];
       for (let i = 0; i < perType; i++) {
@@ -651,6 +652,9 @@ const World3 = {
       this.hero.distance = rad * (spooky ? R3.heroLightMul : 1) * 1.5;
       this.hero.intensity = spooky ? 0.9 : 1.7;
     }
+    if (this._lavaMat) this._lavaMat.emissiveIntensity = 1.2 + Math.sin(t * 1.5) * 0.3;
+    if (this._waterMat) this._waterMat.opacity = 0.82 + Math.sin(t * 0.8) * 0.06;
+
     return on;
   },
 
